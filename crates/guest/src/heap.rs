@@ -7,26 +7,11 @@
 //!
 //! Nothing here allocates until [`init`] has been called, so a guest that never
 //! calls it simply has no heap rather than a corrupt one.
+//!
+//! Off the guest's target these are inert and no allocator is installed — see
+//! the crate docs for why the host build exists at all.
 
-use core::alloc::{GlobalAlloc, Layout};
-use linked_list_allocator::LockedHeap;
-
-#[global_allocator]
-static ALLOCATOR: Heap = Heap(LockedHeap::empty());
-
-/// Wraps the allocator so an allocation before [`init`] fails loudly instead of
-/// writing through a null region.
-struct Heap(LockedHeap);
-
-unsafe impl GlobalAlloc for Heap {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe { self.0.alloc(layout) }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { self.0.dealloc(ptr, layout) }
-    }
-}
+use crate::sys;
 
 /// Give the allocator the heap region the host reserved.
 ///
@@ -38,15 +23,15 @@ unsafe impl GlobalAlloc for Heap {
 /// which is exactly what rvtime's `Store::heap()` describes. Passing any other
 /// region, or calling twice, is undefined.
 pub unsafe fn init(start: usize, size: usize) {
-    unsafe { ALLOCATOR.0.lock().init(start as *mut u8, size) };
+    unsafe { sys::init(start, size) }
 }
 
 /// Bytes currently handed out.
 pub fn used() -> usize {
-    ALLOCATOR.0.lock().used()
+    sys::used()
 }
 
 /// Bytes still available.
 pub fn free() -> usize {
-    ALLOCATOR.0.lock().free()
+    sys::free()
 }
