@@ -14,7 +14,7 @@ pub enum Strategy {
 }
 
 /// How an [`Engine`](crate::Engine) behaves.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Config {
     /// When functions get compiled.
     pub strategy: Strategy,
@@ -32,6 +32,15 @@ pub struct Config {
 
     /// Size of the guest stack, which occupies the top of the address space.
     pub stack_size: u64,
+
+    /// Where to cache generated code, if anywhere.
+    ///
+    /// Code generation is almost all of compile time, so a warm cache turns
+    /// loading a previously seen guest into deserialisation. Entries are keyed
+    /// on function contents and target settings, so a stale directory yields
+    /// misses rather than wrong code, and it is safe to share between
+    /// processes.
+    pub cache_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for Config {
@@ -41,6 +50,7 @@ impl Default for Config {
             opt_level: OptLevel::default(),
             memory_size: rv::DEFAULT_MEMORY_SIZE,
             stack_size: 1 << 20,
+            cache_dir: None,
         }
     }
 }
@@ -76,6 +86,12 @@ impl Config {
         self.stack_size = bytes;
         self
     }
+
+    /// Cache generated code under `dir`, reusing it across runs.
+    pub fn cache_dir(&mut self, dir: impl Into<std::path::PathBuf>) -> &mut Self {
+        self.cache_dir = Some(dir.into());
+        self
+    }
 }
 
 /// A compilation target and the configuration it was built with.
@@ -90,15 +106,28 @@ pub struct Engine {
 impl Engine {
     /// Build an engine for the host machine.
     pub fn new(config: &Config) -> Result<Self> {
+        let mut inner = compiler::Engine::new(config.opt_level)?;
+        if let Some(dir) = &config.cache_dir {
+            inner = inner.with_cache(dir)?;
+        }
         Ok(Engine {
-            inner: compiler::Engine::new(config.opt_level)?,
-            config: *config,
+            inner,
+            config: config.clone(),
         })
     }
 
     /// The configuration this engine was built with.
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Functions served from the code cache, and functions generated, since
+    /// this engine was created. Both zero when no cache is configured.
+    pub fn cache_stats(&self) -> (usize, usize) {
+        self.inner
+            .cache()
+            .map(|c| (c.hits(), c.misses()))
+            .unwrap_or((0, 0))
     }
 
     pub(crate) fn compiler(&self) -> &compiler::Engine {

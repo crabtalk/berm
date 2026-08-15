@@ -972,3 +972,130 @@ mod guest_alloc {
         );
     }
 }
+
+/// Reusing generated code across runs.
+mod cache {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// A scratch directory that cleans up after itself.
+    struct Dir(PathBuf);
+
+    impl Dir {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("rvtime-cache-{}-{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            Dir(path)
+        }
+
+        fn entries(&self) -> usize {
+            std::fs::read_dir(&self.0).map(|d| d.count()).unwrap_or(0)
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn engine(dir: &Dir, level: OptLevel) -> Engine {
+        let mut config = Config::new();
+        config.cache_dir(&dir.0).opt_level(level);
+        Engine::new(&config).expect("engine")
+    }
+
+    #[test]
+    fn a_second_run_is_served_from_disk() {
+        let dir = Dir::new("reuse");
+
+        // Cold: nothing on disk, so every function is generated and stored.
+        let cold = engine(&dir, OptLevel::None);
+        Module::new(&cold, HOSTED).expect("compiles");
+        let (hits, misses) = cold.cache_stats();
+        assert_eq!(hits, 0, "a cold cache cannot hit");
+        assert!(misses > 0, "expected to compile something");
+        assert!(dir.entries() > 0, "nothing was written");
+
+        // Warm: a fresh engine over the same directory, as after a restart.
+        let warm = engine(&dir, OptLevel::None);
+        Module::new(&warm, HOSTED).expect("compiles");
+        let (hits, misses) = warm.cache_stats();
+        assert_eq!(misses, 0, "everything should have been cached");
+        assert_eq!(hits, cold.cache_stats().1, "every function should hit");
+    }
+
+    #[test]
+    fn cached_code_behaves_identically() {
+        let dir = Dir::new("behaviour");
+
+        // Populate, then run entirely from the cache.
+        Module::new(&engine(&dir, OptLevel::None), BASIC).expect("compiles");
+
+        let warm = engine(&dir, OptLevel::None);
+        let module = Module::new(&warm, BASIC).expect("compiles");
+        assert_eq!(warm.cache_stats().1, 0, "should be a full hit");
+
+        let mut store = Store::new(&warm, ());
+        let instance = Linker::new(&warm)
+            .instantiate(&mut store, &module)
+            .expect("instantiates");
+
+        // The whole point: deserialised code must compute what generated code
+        // computed.
+        let fib = instance.get_typed_func::<(u64,), u64>("fib").expect("fib");
+        assert_eq!(fib.call(&mut store, (20,)).unwrap(), 6765);
+
+        let dispatch = instance
+            .get_typed_func::<(u64, u64, u64), u64>("dispatch")
+            .expect("dispatch");
+        assert_eq!(dispatch.call(&mut store, (1, 10, 3)).unwrap(), 7);
+    }
+
+    #[test]
+    fn changing_the_target_settings_does_not_reuse_stale_code() {
+        let dir = Dir::new("settings");
+
+        Module::new(&engine(&dir, OptLevel::None), BASIC).expect("compiles");
+
+        // The key covers ISA settings, so a different optimisation level must
+        // miss rather than hand back code built for the old one.
+        let other = engine(&dir, OptLevel::Speed);
+        Module::new(&other, BASIC).expect("compiles");
+        assert_eq!(
+            other.cache_stats().0,
+            0,
+            "code built at a different opt level must not be reused"
+        );
+    }
+
+    #[test]
+    fn an_engine_without_a_cache_reports_nothing() {
+        let engine = Engine::default();
+        Module::new(&engine, BASIC).expect("compiles");
+        assert_eq!(engine.cache_stats(), (0, 0));
+    }
+
+    #[test]
+    fn a_corrupt_entry_is_not_fatal() {
+        let dir = Dir::new("corrupt");
+        Module::new(&engine(&dir, OptLevel::None), BASIC).expect("compiles");
+
+        // Truncate every entry. A cache is disk state that other things can
+        // damage; the compiler must fall back rather than miscompile.
+        for entry in std::fs::read_dir(&dir.0).expect("readable").flatten() {
+            std::fs::write(entry.path(), b"not a compiled function").expect("writable");
+        }
+
+        let engine = engine(&dir, OptLevel::None);
+        let module = Module::new(&engine, BASIC).expect("compiles despite a damaged cache");
+
+        let mut store = Store::new(&engine, ());
+        let instance = Linker::new(&engine)
+            .instantiate(&mut store, &module)
+            .expect("instantiates");
+        let fib = instance.get_typed_func::<(u64,), u64>("fib").expect("fib");
+        assert_eq!(fib.call(&mut store, (20,)).unwrap(), 6765);
+    }
+}

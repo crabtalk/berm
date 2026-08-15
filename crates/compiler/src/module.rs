@@ -5,11 +5,12 @@ use anyhow::{Context, Result};
 use cranelift::{
     codegen::{
         Context as CodegenContext,
+        control::ControlPlane,
         ir::{AbiParam, Function, Signature, UserFuncName},
         isa::{CallConv, TargetIsa},
     },
     jit::{JITBuilder, JITModule},
-    module::{FuncId, Linkage, Module as _, default_libcall_names},
+    module::{FuncId, Linkage, Module as _, ModuleReloc, default_libcall_names},
     prelude::*,
 };
 use rv::Program;
@@ -193,10 +194,56 @@ fn define(
         translator::translate(function, &analysis, &imports, builder, frontend)
             .with_context(|| format!("failed to translate {}", function.name))?;
 
-        jit.define_function(ids[addr], &mut ctx)
+        emit(jit, engine, &mut ctx, ids[addr])
             .with_context(|| format!("failed to compile {}", function.name))?;
     }
 
+    Ok(())
+}
+
+/// Generate code for one function and hand it to the module.
+///
+/// With a cache configured this goes through Cranelift's incremental cache,
+/// which is keyed on the CLIF contents and the ISA settings — so a function
+/// already compiled in a previous run is deserialised rather than generated
+/// again. Code generation is ~99% of compile time, so this is where the whole
+/// saving is.
+fn emit(
+    jit: &mut JITModule,
+    engine: &Engine,
+    ctx: &mut CodegenContext,
+    id: FuncId,
+) -> Result<()> {
+    let Some(cache) = engine.cache() else {
+        jit.define_function(id, ctx)?;
+        return Ok(());
+    };
+
+    // `compile_with_cache` needs a `&mut dyn CacheKvStore`, but the cache is
+    // shared behind an `Arc` so several modules compiled from one engine
+    // accumulate into it. Its interior state is atomic and the filesystem
+    // arbitrates the entries themselves.
+    let mut store = crate::cache::Handle(cache.clone());
+    let mut control = ControlPlane::default();
+
+    // Take owned copies while the compilation result borrows `ctx`, so the
+    // relocations can be resolved against `ctx.func` afterwards.
+    let (code, mach_relocs) = {
+        let (compiled, _hit) = ctx
+            .compile_with_cache(engine.isa().as_ref(), &mut store, &mut control)
+            .map_err(|e| anyhow::anyhow!("{}", e.inner))?;
+        (
+            compiled.code_buffer().to_vec(),
+            compiled.buffer.relocs().to_vec(),
+        )
+    };
+
+    let relocs: Vec<ModuleReloc> = mach_relocs
+        .iter()
+        .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &ctx.func, id))
+        .collect();
+
+    jit.define_function_bytes(id, 1, &code, &relocs)?;
     Ok(())
 }
 

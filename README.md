@@ -29,14 +29,15 @@ assert_eq!(add.call(&mut store, (10, 3))?, 13);
 
 Working end to end: ELF loading, RV64IMAC decoding, control-flow analysis,
 Cranelift codegen, guest memory with a committed heap and guard pages, host
-calls, traps, and a guest-side SDK. 96 tests, no clippy warnings.
+calls, traps, a compiled-code cache, and a guest-side SDK. 101 tests, no
+clippy warnings.
 
 **Developed and tested on macOS/arm64 only.** The code paths are shared and
 nothing is macOS-specific by design, but rvtime has never been run on Linux.
 Treat Linux support as unverified.
 
-Not done yet: compiled-artifact caching, lazy compilation, real tail calls, and
-benchmarks. See [Limitations](#limitations).
+Not done yet: lazy compilation, real tail calls, and benchmarks. See
+[Limitations](#limitations).
 
 ## Guest requirements
 
@@ -93,6 +94,15 @@ two, and the mask is compiled in — so a `Module` is tied to the size its
 The trade-off is explicit: an address past the end of the space *wraps* and may
 land on a mapped page rather than faulting. The sandbox holds either way, but
 this is not a precise bounds check.
+
+**Generated code can be cached.** Set `Config::cache_dir` and Cranelift's
+incremental cache persists generated functions across runs, keyed on the CLIF
+contents plus the target settings — so changing the optimisation level or the
+target produces misses rather than stale code, and two guests sharing a function
+share one entry. Measured on the 99 KiB `hosted` fixture: 13.7 ms with no cache,
+5.3 ms warm. The first compile is slower (~27 ms) because it also serialises and
+writes every function, so this pays off when a guest is compiled once and loaded
+many times.
 
 **Guest memory is never executable.** Compiled code lives in the JIT's own
 pages, so the execute bit is dropped when mapping. Permissions apply at *host*
@@ -215,7 +225,6 @@ function entry.
   stack. Fixed by switching to `CallConv::Tail`.
 - **Eager compilation only.** `Config::strategy` exists with a single
   `Strategy::Eager` variant; lazy compilation is not implemented.
-- **No compile caching.** Every `Module::new` recompiles from scratch.
 - **Non-ABI assembly breaks.** A guest that passes data in callee-saved or
   temporary registers across a call will misbehave. Compiler output is fine.
 

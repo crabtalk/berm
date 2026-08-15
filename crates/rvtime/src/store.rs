@@ -93,7 +93,7 @@ impl<T> Store<T> {
     pub fn new(engine: &Engine, data: T) -> Self {
         Store {
             data,
-            config: *engine.config(),
+            config: engine.config().clone(),
             engine: engine.clone(),
             state: None,
         }
