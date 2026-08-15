@@ -1,5 +1,7 @@
 # rvtime
 
+[![CI](https://github.com/crabtalk/rvtime/actions/workflows/ci.yml/badge.svg)](https://github.com/crabtalk/rvtime/actions/workflows/ci.yml)
+
 A RISC-V compiler with a wasmtime-like interface.
 
 Load a statically linked RV64IMAC ELF, compile it to native code with Cranelift,
@@ -32,9 +34,15 @@ Cranelift codegen, guest memory with a committed heap and guard pages, host
 calls, traps, interruption, a compiled-code cache, and a guest-side SDK.
 108 tests, no clippy warnings.
 
-**Developed and tested on macOS/arm64 only.** The code paths are shared and
-nothing is macOS-specific by design, but rvtime has never been run on Linux.
-Treat Linux support as unverified.
+CI runs the suite on **Linux/x86_64** and **macOS/arm64**, in debug and release.
+That covers both host architectures — code generation targets the host, so the
+two runners exercise different backends — and both host page sizes, which is
+what decides how guest segment permissions merge.
+
+**Windows is not supported.** Guest memory and trap handling are POSIX:
+`mmap`/`mprotect`, `sigaction`, and `setjmp`/`longjmp`. A Windows port means
+`VirtualAlloc`/`VirtualProtect` and a vectored exception handler — real work, not
+a build flag.
 
 Not done yet: lazy compilation, real tail calls, and benchmarks. See
 [Limitations](#limitations).
@@ -188,7 +196,8 @@ cargo test --workspace
 ```
 
 Rust 2024 edition. No RISC-V toolchain needed — the fixtures are committed as
-prebuilt ELFs alongside their disassembly.
+prebuilt ELFs alongside their disassembly, which is also why CI can run the whole
+suite without one.
 
 To regenerate them after changing a fixture's source:
 
@@ -233,7 +242,8 @@ function entry.
 
 ## Limitations
 
-- **Linux is unverified.** Everything here has only run on macOS/arm64.
+- **Windows is unsupported.** The memory and trap layers are POSIX-only; see
+  above.
 - **No hardware floating point.** RV64IMAC only. Guests can use floats via
   soft-float, but an image built for `riscv64gc` will not load — which is also
   what rules out `std`, since every Rust RISC-V std target is `gc`.

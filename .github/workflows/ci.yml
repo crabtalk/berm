@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # The matrix is the point of this job. rvtime had only ever run on
+  # macOS/arm64, which left two things unverified: Linux, and x86_64 code
+  # generation. The runners cover both at once — and the 4 KiB page size on
+  # Linux exercises the segment-permission merging that 16 KiB pages hide.
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: macos-aarch64
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo test --workspace --release
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets
+
+  # The guest SDK and the fixtures sit outside the workspace, so nothing above
+  # compiles them. Without this they rot silently until someone regenerates a
+  # fixture.
+  guest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv64imac-unknown-none-elf
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build the guest SDK
+        working-directory: crates/guest
+        run: |
+          cargo build --release --target riscv64imac-unknown-none-elf
+          # Lib only: --all-targets would pull in the test harness, which a
+          # no_std crate cannot link (no panic handler).
+          cargo clippy --release --target riscv64imac-unknown-none-elf
+
+      - name: build the fixtures against it
+        run: |
+          for dir in fixtures/*/; do
+            [ -f "$dir/Cargo.toml" ] || continue
+            echo "::group::$dir"
+            (cd "$dir" && cargo build --release \
+              --target riscv64imac-unknown-none-elf \
+              --config 'target.riscv64imac-unknown-none-elf.rustflags=["-Clink-arg=--emit-relocs"]')
+            echo "::endgroup::"
+          done
