@@ -5,6 +5,7 @@ members = [
     "crates/compiler",
     "crates/rvtime",
 ]
+exclude = ["crates/guest"]
 resolver = "3"
 
 [workspace.package]

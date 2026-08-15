@@ -304,6 +304,10 @@ impl Translator<'_, '_> {
                 self.trap(Trap::Breakpoint);
                 self.terminated = true;
             }
+            Inst::Unimp => {
+                self.trap(Trap::IllegalInstruction);
+                self.terminated = true;
+            }
         }
 
         Ok(())

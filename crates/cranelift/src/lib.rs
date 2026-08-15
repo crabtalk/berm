@@ -115,6 +115,9 @@ pub enum Trap {
     Breakpoint = 2,
     /// A host call failed.
     HostCall = 3,
+    /// The guest reached an `unimp`, which compilers place where control must
+    /// not go.
+    IllegalInstruction = 4,
 }
 
 impl Trap {
@@ -124,6 +127,7 @@ impl Trap {
             1 => Trap::BadIndirectTarget,
             2 => Trap::Breakpoint,
             3 => Trap::HostCall,
+            4 => Trap::IllegalInstruction,
             _ => Trap::None,
         }
     }

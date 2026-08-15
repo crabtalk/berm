@@ -16,6 +16,9 @@ pub fn decode(bytes: &[u8]) -> Result<(Inst, usize)> {
     }
 
     let half = u16::from_le_bytes([bytes[0], bytes[1]]);
+    if half == 0 {
+        return Ok((Inst::Unimp, 2));
+    }
     if half & 0x3 != 0x3 {
         return Ok((compressed(half)?, 2));
     }
@@ -271,7 +274,7 @@ fn compressed(h: u16) -> Result<Inst> {
         (0b00, 0b000) => {
             let imm = (((h >> 11) & 0x3) << 4) | (((h >> 7) & 0xf) << 6) | (((h >> 6) & 1) << 2) | (((h >> 5) & 1) << 3);
             if imm == 0 {
-                bail!("illegal instruction: {h:#06x}");
+                bail!("reserved c.addi4spn with a zero immediate: {h:#06x}");
             }
             Inst::AluImm { op: AluOp::Add, rd: rd_c, rs1: Reg::SP, imm: imm as i64 }
         }

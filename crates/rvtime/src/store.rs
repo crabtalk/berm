@@ -27,6 +27,10 @@ pub enum Trap {
 
     /// A host function returned an error.
     HostCall(anyhow::Error),
+
+    /// The guest reached an instruction compilers place where control must not
+    /// go -- typically a panic path.
+    IllegalInstruction,
 }
 
 impl fmt::Display for Trap {
@@ -42,6 +46,7 @@ impl fmt::Display for Trap {
             Trap::Breakpoint => write!(f, "guest executed ebreak"),
             Trap::UnknownHostCall(number) => write!(f, "no host function for call {number}"),
             Trap::HostCall(error) => write!(f, "host call failed: {error}"),
+            Trap::IllegalInstruction => write!(f, "guest reached an illegal instruction"),
         }
     }
 }
@@ -236,6 +241,7 @@ pub(crate) fn enter<T, P: Regs, R: Regs>(
         translator::Trap::BadIndirectTarget => Err(Trap::BadIndirectTarget.into()),
         translator::Trap::Breakpoint => Err(Trap::Breakpoint.into()),
         translator::Trap::HostCall => Err(Trap::HostCall(anyhow!("host call failed")).into()),
+        translator::Trap::IllegalInstruction => Err(Trap::IllegalInstruction.into()),
     }
 }
 

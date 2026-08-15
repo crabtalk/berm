@@ -53,6 +53,13 @@ pub enum Inst {
     Ecall,
     /// `ebreak` — breakpoint trap.
     Ebreak,
+    /// `unimp` — the defined illegal instruction.
+    ///
+    /// The all-zero halfword is guaranteed by the ISA to trap, and compilers
+    /// emit it deliberately where control must not reach: after a diverging
+    /// call, or for an unreachable branch. It is a real instruction meaning
+    /// "stop here", not undecodable input.
+    Unimp,
 }
 
 impl Inst {
@@ -60,7 +67,7 @@ impl Inst {
     pub fn is_terminator(&self) -> bool {
         matches!(
             self,
-            Inst::Jal { .. } | Inst::Jalr { .. } | Inst::Branch { .. } | Inst::Ebreak
+            Inst::Jal { .. } | Inst::Jalr { .. } | Inst::Branch { .. } | Inst::Ebreak | Inst::Unimp
         )
     }
 }

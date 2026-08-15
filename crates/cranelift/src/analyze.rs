@@ -287,7 +287,12 @@ fn writes(inst: &Inst) -> Option<Reg> {
         | Inst::Amo { rd, .. }
         | Inst::LoadReserved { rd, .. }
         | Inst::StoreConditional { rd, .. } => Some(*rd),
-        Inst::Branch { .. } | Inst::Store { .. } | Inst::Fence | Inst::Ecall | Inst::Ebreak => None,
+        Inst::Branch { .. }
+        | Inst::Store { .. }
+        | Inst::Fence
+        | Inst::Ecall
+        | Inst::Ebreak
+        | Inst::Unimp => None,
     }
 }
 
@@ -308,7 +313,7 @@ fn reads(inst: &Inst) -> Vec<Reg> {
         | Inst::MulW { rs1, rs2, .. }
         | Inst::Amo { rs1, rs2, .. }
         | Inst::StoreConditional { rs1, rs2, .. } => vec![*rs1, *rs2],
-        Inst::Fence | Inst::Ebreak => vec![],
+        Inst::Fence | Inst::Ebreak | Inst::Unimp => vec![],
         // A host call may read any argument register.
         Inst::Ecall => (10..=17).map(Reg::new).collect(),
     }

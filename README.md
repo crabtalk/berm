@@ -28,14 +28,14 @@ assert_eq!(add.call(&mut store, (10, 3))?, 13);
 ## Status
 
 Working end to end: ELF loading, RV64IMAC decoding, control-flow analysis,
-Cranelift codegen, guest memory with guard pages, host calls, and traps.
-80 tests, no clippy warnings.
+Cranelift codegen, guest memory with a committed heap and guard pages, host
+calls, traps, and a guest-side SDK. 96 tests, no clippy warnings.
 
 **Developed and tested on macOS/arm64 only.** The code paths are shared and
 nothing is macOS-specific by design, but rvtime has never been run on Linux.
 Treat Linux support as unverified.
 
-Not done yet: lazy compilation, compiled-artifact caching, real tail calls, and
+Not done yet: compiled-artifact caching, lazy compilation, real tail calls, and
 benchmarks. See [Limitations](#limitations).
 
 ## Guest requirements
@@ -108,13 +108,53 @@ crates/
   core/        shared vocabulary: registers, instructions, ELF loading. No codegen.
   cranelift/   translator: control-flow analysis and CLIF emission.
   compiler/    codegen backends, guest memory, trap handling.
-  rvtime/      the public API.
+  rvtime/      the public API, for the host.
+  guest/       the guest-side SDK, compiled for RISC-V. Not in the workspace.
 fixtures/      RISC-V test guests, with prebuilt .elf and .objdump goldens.
 ```
 
 Backends depend on `core`; `core` depends on no backend. The seam is the `Inst`
 enum — decoding is settled before any codegen decision is made, so a second
 backend could consume the same vocabulary without the first knowing.
+
+## Writing a guest
+
+`rvtime-guest` is the guest-side crate: it knows *how* to reach the host and
+supplies an allocator, and nothing else. There are no standard host functions in
+it — the call numbers, their meanings, and what a guest may do are the
+embedder's to define.
+
+```rust
+#![no_std]
+#![no_main]
+
+extern crate alloc;
+use rvtime_guest::{call2, heap};
+
+/// Traps instead of looping, so a guest bug reaches the host as a catchable
+/// trap rather than hanging the thread that called in.
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! {
+    rvtime_guest::abort()
+}
+
+/// The embedder calls this first, passing the bounds of `Store::heap()`.
+#[unsafe(no_mangle)]
+pub extern "C" fn init_heap(start: u64, size: u64) -> u64 {
+    unsafe { heap::init(start as usize, size as usize) };
+    0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn add(a: u64, b: u64) -> u64 {
+    unsafe { call2(1, a, b) }   // whatever number the embedder registered
+}
+```
+
+rvtime commits a heap but never tells the guest where it is: the host reads
+`Store::heap()` and passes the bounds in through its own interface. That keeps
+the runtime free of any opinion about the host ABI. Once the allocator has them
+`alloc` works — `Vec`, `String`, and any crate that needs no `std`.
 
 ## Building
 
@@ -141,13 +181,13 @@ The decoder is checked **differentially against LLVM**: sweep every `.text`
 section and require agreement with `llvm-objdump -M no-aliases` on address,
 length, and opcode for every instruction. Boundary agreement is the real signal
 — a wrong compressed immediate desynchronises the sweep and every later address
-diverges. Together the fixtures cover 121 distinct mnemonics:
+diverges. Together the fixtures cover 122 distinct mnemonics:
 
 | fixture | what it is for |
 |---|---|
 | `basic` | compiled Rust: leaf functions, loops, recursion, indirect calls, atomics |
 | `wide` | a `global_asm!` block spelling out encodings LLVM never emits |
-| `hosted` | `ecall` host calls, and a `_start` that returns |
+| `hosted` | `ecall` host calls and the guest SDK, with a `_start` that returns |
 
 `wide` exists because compiled Rust only exercises what LLVM happens to choose,
 which left most of RV64IMAC untested. It earned its keep immediately by catching

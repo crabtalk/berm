@@ -862,3 +862,113 @@ mod heap {
         );
     }
 }
+
+/// The guest allocator from the `rvtime-guest` SDK, driven end to end.
+mod guest_alloc {
+    use super::*;
+
+    fn plugin() -> (Store<Host>, rvtime::Instance) {
+        let mut config = Config::new();
+        config.memory_size(16 << 20).stack_size(64 << 10);
+        let engine = Engine::new(&config).expect("engine");
+        let module = Module::new(&engine, HOSTED).expect("compiles");
+        let mut store = Store::new(&engine, Host::default());
+        let instance = Linker::new(&engine)
+            .instantiate(&mut store, &module)
+            .expect("instantiates");
+        (store, instance)
+    }
+
+    /// The handshake an embedder performs: read the bounds rvtime committed and
+    /// hand them to the guest, which gives them to its allocator.
+    fn with_heap() -> (Store<Host>, rvtime::Instance) {
+        let (mut store, instance) = plugin();
+        let heap = store.heap().expect("instantiated");
+        let init = instance
+            .get_typed_func::<(u64, u64), u64>("init_heap")
+            .expect("init_heap");
+        init.call(&mut store, (heap.start, heap.end - heap.start))
+            .expect("heap initialises");
+        (store, instance)
+    }
+
+    #[test]
+    fn allocating_works_once_the_heap_is_handed_over() {
+        let (mut store, instance) = with_heap();
+        let sum = instance
+            .get_typed_func::<(u64,), u64>("alloc_sum")
+            .expect("alloc_sum");
+
+        // A growing Vec: allocation, reallocation, then free.
+        for n in [0u64, 1, 10, 1000, 10_000] {
+            assert_eq!(
+                sum.call(&mut store, (n,)).unwrap(),
+                n * n.saturating_sub(1) / 2
+            );
+        }
+    }
+
+    #[test]
+    fn allocation_comes_out_of_the_committed_heap() {
+        let (mut store, instance) = with_heap();
+        let heap = store.heap().expect("instantiated");
+        let free = instance.get_typed_func::<(), u64>("heap_free").expect("heap_free");
+        let used = instance.get_typed_func::<(), u64>("heap_used").expect("heap_used");
+        let sum = instance
+            .get_typed_func::<(u64,), u64>("alloc_sum")
+            .expect("alloc_sum");
+
+        // The allocator was given the whole region rvtime committed.
+        let available = free.call(&mut store, ()).unwrap();
+        let size = heap.end - heap.start;
+        assert!(
+            available > size - (1 << 16) && available <= size,
+            "allocator has {available:#x} of a {size:#x} heap"
+        );
+
+        // And it hands memory back, so a plugin can run indefinitely.
+        assert_eq!(used.call(&mut store, ()).unwrap(), 0);
+        sum.call(&mut store, (10_000,)).unwrap();
+        assert_eq!(
+            used.call(&mut store, ()).unwrap(),
+            0,
+            "the vector should have been freed"
+        );
+    }
+
+    #[test]
+    fn allocating_before_the_handover_traps() {
+        // With no heap the allocator returns null and the guest writes through
+        // it. Guest address 0 is never committed, so that faults instead of
+        // corrupting whatever happens to sit at the bottom of the address
+        // space -- a null dereference in a guest is a trap, not a silent write.
+        let (mut store, instance) = plugin();
+        let sum = instance
+            .get_typed_func::<(u64,), u64>("alloc_sum")
+            .expect("alloc_sum");
+
+        let error = sum.call(&mut store, (100,)).expect_err("should trap");
+        let trap = error.downcast_ref::<Trap>().expect("a Trap");
+        assert!(
+            matches!(trap, Trap::MemoryFault { address: Some(0) }),
+            "{trap}"
+        );
+    }
+
+    #[test]
+    fn a_guest_panic_reaches_the_host_as_a_trap() {
+        // Same mechanism, reached deliberately: exhausting the heap panics.
+        let (mut store, instance) = with_heap();
+        let sum = instance
+            .get_typed_func::<(u64,), u64>("alloc_sum")
+            .expect("alloc_sum");
+
+        let error = sum
+            .call(&mut store, (1 << 30,))
+            .expect_err("an impossible allocation should trap");
+        assert!(
+            error.downcast_ref::<Trap>().is_some(),
+            "expected a trap, got {error}"
+        );
+    }
+}

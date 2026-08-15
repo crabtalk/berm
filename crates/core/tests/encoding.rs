@@ -125,8 +125,6 @@ fn ecall_and_ebreak() {
 fn rejects_illegal_and_truncated_input() {
     assert!(decode(&[]).is_err());
     assert!(decode(&[0x97]).is_err());
-    // A zero halfword is the canonical illegal instruction.
-    assert!(decode(&[0x00, 0x00]).is_err());
     // A 32-bit opcode with only two bytes available.
     assert!(decode(&[0x97, 0x00]).is_err());
 }
@@ -137,4 +135,13 @@ fn terminators() {
     assert!(one(&[0x01, 0xa0]).is_terminator());
     assert!(one(&[0x11, 0xc9]).is_terminator());
     assert!(!one(&[0x2e, 0x95]).is_terminator());
+}
+
+#[test]
+fn unimp_decodes_rather_than_failing() {
+    // The all-zero halfword is a *defined* illegal instruction: the ISA
+    // guarantees it traps, and compilers emit it after a diverging call. A
+    // decoder that rejected it would fail to load any guest with a panic path.
+    assert_eq!(one(&[0x00, 0x00]), Inst::Unimp);
+    assert!(one(&[0x00, 0x00]).is_terminator());
 }
