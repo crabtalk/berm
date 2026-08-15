@@ -57,6 +57,20 @@
 //! address past the end of the space wraps and may land on a mapped page rather
 //! than faulting. The guest still cannot reach anything outside its own memory.
 //!
+//! The space is laid out as:
+//!
+//! ```text
+//! [ image ][ heap ][ guard ]        ...        [ stack ]
+//! 0                                                size
+//! ```
+//!
+//! The heap is committed read-write and zeroed, and is what a guest allocator
+//! manages. rvtime does not carve it up or hand it to the guest: read the
+//! bounds with [`Store::heap`] and pass them in however your host interface
+//! prefers — a host function you register, or arguments to an init export.
+//! Committing it costs address space rather than memory, since pages are
+//! faulted in only when touched.
+//!
 //! ## Guest requirements
 //!
 //! The image must be a statically linked RV64IMAC ELF **linked with

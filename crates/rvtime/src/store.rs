@@ -72,6 +72,17 @@ pub struct Store<T> {
     pub(crate) state: Option<State<T>>,
 }
 
+// Every pointer reachable from a store is owned by it: `memory` is its own
+// mapping, `dispatch` and `trampoline` belong to the `Arc<Module>` it holds,
+// and `host_data` is rewritten on each entry. Moving the store moves all of
+// them together, so an embedder can hand one to another thread -- which it must
+// be able to do to run guests on a worker pool.
+//
+// Deliberately *not* `Sync`. Entering a guest takes `&mut Store`, so two
+// threads must never be inside one at the same time; `Send` without `Sync` is
+// exactly that rule.
+unsafe impl<T: Send> Send for Store<T> {}
+
 impl<T> Store<T> {
     /// Create a store holding `data`.
     pub fn new(engine: &Engine, data: T) -> Self {
@@ -101,6 +112,15 @@ impl<T> Store<T> {
     /// The engine this store was created with.
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    /// The guest heap: committed, zeroed, and guarded from the stack.
+    ///
+    /// rvtime commits the region but does not carve it up. Hand these bounds to
+    /// the guest -- through a host function you register, or as arguments to an
+    /// init export -- and let its allocator manage them.
+    pub fn heap(&self) -> Result<std::ops::Range<u64>> {
+        Ok(self.instantiated()?.memory.heap())
     }
 
     /// Read `len` bytes of guest memory at `addr`.
@@ -227,12 +247,7 @@ extern "C" fn dispatch<T>(ctx: *mut VmCtx) -> u64 {
     // Read through the raw pointer rather than taking `&mut VmCtx`: the
     // context lives inside the store, and holding both references at once
     // would alias.
-    let (host_data, number) = unsafe {
-        (
-            (*ctx).host_data,
-            (*ctx).regs[Reg::A7.index()],
-        )
-    };
+    let (host_data, number) = unsafe { ((*ctx).host_data, (*ctx).regs[Reg::A7.index()]) };
 
     let store = unsafe { &mut *(host_data as *mut Store<T>) };
     let Some(state) = store.state.as_ref() else {
@@ -286,6 +301,11 @@ impl<T> Caller<'_, T> {
         self.state_mut().ctx.regs[reg.index()] = value;
     }
 
+    /// The guest heap bounds.
+    pub fn heap(&self) -> std::ops::Range<u64> {
+        self.state().memory.heap()
+    }
+
     /// Read `len` bytes of guest memory at `addr`.
     pub fn read(&self, addr: u64, len: u64) -> Result<&[u8]> {
         self.state().memory.read(addr, len)
@@ -312,10 +332,16 @@ impl<T> Caller<'_, T> {
     }
 
     fn state(&self) -> &State<T> {
-        self.store.state.as_ref().expect("caller implies an instance")
+        self.store
+            .state
+            .as_ref()
+            .expect("caller implies an instance")
     }
 
     fn state_mut(&mut self) -> &mut State<T> {
-        self.store.state.as_mut().expect("caller implies an instance")
+        self.store
+            .state
+            .as_mut()
+            .expect("caller implies an instance")
     }
 }

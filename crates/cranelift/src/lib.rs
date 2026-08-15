@@ -35,8 +35,8 @@ use cranelift::{
 };
 
 pub use crate::{
-    func::Imports,
     analyze::{Analysis, Target, analyze},
+    func::Imports,
     func::translate,
 };
 
@@ -135,6 +135,13 @@ impl Trap {
 /// parameters, three results) and are never called directly by the host, which
 /// goes through a trampoline instead.
 pub const GUEST_CALL_CONV: CallConv = CallConv::Fast;
+
+/// Argument registers that survive a guest return.
+///
+/// A compiled function returns `(sp, a0, a1)`, so only `a0` and `a1` carry a
+/// result back. Anything a caller reads beyond these two would be whatever the
+/// register file held before the call, not a returned value.
+pub const RESULT_REGS: usize = 2;
 
 /// Parameter positions in a compiled guest function.
 pub mod params {

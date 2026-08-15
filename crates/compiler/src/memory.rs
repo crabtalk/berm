@@ -44,15 +44,25 @@ pub fn host_page() -> u64 {
 pub struct Memory {
     base: *mut u8,
     size: u64,
+    heap: Range<u64>,
     stack: Range<u64>,
 }
 
 impl Memory {
     /// Reserve `size` bytes of address space and commit `program` into it.
     ///
-    /// The stack occupies the top `stack_size` bytes. Everything below it is
-    /// left uncommitted, so an overflow faults rather than running into
-    /// whatever is mapped underneath.
+    /// The layout is:
+    ///
+    /// ```text
+    /// [ image ][ heap ][ guard ]        ...        [ stack ]
+    /// 0                                                 size
+    /// ```
+    ///
+    /// The heap takes everything between the image and the stack, less one
+    /// guard page so that running off the top of the heap faults instead of
+    /// silently landing in the stack. It is committed read-write up front,
+    /// which costs address space rather than memory: `mprotect` only changes
+    /// protection, and pages are faulted in zeroed on first touch.
     ///
     /// `size` must be a power of two: guest addresses are confined by masking
     /// with `size - 1`, and any other size would leave part of the mask's range
@@ -62,21 +72,26 @@ impl Memory {
 
         let page = host_page();
         if stack_size == 0 || !stack_size.is_multiple_of(page) {
-            bail!("stack size {stack_size:#x} must be a non-zero multiple of the host page size {page:#x}");
+            bail!(
+                "stack size {stack_size:#x} must be a non-zero multiple of the host page size {page:#x}"
+            );
         }
         if stack_size >= size {
             bail!("stack size {stack_size:#x} does not fit in a {size:#x} address space");
         }
 
-        // The image and the stack must not overlap, or committing the stack
-        // would silently reopen pages the image expects to be protected.
+        // The image, heap and stack must not overlap, or committing one would
+        // silently reopen pages another expects to be protected.
         let image_end = program.image_end();
-        if image_end > size - stack_size {
+        let heap_start = image_end.div_ceil(page) * page;
+        let stack_start = size - stack_size;
+        if heap_start.saturating_add(page) > stack_start {
             bail!(
-                "the guest image ends at {image_end:#x}, which leaves no room for a \
+                "the guest image ends at {image_end:#x}, which leaves no room for a heap and a \
                  {stack_size:#x} stack in a {size:#x} address space; raise Config::memory_size"
             );
         }
+        let heap = heap_start..(stack_start - page);
 
         let base = unsafe {
             libc::mmap(
@@ -98,10 +113,21 @@ impl Memory {
         let memory = Memory {
             base: base as *mut u8,
             size,
-            stack: (size - stack_size)..size,
+            heap,
+            stack: stack_start..size,
         };
         memory.commit(program)?;
         Ok(memory)
+    }
+
+    /// The guest heap: read-write, zeroed, and guarded from the stack.
+    ///
+    /// rvtime commits this region but has no opinion about how it is carved up.
+    /// An embedder hands these bounds to the guest — through a host call it
+    /// registers, or as arguments to an init export — and the guest's allocator
+    /// takes it from there.
+    pub fn heap(&self) -> Range<u64> {
+        self.heap.clone()
     }
 
     /// Base of the reserved region. Guest address `a` lives at `base + a`.
@@ -128,7 +154,9 @@ impl Memory {
     /// Copy `data` to guest address `addr`.
     pub fn write(&mut self, addr: u64, data: &[u8]) -> Result<()> {
         self.bounds(addr, data.len() as u64)?;
-        unsafe { ptr::copy_nonoverlapping(data.as_ptr(), self.base.add(addr as usize), data.len()) };
+        unsafe {
+            ptr::copy_nonoverlapping(data.as_ptr(), self.base.add(addr as usize), data.len())
+        };
         Ok(())
     }
 
@@ -192,11 +220,11 @@ impl Memory {
             self.protect(index * page, page, native(*perms))?;
         }
 
-        self.protect(
-            self.stack.start,
-            self.stack.end - self.stack.start,
-            libc::PROT_READ | libc::PROT_WRITE,
-        )
+        let rw = libc::PROT_READ | libc::PROT_WRITE;
+        if !self.heap.is_empty() {
+            self.protect(self.heap.start, self.heap.end - self.heap.start, rw)?;
+        }
+        self.protect(self.stack.start, self.stack.end - self.stack.start, rw)
     }
 
     fn protect(&self, addr: u64, len: u64, prot: i32) -> Result<()> {

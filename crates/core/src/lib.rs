@@ -7,7 +7,7 @@ pub use crate::{
     decode::decode,
     inst::{AluOp, AmoOp, Cond, Inst, LoadOp, MulOp, Ordering, StoreOp, Width},
     program::{Function, Perms, Program, Segment},
-    reg::{REGISTER_COUNT, Reg},
+    reg::{REGISTER_ARGS, REGISTER_COUNT, Reg},
 };
 
 mod decode;
