@@ -42,12 +42,20 @@ pub struct Module {
     /// mapped at exactly this size or the confinement would not match the
     /// reservation.
     memory_size: u64,
+
+    /// Whether interrupt checks were compiled in.
+    interruptible: bool,
 }
 
 impl Module {
     /// Compile every function in `program` for a `memory_size`-byte guest
     /// address space.
-    pub fn new(engine: &Engine, program: Program, memory_size: u64) -> Result<Self> {
+    pub fn new(
+        engine: &Engine,
+        program: Program,
+        memory_size: u64,
+        interruptible: bool,
+    ) -> Result<Self> {
         rv::check_memory_size(memory_size)?;
 
         let isa = engine.isa().clone();
@@ -58,7 +66,15 @@ impl Module {
         let ids = declare(&mut jit, &program, &signature)?;
         let trampoline_id = declare_trampoline(&mut jit, engine.isa().as_ref())?;
 
-        define(&mut jit, engine, &program, &signature, &ids, memory_size)?;
+        define(
+            &mut jit,
+            engine,
+            &program,
+            &signature,
+            &ids,
+            memory_size,
+            interruptible,
+        )?;
         define_trampoline(&mut jit, engine, trampoline_id, &signature)?;
 
         jit.finalize_definitions()?;
@@ -77,7 +93,13 @@ impl Module {
             dispatch,
             trampoline,
             memory_size,
+            interruptible,
         })
+    }
+
+    /// Whether this code checks for interruption on backward edges.
+    pub fn interruptible(&self) -> bool {
+        self.interruptible
     }
 
     /// The address space size this code was compiled for.
@@ -156,6 +178,7 @@ fn define(
     signature: &Signature,
     ids: &BTreeMap<u64, FuncId>,
     memory_size: u64,
+    interruptible: bool,
 ) -> Result<()> {
     let frontend = engine.isa().frontend_config();
     let host = host_signature(engine.isa().as_ref());
@@ -189,6 +212,7 @@ fn define(
             indirect: builder.import_signature(signature.clone()),
             host: builder.import_signature(host.clone()),
             memory_mask: (memory_size - 1) as i64,
+            interruptible,
         };
 
         translator::translate(function, &analysis, &imports, builder, frontend)

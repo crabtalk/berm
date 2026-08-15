@@ -1,10 +1,16 @@
 //! Guest state and the boundary between host and guest
 
 use crate::{Config, Engine, abi::Regs, linker::HostMap};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use compiler::{Memory, trap};
 use rv::Reg;
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 use translator::VmCtx;
 
 /// Why a guest stopped short.
@@ -31,6 +37,9 @@ pub enum Trap {
     /// The guest reached an instruction compilers place where control must not
     /// go -- typically a panic path.
     IllegalInstruction,
+
+    /// The host asked the guest to stop, and it did.
+    Interrupted,
 }
 
 impl fmt::Display for Trap {
@@ -47,6 +56,7 @@ impl fmt::Display for Trap {
             Trap::UnknownHostCall(number) => write!(f, "no host function for call {number}"),
             Trap::HostCall(error) => write!(f, "host call failed: {error}"),
             Trap::IllegalInstruction => write!(f, "guest reached an illegal instruction"),
+            Trap::Interrupted => write!(f, "guest was interrupted"),
         }
     }
 }
@@ -59,6 +69,10 @@ pub(crate) struct State<T> {
     pub memory: Memory,
     pub ctx: VmCtx,
     pub hosts: Arc<HostMap<T>>,
+
+    /// The flag compiled code polls on backward edges. Held in an `Arc` so an
+    /// [`Interrupt`] handle stays valid however the store moves.
+    pub interrupt: Arc<AtomicU64>,
 
     /// Set by a failing host call and taken by the entry point, so the error
     /// survives the return through compiled code.
@@ -119,6 +133,19 @@ impl<T> Store<T> {
         &self.engine
     }
 
+    /// A handle that stops this guest from another thread.
+    ///
+    /// Requires [`Config::interruptible`](crate::Config::interruptible); without
+    /// it the compiled code has no checks to notice the request, so asking for a
+    /// handle that could never work is an error rather than a silent no-op.
+    pub fn interrupt_handle(&self) -> Result<Interrupt> {
+        let state = self.instantiated()?;
+        if !state.module.interruptible() {
+            bail!("this module was not compiled with Config::interruptible");
+        }
+        Ok(Interrupt(state.interrupt.clone()))
+    }
+
     /// The guest heap: committed, zeroed, and guarded from the stack.
     ///
     /// rvtime commits the region but does not carve it up. Hand these bounds to
@@ -160,6 +187,7 @@ impl<T> Store<T> {
         let memory = Memory::new(module.program(), module.memory_size(), self.stack_size())
             .context("failed to map guest memory")?;
 
+        let interrupt = Arc::new(AtomicU64::new(0));
         let ctx = VmCtx {
             regs: [0; 32],
             memory: memory.base(),
@@ -169,6 +197,7 @@ impl<T> Store<T> {
             host_call: dispatch::<T> as *const u8,
             // Refreshed on every entry, because the store may have moved.
             host_data: std::ptr::null_mut(),
+            interrupt: Arc::as_ptr(&interrupt).cast(),
             trap: 0,
         };
 
@@ -177,6 +206,7 @@ impl<T> Store<T> {
             memory,
             ctx,
             hosts,
+            interrupt,
             failure: None,
         });
         Ok(())
@@ -242,6 +272,7 @@ pub(crate) fn enter<T, P: Regs, R: Regs>(
         translator::Trap::Breakpoint => Err(Trap::Breakpoint.into()),
         translator::Trap::HostCall => Err(Trap::HostCall(anyhow!("host call failed")).into()),
         translator::Trap::IllegalInstruction => Err(Trap::IllegalInstruction.into()),
+        translator::Trap::Interrupted => Err(Trap::Interrupted.into()),
     }
 }
 
@@ -278,6 +309,33 @@ extern "C" fn dispatch<T>(ctx: *mut VmCtx) -> u64 {
 fn fail<T>(store: &mut Store<T>, trap: Trap) {
     if let Some(state) = store.state.as_mut() {
         state.failure = Some(trap);
+    }
+}
+
+/// Stops a running guest.
+///
+/// Cheap to clone and safe to share, so a watchdog can hold one while the guest
+/// runs on another thread.
+#[derive(Clone, Debug)]
+pub struct Interrupt(Arc<AtomicU64>);
+
+impl Interrupt {
+    /// Ask the guest to stop at its next backward edge.
+    ///
+    /// The call returns immediately; the guest stops when it next closes a
+    /// loop, and its pending call fails with [`Trap::Interrupted`].
+    pub fn interrupt(&self) {
+        self.0.store(1, Ordering::Release);
+    }
+
+    /// Withdraw a request, so the guest may run again.
+    pub fn clear(&self) {
+        self.0.store(0, Ordering::Release);
+    }
+
+    /// Whether a stop has been requested.
+    pub fn is_set(&self) -> bool {
+        self.0.load(Ordering::Acquire) != 0
     }
 }
 

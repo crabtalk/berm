@@ -18,7 +18,7 @@ impl Guest {
     fn new() -> Guest {
         let program = rv::elf::load(include_bytes!("../../../fixtures/basic.elf")).expect("loads");
         let memory = Memory::new(&program, MEMORY, STACK).expect("maps");
-        let module = Module::new(&Engine::default(), program, MEMORY).expect("compiles");
+        let module = Module::new(&Engine::default(), program, MEMORY, false).expect("compiles");
 
         let ctx = VmCtx {
             regs: [0; 32],
@@ -28,6 +28,7 @@ impl Guest {
             text_base: module.program().text.start,
             host_call: std::ptr::null(),
             host_data: std::ptr::null_mut(),
+            interrupt: std::ptr::null(),
             trap: 0,
         };
 
@@ -221,7 +222,7 @@ fn indirect_calls_reach_the_right_function() {
 fn every_function_compiles() {
     let program = rv::elf::load(include_bytes!("../../../fixtures/basic.elf")).expect("loads");
     let expected = program.functions.len();
-    let module = Module::new(&Engine::default(), program, MEMORY).expect("compiles");
+    let module = Module::new(&Engine::default(), program, MEMORY, false).expect("compiles");
 
     for addr in module.program().functions.keys() {
         assert!(
@@ -243,7 +244,7 @@ fn optimised_and_unoptimised_agree() {
         let program = load();
         let memory = Memory::new(&program, MEMORY, STACK).expect("maps");
         let engine = Engine::new(opt).expect("engine");
-        let module = Module::new(&engine, program, MEMORY).expect("compiles");
+        let module = Module::new(&engine, program, MEMORY, false).expect("compiles");
 
         let mut ctx = VmCtx {
             regs: [0; 32],
@@ -253,6 +254,7 @@ fn optimised_and_unoptimised_agree() {
             text_base: module.program().text.start,
             host_call: std::ptr::null(),
             host_data: std::ptr::null_mut(),
+            interrupt: std::ptr::null(),
             trap: 0,
         };
         trap::set_guest_region(memory.base() as usize, memory.size());
@@ -276,7 +278,7 @@ fn the_whole_instruction_set_compiles() {
     // the translator; the code is nonsense as a program and is never run.
     let program = rv::elf::load(include_bytes!("../../../fixtures/wide.elf")).expect("loads");
     let functions = program.functions.len();
-    let module = Module::new(&Engine::default(), program, MEMORY).expect("compiles");
+    let module = Module::new(&Engine::default(), program, MEMORY, false).expect("compiles");
 
     assert!(
         module

@@ -29,8 +29,8 @@ assert_eq!(add.call(&mut store, (10, 3))?, 13);
 
 Working end to end: ELF loading, RV64IMAC decoding, control-flow analysis,
 Cranelift codegen, guest memory with a committed heap and guard pages, host
-calls, traps, a compiled-code cache, and a guest-side SDK. 101 tests, no
-clippy warnings.
+calls, traps, interruption, a compiled-code cache, and a guest-side SDK.
+108 tests, no clippy warnings.
 
 **Developed and tested on macOS/arm64 only.** The code paths are shared and
 nothing is macOS-specific by design, but rvtime has never been run on Linux.
@@ -97,6 +97,18 @@ two, and the mask is compiled in — so a `Module` is tied to the size its
 The trade-off is explicit: an address past the end of the space *wraps* and may
 land on a mapped page rather than faulting. The sandbox holds either way, but
 this is not a precise bounds check.
+
+**A running guest can be stopped.** The translator
+emits a check on every backward edge, and `Store::interrupt_handle()` returns a
+`Send + Sync` handle that makes the guest trap with `Trap::Interrupted` at its
+next loop iteration. A guest can only run forever by looping — unbounded
+recursion exhausts the stack and traps — so backward edges are enough.
+
+Measured cost on a 50-million-iteration tight loop: **0.2%** — the flag load
+hits L1 and the branch predicts perfectly, so it fills slack the loop already
+had. At that price it is **on by default**: a thread you cannot reclaim from a
+guest that will not return is a far worse outcome than a fifth of a percent.
+Turn it off for a guest you trust and have profiled.
 
 **Generated code can be cached.** Set `Config::cache_dir` and Cranelift's
 incremental cache persists generated functions across runs, keyed on the CLIF

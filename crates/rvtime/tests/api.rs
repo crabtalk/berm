@@ -1133,3 +1133,154 @@ mod floats {
         }
     }
 }
+
+/// Stopping a guest that will not stop itself.
+mod interrupt {
+    use super::*;
+    use std::{sync::mpsc, thread, time::Duration};
+
+    fn engine(interruptible: bool) -> Engine {
+        let mut config = Config::new();
+        config.interruptible(interruptible).memory_size(16 << 20);
+        Engine::new(&config).expect("engine")
+    }
+
+    fn plugin(engine: &Engine) -> (Store<Host>, rvtime::Instance) {
+        let module = Module::new(engine, HOSTED).expect("compiles");
+        let mut store = Store::new(engine, Host::default());
+        let instance = Linker::new(engine)
+            .instantiate(&mut store, &module)
+            .expect("instantiates");
+        (store, instance)
+    }
+
+    #[test]
+    fn a_looping_guest_can_be_stopped() {
+        let engine = engine(true);
+        let (mut store, instance) = plugin(&engine);
+        let spin = instance
+            .get_typed_func::<(u64,), u64>("spin")
+            .expect("spin");
+        let handle = store.interrupt_handle().expect("interruptible");
+
+        // `spin` never returns on its own, so this thread only finishes if the
+        // interrupt is actually observed inside the loop.
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let outcome = spin.call(&mut store, (0,));
+            let _ = tx.send(outcome.err().map(|e| e.to_string()));
+        });
+
+        thread::sleep(Duration::from_millis(50));
+        handle.interrupt();
+
+        let error = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the guest never stopped -- the check was probably hoisted out of the loop")
+            .expect("an interrupted call must fail");
+        assert!(error.contains("interrupted"), "{error}");
+    }
+
+    #[test]
+    fn interruption_reports_a_distinct_trap() {
+        let engine = engine(true);
+        let (mut store, instance) = plugin(&engine);
+        let spin = instance
+            .get_typed_func::<(u64,), u64>("spin")
+            .expect("spin");
+        let handle = store.interrupt_handle().expect("interruptible");
+
+        // Raised before entry: the very first backward edge should see it.
+        handle.interrupt();
+        assert!(handle.is_set());
+
+        let error = spin.call(&mut store, (0,)).expect_err("should stop");
+        let trap = error.downcast_ref::<Trap>().expect("a Trap");
+        assert!(matches!(trap, Trap::Interrupted), "{trap}");
+    }
+
+    #[test]
+    fn a_request_can_be_withdrawn_and_raised_again() {
+        let engine = engine(true);
+        let (mut store, instance) = plugin(&engine);
+        let spin = instance
+            .get_typed_func::<(u64,), u64>("spin")
+            .expect("spin");
+        let handle = store.interrupt_handle().expect("interruptible");
+
+        handle.interrupt();
+        assert!(spin.call(&mut store, (0,)).is_err());
+
+        handle.clear();
+        assert!(!handle.is_set(), "the request should be withdrawn");
+
+        // Raising it again must still work: clearing must not leave the flag
+        // in a state the guest stops noticing.
+        handle.interrupt();
+        assert!(spin.call(&mut store, (0,)).is_err());
+    }
+
+    #[test]
+    fn checks_do_not_change_what_a_loop_computes() {
+        // Checks sit on backward edges, so every loop runs through one. The
+        // `basic` fixture is used because its loops survive optimisation --
+        // `count_to` in `hosted` gets closed-formed into `mul`/`mulhu`, which
+        // has no backward edge and therefore no check at all. That is correct:
+        // a function without a loop always terminates.
+        let mut config = Config::new();
+        config.interruptible(true);
+        let engine = Engine::new(&config).expect("engine");
+        let module = Module::new(&engine, BASIC).expect("compiles");
+        let mut store = Store::new(&engine, ());
+        let instance = Linker::new(&engine)
+            .instantiate(&mut store, &module)
+            .expect("instantiates");
+
+        let recurse = instance
+            .get_typed_func::<(u64,), u64>("recurse")
+            .expect("recurse");
+        for n in [0u64, 1, 5, 10, 20] {
+            let factorial = (1..=n).product::<u64>().max(1);
+            assert_eq!(recurse.call(&mut store, (n,)).unwrap(), factorial, "n={n}");
+        }
+
+        let fib = instance.get_typed_func::<(u64,), u64>("fib").expect("fib");
+        assert_eq!(fib.call(&mut store, (20,)).unwrap(), 6765);
+    }
+
+    #[test]
+    fn interruption_is_on_by_default() {
+        // A hung thread that cannot be reclaimed is a worse outcome than the
+        // 0.2% the checks cost, so the safe setting is the default one.
+        assert!(Config::new().interruptible);
+
+        let engine = Engine::default();
+        let module = Module::new(&engine, HOSTED).expect("compiles");
+        assert!(module.interruptible());
+
+        let mut store = Store::new(&engine, Host::default());
+        let instance = Linker::new(&engine)
+            .instantiate(&mut store, &module)
+            .expect("instantiates");
+        let spin = instance
+            .get_typed_func::<(u64,), u64>("spin")
+            .expect("spin");
+
+        store
+            .interrupt_handle()
+            .expect("available by default")
+            .interrupt();
+        assert!(spin.call(&mut store, (0,)).is_err(), "should stop");
+    }
+
+    #[test]
+    fn a_handle_is_refused_when_the_module_cannot_be_interrupted() {
+        // Compiled without checks, nothing would ever observe the flag. Handing
+        // out a handle that silently does nothing would be worse than an error.
+        let engine = engine(false);
+        let (store, _instance) = plugin(&engine);
+
+        let error = store.interrupt_handle().expect_err("should refuse");
+        assert!(error.to_string().contains("interruptible"), "{error}");
+    }
+}

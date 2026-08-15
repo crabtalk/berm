@@ -21,6 +21,9 @@ pub struct Imports<'a> {
     /// platform's C convention.
     pub host: SigRef,
 
+    /// Whether to emit interrupt checks on backward edges.
+    pub interruptible: bool,
+
     /// `guest memory size - 1`, applied to every computed address.
     ///
     /// This is what confines the guest to its own address space, so it has to
@@ -46,6 +49,7 @@ pub fn translate(
         blocks: BTreeMap::new(),
         vmctx: Value::from_u32(0),
         memory: Value::from_u32(0),
+        interrupt: None,
         terminated: false,
     };
 
@@ -70,6 +74,9 @@ struct Translator<'a, 'b> {
 
     vmctx: Value,
     memory: Value,
+
+    /// The interrupt flag pointer, loaded once when the function loops.
+    interrupt: Option<Value>,
 
     /// Whether the block being emitted already ended in a terminator.
     terminated: bool,
@@ -120,6 +127,17 @@ impl Translator<'_, '_> {
                 );
                 self.builder.def_var(self.regs[reg.index()], value);
             }
+        }
+
+        // Only a looping function can spin, so only a looping function pays
+        // for the pointer load.
+        if self.imports.interruptible && self.analysis.has_backedge {
+            self.interrupt = Some(self.builder.ins().load(
+                types::I64,
+                MemFlagsData::trusted(),
+                self.vmctx,
+                offsets::INTERRUPT,
+            ));
         }
 
         for &leader in &self.analysis.leaders {
@@ -341,6 +359,33 @@ impl Translator<'_, '_> {
         Ok(())
     }
 
+    /// Stop if the host has asked the guest to.
+    ///
+    /// Emitted on backward edges, so a loop cannot run forever. The flag is
+    /// written by another thread, so the load must not be hoisted out of the
+    /// loop: it is deliberately left able to trap and not marked `can_move`,
+    /// which is what keeps Cranelift from treating it as loop-invariant.
+    fn check_interrupt(&mut self) {
+        let Some(pointer) = self.interrupt else {
+            return;
+        };
+
+        let flag = self
+            .builder
+            .ins()
+            .load(types::I64, MemFlagsData::new(), pointer, 0);
+        let raised = self.builder.ins().icmp_imm_s(IntCC::NotEqual, flag, 0);
+
+        let stop = self.builder.create_block();
+        let resume = self.builder.create_block();
+        self.builder.ins().brif(raised, stop, &[], resume, &[]);
+
+        self.builder.switch_to_block(stop);
+        self.trap(Trap::Interrupted);
+
+        self.builder.switch_to_block(resume);
+    }
+
     /// Emit a conditional branch.
     fn branch(&mut self, addr: u64, cond: Value, next: u64) -> Result<()> {
         let taken = match self.analysis.targets.get(&addr) {
@@ -366,6 +411,11 @@ impl Translator<'_, '_> {
         Ok(())
     }
 
+    /// Whether a transfer from `addr` to `dest` closes a loop.
+    fn is_backward(addr: u64, dest: u64) -> bool {
+        dest <= addr
+    }
+
     /// Emit a jump, call, or return.
     fn transfer(&mut self, addr: u64, inst: Inst) -> Result<()> {
         let target = match self.analysis.targets.get(&addr) {
@@ -375,6 +425,9 @@ impl Translator<'_, '_> {
 
         match target {
             Target::Local(dest) => {
+                if Self::is_backward(addr, dest) {
+                    self.check_interrupt();
+                }
                 let block = self.blocks[&dest];
                 self.builder.ins().jump(block, &[]);
                 self.terminated = true;

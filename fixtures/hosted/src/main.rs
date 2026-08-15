@@ -158,12 +158,47 @@ pub static EXPORTS_2: [extern "C" fn(u64, u64) -> u64; 6] =
     [call_add, call_sum, call_fill, call_mixed, write_at, init_heap];
 
 #[no_mangle]
-pub static EXPORTS_1: [extern "C" fn(u64) -> u64; 5] =
-    [call_refused, round_trip, read_at, alloc_sum, float_probe];
+pub static EXPORTS_1: [extern "C" fn(u64) -> u64; 7] = [
+    call_refused,
+    round_trip,
+    read_at,
+    alloc_sum,
+    float_probe,
+    spin,
+    count_to,
+];
 
 #[no_mangle]
 pub static EXPORTS_0: [extern "C" fn() -> u64; 4] =
     [call_tick, call_unknown, heap_used, heap_free];
+
+/// Loops forever. Only an interrupt can end this call.
+#[inline(never)]
+#[no_mangle]
+pub extern "C" fn spin(_ignored: u64) -> u64 {
+    let mut n: u64 = 0;
+    loop {
+        // Volatile so the loop cannot be optimised away.
+        unsafe { core::ptr::write_volatile(&raw mut SPINS, n) };
+        n = n.wrapping_add(1);
+    }
+}
+
+#[no_mangle]
+pub static mut SPINS: u64 = 0;
+
+/// Loops `n` times and returns, to show checks do not break normal loops.
+#[inline(never)]
+#[no_mangle]
+pub extern "C" fn count_to(n: u64) -> u64 {
+    let mut total: u64 = 0;
+    let mut i: u64 = 0;
+    while i < n {
+        total = total.wrapping_add(i);
+        i += 1;
+    }
+    total
+}
 
 /// Probes whether a guest can use floating point at all.
 #[inline(never)]

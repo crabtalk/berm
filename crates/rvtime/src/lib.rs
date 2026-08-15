@@ -84,7 +84,7 @@ pub use crate::{
     instance::{Instance, TypedFunc},
     linker::{HostFn, IntoHostFunc, Linker},
     module::Module,
-    store::{Caller, Store, Trap},
+    store::{Caller, Interrupt, Store, Trap},
 };
 
 /// Guest registers, re-exported for host functions that work on them directly.

@@ -61,6 +61,13 @@ pub struct Analysis {
     /// Whether the function writes `gp` or `tp`, in which case the values must
     /// be flushed back to the VM context before returning.
     pub writes_globals: bool,
+
+    /// Whether any transfer jumps backwards, i.e. the function contains a loop.
+    ///
+    /// A guest can only run forever by looping — unbounded recursion exhausts
+    /// the stack and traps — so a check on every backward edge is enough to
+    /// make any guest interruptible.
+    pub has_backedge: bool,
 }
 
 /// Analyse a function's control flow.
@@ -184,8 +191,14 @@ fn resolve(function: &Function, entries: &BTreeSet<u64>, analysis: &mut Analysis
         };
 
         if let Some(target) = target {
-            if let Target::Direct { addr: dest, .. } = target {
-                analysis.calls.insert(dest);
+            match target {
+                Target::Direct { addr: dest, .. } => {
+                    analysis.calls.insert(dest);
+                }
+                Target::Local(dest) if dest <= *addr => {
+                    analysis.has_backedge = true;
+                }
+                _ => {}
             }
             analysis.targets.insert(*addr, target);
         }

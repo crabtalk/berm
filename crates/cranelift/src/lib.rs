@@ -71,6 +71,13 @@ pub struct VmCtx {
     /// Opaque pointer to the embedder's state, read by the host call handler.
     pub host_data: *mut core::ffi::c_void,
 
+    /// Points at a flag the host sets to stop the guest. Null when the module
+    /// was not compiled interruptible.
+    ///
+    /// Read through a pointer rather than held inline so the handle stays valid
+    /// when the store moves, and so a watchdog on another thread can share it.
+    pub interrupt: *const u64,
+
     /// Set by compiled code before an abrupt return. See [`Trap`].
     pub trap: u64,
 }
@@ -91,8 +98,10 @@ pub mod offsets {
     pub const HOST_CALL: i32 = TEXT_BASE + 8;
     /// Embedder state pointer.
     pub const HOST_DATA: i32 = HOST_CALL + 8;
+    /// Interrupt flag pointer.
+    pub const INTERRUPT: i32 = HOST_DATA + 8;
     /// Trap code.
-    pub const TRAP: i32 = HOST_DATA + 8;
+    pub const TRAP: i32 = INTERRUPT + 8;
 
     /// Offset of guest register `n`.
     pub const fn reg(n: usize) -> i32 {
@@ -118,6 +127,8 @@ pub enum Trap {
     /// The guest reached an `unimp`, which compilers place where control must
     /// not go.
     IllegalInstruction = 4,
+    /// The host asked the guest to stop.
+    Interrupted = 5,
 }
 
 impl Trap {
@@ -128,6 +139,7 @@ impl Trap {
             2 => Trap::Breakpoint,
             3 => Trap::HostCall,
             4 => Trap::IllegalInstruction,
+            5 => Trap::Interrupted,
             _ => Trap::None,
         }
     }

@@ -26,7 +26,12 @@ impl Module {
     /// Compile a statically linked RV64 ELF image.
     pub fn new(engine: &Engine, bytes: &[u8]) -> Result<Module> {
         let program = rv::elf::load(bytes).context("failed to load the guest image")?;
-        let inner = compiler::Module::new(engine.compiler(), program, engine.config().memory_size)?;
+        let inner = compiler::Module::new(
+            engine.compiler(),
+            program,
+            engine.config().memory_size,
+            engine.config().interruptible,
+        )?;
         Ok(Module {
             inner: Arc::new(inner),
         })
@@ -52,6 +57,11 @@ impl Module {
     /// The ELF entry point.
     pub fn entry_point(&self) -> u64 {
         self.inner.program().entry
+    }
+
+    /// Whether this module checks for interruption while running.
+    pub fn interruptible(&self) -> bool {
+        self.inner.interruptible()
     }
 
     /// The guest address space size this module was compiled for.
