@@ -4,11 +4,24 @@ Known gaps, and what each would take.
 
 ## Platform
 
-**Windows is not supported.** Guest memory and trap handling are POSIX:
-`mmap`/`mprotect`, `sigaction`, and `setjmp`/`longjmp`. A port means
-`VirtualAlloc`/`VirtualProtect` and a vectored exception handler, and would have
-to reckon with Windows' 64 KiB allocation granularity being distinct from its
-page size — which affects the address space layout.
+**Windows is not supported**, and the build says so rather than failing inside
+the C compiler.
+
+Guest memory and trap handling are POSIX: `mmap`/`mprotect`, `sigaction`, and
+`setjmp`/`longjmp`. Porting the first two is mechanical —
+`VirtualAlloc`/`VirtualProtect` and a vectored exception handler. Recovery is the
+blocker.
+
+`longjmp` on Windows unwinds, which needs unwind information for every frame it
+walks, and rvtime compiles guests with `unwind_info` off. Turning it on does not
+help: **cranelift-jit never registers unwind tables with the OS**, so the data
+would exist and nothing would know about it. Recovery would instead have to
+redirect execution from the exception handler — mutating the thread context and
+returning `EXCEPTION_CONTINUE_EXECUTION` — which is architecture-specific and
+cannot be exercised on a POSIX machine.
+
+That is a lot of unverifiable machinery in the one place where being subtly
+wrong turns a catchable trap into a crash, so it waits for someone who needs it.
 
 CI covers Linux/x86_64 and macOS/arm64.
 
