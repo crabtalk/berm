@@ -18,7 +18,7 @@ fn function(name: &str) -> rv::Function {
 }
 
 fn analyse(f: &rv::Function) -> Analysis {
-    analyze(f, &entries())
+    analyze(f, &entries(), &program().indirect)
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn every_direct_call_lands_on_a_function_entry() {
     let program = program();
     let entries = entries();
     for function in program.functions.values() {
-        let analysis = analyze(function, &entries);
+        let analysis = analyze(function, &entries, &program.indirect);
         for addr in &analysis.calls {
             let callee = program
                 .function_at(*addr)
