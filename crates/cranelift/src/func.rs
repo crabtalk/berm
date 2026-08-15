@@ -27,8 +27,8 @@ pub struct Imports<'a> {
     /// `guest memory size - 1`, applied to every computed address.
     ///
     /// This is what confines the guest to its own address space, so it has to
-    /// match the size the memory was actually mapped with. See
-    /// [`crate::inst::address`].
+    /// match the size the memory was actually mapped with. Applied by the
+    /// address lowering in `inst::address`.
     pub memory_mask: i64,
 }
 

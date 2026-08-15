@@ -6,3 +6,6 @@ Cargo.lock
 # the trees that produce them are not.
 /fixtures/*/target
 /crates/guest/target
+
+# mdbook output
+/docs/book

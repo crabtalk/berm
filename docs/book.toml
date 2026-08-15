@@ -1,0 +1,18 @@
+[book]
+title = "rvtime"
+description = "A RISC-V compiler with a wasmtime-like interface"
+authors = ["clearloop"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "rust"
+git-repository-url = "https://github.com/crabtalk/rvtime"
+edit-url-template = "https://github.com/crabtalk/rvtime/edit/main/docs/{path}"
+
+[output.html.playground]
+runnable = false
+
+[output.html.fold]
+enable = true
+level = 1
