@@ -621,10 +621,12 @@ impl Translator<'_, '_> {
     }
 
     /// Adopt the registers a callee returned.
+    ///
+    /// `sp` is not among them: it is callee-saved, so the callee has already
+    /// restored it and this function's own value still holds.
     fn apply_results(&mut self, results: &[Value]) {
-        self.rset(Reg::SP, results[0]);
-        self.rset(Reg::A0, results[1]);
-        self.rset(Reg::A1, results[2]);
+        self.rset(Reg::A0, results[0]);
+        self.rset(Reg::A1, results[1]);
     }
 
     /// Emit a return of the ABI-live registers.
@@ -636,10 +638,9 @@ impl Translator<'_, '_> {
     /// must not.
     fn ret(&mut self) {
         self.flush_globals();
-        let sp = self.rget(Reg::SP);
         let a0 = self.rget(Reg::A0);
         let a1 = self.rget(Reg::A1);
-        self.builder.ins().return_(&[sp, a0, a1]);
+        self.builder.ins().return_(&[a0, a1]);
     }
 
     /// Return, ending the current guest instruction.

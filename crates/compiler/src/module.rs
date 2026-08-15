@@ -341,7 +341,7 @@ fn define_trampoline(
     let call = builder.ins().call_indirect(guest_sig, callee, &call_args);
     let results = builder.inst_results(call).to_vec();
 
-    for (value, reg) in results.iter().zip([rv::Reg::SP, rv::Reg::A0, rv::Reg::A1]) {
+    for (value, reg) in results.iter().zip([rv::Reg::A0, rv::Reg::A1]) {
         builder.ins().store(
             MemFlagsData::trusted(),
             *value,

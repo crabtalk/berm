@@ -953,8 +953,12 @@ mod guest_alloc {
 
         let error = sum.call(&mut store, (100,)).expect_err("should trap");
         let trap = error.downcast_ref::<Trap>().expect("a Trap");
+
+        // Somewhere in the first page: which field of the allocation the guest
+        // writes first is a codegen detail, but every one of them is a null
+        // dereference and the whole page is uncommitted.
         assert!(
-            matches!(trap, Trap::MemoryFault { address: Some(0) }),
+            matches!(trap, Trap::MemoryFault { address: Some(a) } if *a < rv::PAGE_SIZE),
             "{trap}"
         );
     }

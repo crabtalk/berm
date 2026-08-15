@@ -11,8 +11,13 @@
 //! boundary only the ones the RISC-V ABI says are live get passed:
 //!
 //! ```text
-//! fn(vmctx, sp, a0..a7) -> (sp, a0, a1)
+//! fn(vmctx, sp, a0..a7) -> (a0, a1)
 //! ```
+//!
+//! `sp` goes in but does not come back. It is callee-saved, so a conforming
+//! function restores it before returning and the caller's own value is still
+//! correct. Returning it would also cost a third result register, which
+//! x86_64's `Fast` convention does not have.
 //!
 //! Callee-saved registers stay in the caller's variables and are never handed
 //! over. A callee that clobbers `s0` spills it to the guest stack in its own
@@ -148,15 +153,16 @@ impl Trap {
 /// Calling convention for guest-to-guest calls.
 ///
 /// `Fast` rather than a platform C convention: these signatures are wide (ten
-/// parameters, three results) and are never called directly by the host, which
-/// goes through a trampoline instead.
+/// parameters) and are never called directly by the host, which goes through a
+/// trampoline instead.
 pub const GUEST_CALL_CONV: CallConv = CallConv::Fast;
 
 /// Argument registers that survive a guest return.
 ///
-/// A compiled function returns `(sp, a0, a1)`, so only `a0` and `a1` carry a
-/// result back. Anything a caller reads beyond these two would be whatever the
-/// register file held before the call, not a returned value.
+/// A compiled function returns `(a0, a1)`. Anything a caller reads beyond these
+/// two would be whatever the register file held before the call, not a returned
+/// value. Two is also the most x86_64's `Fast` convention can return in
+/// registers, so widening this would need a struct-return argument.
 pub const RESULT_REGS: usize = 2;
 
 /// Parameter positions in a compiled guest function.
@@ -177,7 +183,7 @@ pub mod params {
 pub fn signature() -> Signature {
     Signature {
         params: vec![AbiParam::new(types::I64); params::COUNT],
-        returns: vec![AbiParam::new(types::I64); 3],
+        returns: vec![AbiParam::new(types::I64); RESULT_REGS],
         call_conv: GUEST_CALL_CONV,
     }
 }
