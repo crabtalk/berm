@@ -20,6 +20,7 @@ rv = { path = "crates/core", package = "rvtime-core", version = "0.0.1" }
 translator = { path = "crates/cranelift", package = "rvtime-cranelift", version = "0.0.1" }
 compiler = { path = "crates/compiler", package = "rvtime-compiler", version = "0.0.1" }
 rvtime = { path = "crates/rvtime", package = "rvtime", version = "0.0.1" }
+guest = { path = "crates/guest", package = "rvtime-guest", version = "0.0.1" }
 
 # crates-io
 anyhow = "1.0"

@@ -8,6 +8,12 @@ repository = "https://github.com/crabtalk/rvtime"
 license = "Apache-2.0"
 authors = ["clearloop <tianyi.gc@gmail.com>"]
 
+# This crate only compiles for the guest: `ecall` and the `a0`..`a7` registers
+# do not exist on a host target. docs.rs builds for x86_64 by default and would
+# fail the same way `cargo publish` does without `--target`.
+[package.metadata.docs.rs]
+targets = ["riscv64imac-unknown-none-elf"]
+
 [features]
 default = ["alloc"]
 # Installs a global allocator. Turn off to supply your own.
