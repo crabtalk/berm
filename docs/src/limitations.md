@@ -7,21 +7,58 @@ Known gaps, and what each would take.
 **Windows is not supported**, and the build says so rather than failing inside
 the C compiler.
 
-Guest memory and trap handling are POSIX: `mmap`/`mprotect`, `sigaction`, and
-`setjmp`/`longjmp`. Porting the first two is mechanical —
-`VirtualAlloc`/`VirtualProtect` and a vectored exception handler. Recovery is the
-blocker.
+Two thirds of the port are mechanical. Guest memory maps almost directly:
+`mmap`/`mprotect`/`munmap` become `VirtualAlloc`/`VirtualProtect`/`VirtualFree`.
+Catching the fault is a swap of `sigaction` for `AddVectoredExceptionHandler`.
+Recovery is the part that does not translate.
 
-`longjmp` on Windows unwinds, which needs unwind information for every frame it
-walks, and rvtime compiles guests with `unwind_info` off. Turning it on does not
-help: **cranelift-jit never registers unwind tables with the OS**, so the data
-would exist and nothing would know about it. Recovery would instead have to
-redirect execution from the exception handler — mutating the thread context and
-returning `EXCEPTION_CONTINUE_EXECUTION` — which is architecture-specific and
-cannot be exercised on a POSIX machine.
+rvtime recovers with `_longjmp`. On Windows that unwinds, which needs unwind
+information for every frame it walks, and guests are compiled with `unwind_info`
+off. Turning it on does not help: **cranelift-jit never registers unwind tables
+with the OS.** It contains no call to `RtlAddFunctionTable` and does not even
+depend on the Windows API that provides it, so the data would exist and nothing
+would know about it.
 
-That is a lot of unverifiable machinery in the one place where being subtly
-wrong turns a catchable trap into a crash, so it waits for someone who needs it.
+### What it would take
+
+wasmtime solves this by not unwinding at all. Its vectored handler rewrites the
+thread context and resumes execution somewhere else:
+
+```rust,ignore
+context.Rip = handler.pc as _;
+context.Rbp = handler.fp as _;
+context.Rsp = handler.sp as _;
+EXCEPTION_CONTINUE_EXECUTION
+```
+
+Those values are captured at the guest entry point, so the effect is a
+`setjmp`/`longjmp` pair built out of the operating system's context mechanism
+instead of libc's.
+
+The instructive part is that wasmtime uses the same design on Unix. Windows is
+not the odd platform here — **rvtime's C shim is.** Adopting the saved-context
+approach would delete the shim and the `cc` build dependency, give both
+platforms one mechanism, and make the unwind-info problem disappear entirely,
+because nothing would ever unwind.
+
+What it costs is exactly what `setjmp` hides today. Restoring a context by hand
+means touching architecture-specific fields — `uc_mcontext.gregs[REG_RIP]` on
+Linux x86_64, `__ss.__pc` on macOS arm64, `Rip`/`Rsp` on Windows x64 — so four
+variants replace one portable call.
+
+That leaves a small assembly trampoline to capture the entry frame, a vectored
+handler, and the memory port. wasmtime is Apache-2.0 with LLVM exception, so
+adapting the approach is compatible with this project's licence.
+
+### Why it waits
+
+Not because the design is unknown; it is written down above. Because none of it
+can be executed on a POSIX machine.
+
+This is the one component where being subtly wrong converts a catchable trap
+into a crash, and its characteristic failure is passing the test that was
+written while breaking on a different stack shape. It wants a Windows machine in
+the development loop, not a CI job at the end.
 
 CI covers Linux/x86_64 and macOS/arm64.
 
