@@ -1,0 +1,111 @@
+
+hosted.elf:	file format elf64-littleriscv
+
+Disassembly of section .text:
+
+00000000000111e0 <_start>:
+   111e0: 1141         	c.addi	sp, -0x10
+   111e2: e406         	c.sdsp	ra, 0x8(sp)
+   111e4: e022         	c.sdsp	s0, 0x0(sp)
+   111e6: 4551         	c.li	a0, 0x14
+   111e8: 45d9         	c.li	a1, 0x16
+   111ea: 00000097     	auipc	ra, 0x0
+   111ee: 044080e7     	jalr	ra, 0x44(ra) <call_add>
+   111f2: 842a         	c.mv	s0, a0
+   111f4: 00000097     	auipc	ra, 0x0
+   111f8: 078080e7     	jalr	ra, 0x78(ra) <call_tick>
+   111fc: 9522         	c.add	a0, s0
+
+00000000000111fe <.Lpcrel_hi0>:
+   111fe: 00001597     	auipc	a1, 0x1
+
+0000000000011202 <.Lpcrel_hi1>:
+   11202: fffff617     	auipc	a2, 0xfffff
+   11206: 0da58593     	addi	a1, a1, 0xda
+   1120a: e588         	c.sd	a0, 0x8(a1)
+
+000000000001120c <.Lpcrel_hi2>:
+   1120c: fffff517     	auipc	a0, 0xfffff
+   11210: f9e60613     	addi	a2, a2, -0x62
+   11214: f8450513     	addi	a0, a0, -0x7c
+   11218: 8d31         	c.xor	a0, a2
+
+000000000001121a <.Lpcrel_hi3>:
+   1121a: fffff617     	auipc	a2, 0xfffff
+   1121e: f9e60613     	addi	a2, a2, -0x62
+   11222: 8d31         	c.xor	a0, a2
+   11224: e188         	c.sd	a0, 0x0(a1)
+   11226: 60a2         	c.ldsp	ra, 0x8(sp)
+   11228: 6402         	c.ldsp	s0, 0x0(sp)
+   1122a: 0141         	c.addi	sp, 0x10
+   1122c: 8082         	c.jr	ra
+
+000000000001122e <call_add>:
+   1122e: 4885         	c.li	a7, 0x1
+   11230: 00000073     	ecall
+   11234: 8082         	c.jr	ra
+
+0000000000011236 <call_fill>:
+   11236: 488d         	c.li	a7, 0x3
+   11238: 00000073     	ecall
+   1123c: 8082         	c.jr	ra
+
+000000000001123e <call_mixed>:
+   1123e: 00151613     	slli	a2, a0, 0x1
+   11242: 00a606b3     	add	a3, a2, a0
+   11246: 4885         	c.li	a7, 0x1
+   11248: 00758613     	addi	a2, a1, 0x7
+   1124c: 00000073     	ecall
+   11250: 4885         	c.li	a7, 0x1
+   11252: 85b2         	c.mv	a1, a2
+   11254: 00000073     	ecall
+   11258: 9536         	c.add	a0, a3
+   1125a: 8082         	c.jr	ra
+
+000000000001125c <call_refused>:
+   1125c: 4895         	c.li	a7, 0x5
+   1125e: 00000073     	ecall
+   11262: 8082         	c.jr	ra
+
+0000000000011264 <call_sum>:
+   11264: 4889         	c.li	a7, 0x2
+   11266: 00000073     	ecall
+   1126a: 8082         	c.jr	ra
+
+000000000001126c <call_tick>:
+   1126c: 4891         	c.li	a7, 0x4
+   1126e: 00000073     	ecall
+   11272: 8082         	c.jr	ra
+
+0000000000011274 <call_unknown>:
+   11274: 06300893     	addi	a7, zero, 0x63
+   11278: 00000073     	ecall
+   1127c: 8082         	c.jr	ra
+
+000000000001127e <read_at>:
+   1127e: 6108         	c.ld	a0, 0x0(a0)
+   11280: 8082         	c.jr	ra
+
+0000000000011282 <round_trip>:
+   11282: 85aa         	c.mv	a1, a0
+   11284: cd09         	c.beqz	a0, 0x1129e <.Lpcrel_hi5>
+   11286: 4501         	c.li	a0, 0x0
+
+0000000000011288 <.Lpcrel_hi4>:
+   11288: 00001617     	auipc	a2, 0x1
+   1128c: 03060613     	addi	a2, a2, 0x30
+   11290: 00a606b3     	add	a3, a2, a0
+   11294: 0505         	c.addi	a0, 0x1
+   11296: 00a68023     	sb	a0, 0x0(a3)
+   1129a: fea59be3     	bne	a1, a0, 0x11290 <.Lpcrel_hi4+0x8>
+
+000000000001129e <.Lpcrel_hi5>:
+   1129e: 00001517     	auipc	a0, 0x1
+   112a2: 01a50513     	addi	a0, a0, 0x1a
+   112a6: 00000317     	auipc	t1, 0x0
+   112aa: fbe30067     	jalr	zero, -0x42(t1) <call_sum>
+
+00000000000112ae <write_at>:
+   112ae: e10c         	c.sd	a1, 0x0(a0)
+   112b0: 4501         	c.li	a0, 0x0
+   112b2: 8082         	c.jr	ra

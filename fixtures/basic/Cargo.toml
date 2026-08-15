@@ -1,0 +1,11 @@
+# Standalone: excluded from the rvtime workspace because it builds for RISC-V.
+[workspace]
+
+[package]
+name = "basic"
+version = "0.0.0"
+edition = "2021"
+
+[profile.release]
+panic = "abort"
+opt-level = 2

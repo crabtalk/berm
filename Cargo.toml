@@ -1,0 +1,34 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/cranelift",
+    "crates/compiler",
+    "crates/rvtime",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+version = "0.0.1"
+repository = "https://github.com/crabtalk/rvtime"
+license = "Apache-2.0"
+authors = ["clearloop <tianyi.gc@gmail.com>"]
+
+[workspace.dependencies]
+rv = { path = "crates/core", package = "rvtime-core" }
+translator = { path = "crates/cranelift", package = "rvtime-cranelift" }
+compiler = { path = "crates/compiler", package = "rvtime-compiler" }
+
+anyhow = "1.0"
+cc = "1.4"
+cranelift = { version = "0.134.3", features = [
+    "jit",
+    "module",
+    "object",
+    "native",
+    "frontend",
+] }
+cranelift-codegen = "0.134.3"
+libc = "0.2"
+object = "0.40"
+tracing = "0.1"

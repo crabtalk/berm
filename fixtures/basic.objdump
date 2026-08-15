@@ -1,0 +1,168 @@
+
+basic.elf:	file format elf64-littleriscv
+
+Disassembly of section .text:
+
+00000000000111b0 <_start>:
+   111b0: 1101         	c.addi	sp, -0x20
+   111b2: ec06         	c.sdsp	ra, 0x18(sp)
+   111b4: e822         	c.sdsp	s0, 0x10(sp)
+   111b6: e426         	c.sdsp	s1, 0x8(sp)
+   111b8: 4505         	c.li	a0, 0x1
+   111ba: 45a9         	c.li	a1, 0xa
+   111bc: 460d         	c.li	a2, 0x3
+   111be: 00000097     	auipc	ra, 0x0
+   111c2: 082080e7     	jalr	ra, 0x82(ra) <dispatch>
+   111c6: 842a         	c.mv	s0, a0
+   111c8: 451d         	c.li	a0, 0x7
+   111ca: 00000097     	auipc	ra, 0x0
+   111ce: 156080e7     	jalr	ra, 0x156(ra) <switcher>
+   111d2: 008504b3     	add	s1, a0, s0
+   111d6: 4515         	c.li	a0, 0x5
+   111d8: 00000097     	auipc	ra, 0x0
+   111dc: 05a080e7     	jalr	ra, 0x5a(ra) <bump>
+   111e0: 842a         	c.mv	s0, a0
+   111e2: 4529         	c.li	a0, 0xa
+   111e4: 00000097     	auipc	ra, 0x0
+   111e8: 108080e7     	jalr	ra, 0x108(ra) <recurse>
+   111ec: 9522         	c.add	a0, s0
+   111ee: 94aa         	c.add	s1, a0
+   111f0: 453d         	c.li	a0, 0xf
+   111f2: 00000097     	auipc	ra, 0x0
+   111f6: 0b2080e7     	jalr	ra, 0xb2(ra) <fib>
+   111fa: 94aa         	c.add	s1, a0
+
+00000000000111fc <.Lpcrel_hi0>:
+   111fc: fffff517     	auipc	a0, 0xfffff
+   11200: f9453503     	ld	a0, -0x6c(a0)
+   11204: 45b5         	c.li	a1, 0xd
+   11206: 00000097     	auipc	ra, 0x0
+   1120a: 0fe080e7     	jalr	ra, 0xfe(ra) <shifts>
+   1120e: 842a         	c.mv	s0, a0
+   11210: 000f4537     	lui	a0, 0xf4
+   11214: 24350513     	addi	a0, a0, 0x243
+   11218: 06100593     	addi	a1, zero, 0x61
+   1121c: 00000097     	auipc	ra, 0x0
+   11220: 054080e7     	jalr	ra, 0x54(ra) <divides>
+   11224: 9526         	c.add	a0, s1
+   11226: 9522         	c.add	a0, s0
+
+0000000000011228 <.Lpcrel_hi1>:
+   11228: 00001597     	auipc	a1, 0x1
+   1122c: 10a5bc23     	sd	a0, 0x118(a1)
+   11230: a001         	c.j	0x11230 <.Lpcrel_hi1+0x8>
+
+0000000000011232 <bump>:
+   11232: 00001597     	auipc	a1, 0x1
+   11236: 10658593     	addi	a1, a1, 0x106
+   1123a: 06a5b52f     	amoadd.d.aqrl	a0, a0, (a1)
+   1123e: 8082         	c.jr	ra
+
+0000000000011240 <dispatch>:
+   11240: aaaab6b7     	lui	a3, 0xaaaab
+   11244: aab68693     	addi	a3, a3, -0x555
+   11248: 02069713     	slli	a4, a3, 0x20
+   1124c: 96ba         	c.add	a3, a4
+   1124e: 02d536b3     	mulhu	a3, a0, a3
+   11252: 0016d713     	srli	a4, a3, 0x1
+   11256: 9af9         	c.andi	a3, -0x2
+   11258: 96ba         	c.add	a3, a4
+
+000000000001125a <.Lpcrel_hi3>:
+   1125a: fffff717     	auipc	a4, 0xfffff
+   1125e: 8d15         	c.sub	a0, a3
+   11260: 050e         	c.slli	a0, 0x3
+   11262: f3e70693     	addi	a3, a4, -0xc2
+   11266: 9536         	c.add	a0, a3
+   11268: 611c         	c.ld	a5, 0x0(a0)
+   1126a: 852e         	c.mv	a0, a1
+   1126c: 85b2         	c.mv	a1, a2
+   1126e: 8782         	c.jr	a5
+
+0000000000011270 <divides>:
+   11270: 56fd         	c.li	a3, -0x1
+   11272: 03f69613     	slli	a2, a3, 0x3f
+   11276: 0015e593     	ori	a1, a1, 0x1
+   1127a: 00c51463     	bne	a0, a2, 0x11282 <divides+0x12>
+   1127e: 00d58b63     	beq	a1, a3, 0x11294 <divides+0x24>
+   11282: 02b54633     	div	a2, a0, a1
+   11286: 00d58763     	beq	a1, a3, 0x11294 <divides+0x24>
+   1128a: 02b606b3     	mul	a3, a2, a1
+   1128e: 40d506b3     	sub	a3, a0, a3
+   11292: 8e35         	c.xor	a2, a3
+   11294: 02b556b3     	divu	a3, a0, a1
+   11298: 02b685b3     	mul	a1, a3, a1
+   1129c: 8d0d         	c.sub	a0, a1
+   1129e: 8e35         	c.xor	a2, a3
+   112a0: 8d31         	c.xor	a0, a2
+   112a2: 8082         	c.jr	ra
+
+00000000000112a4 <fib>:
+   112a4: 1101         	c.addi	sp, -0x20
+   112a6: ec06         	c.sdsp	ra, 0x18(sp)
+   112a8: e822         	c.sdsp	s0, 0x10(sp)
+   112aa: e426         	c.sdsp	s1, 0x8(sp)
+   112ac: e04a         	c.sdsp	s2, 0x0(sp)
+   112ae: 4589         	c.li	a1, 0x2
+   112b0: 842a         	c.mv	s0, a0
+   112b2: 4481         	c.li	s1, 0x0
+   112b4: 00b56d63     	bltu	a0, a1, 0x112ce <fib+0x2a>
+   112b8: 4905         	c.li	s2, 0x1
+   112ba: fff40513     	addi	a0, s0, -0x1
+   112be: 00000097     	auipc	ra, 0x0
+   112c2: fe6080e7     	jalr	ra, -0x1a(ra) <fib>
+   112c6: 1479         	c.addi	s0, -0x2
+   112c8: 94aa         	c.add	s1, a0
+   112ca: fe8968e3     	bltu	s2, s0, 0x112ba <fib+0x16>
+   112ce: 00940533     	add	a0, s0, s1
+   112d2: 60e2         	c.ldsp	ra, 0x18(sp)
+   112d4: 6442         	c.ldsp	s0, 0x10(sp)
+   112d6: 64a2         	c.ldsp	s1, 0x8(sp)
+   112d8: 6902         	c.ldsp	s2, 0x0(sp)
+   112da: 6105         	c.addi16sp	sp, 0x20
+   112dc: 8082         	c.jr	ra
+
+00000000000112de <op_add>:
+   112de: 952e         	c.add	a0, a1
+   112e0: 8082         	c.jr	ra
+
+00000000000112e2 <op_mul>:
+   112e2: 02a58533     	mul	a0, a1, a0
+   112e6: 8082         	c.jr	ra
+
+00000000000112e8 <op_sub>:
+   112e8: 8d0d         	c.sub	a0, a1
+   112ea: 8082         	c.jr	ra
+
+00000000000112ec <recurse>:
+   112ec: c911         	c.beqz	a0, 0x11300 <recurse+0x14>
+   112ee: 85aa         	c.mv	a1, a0
+   112f0: 4505         	c.li	a0, 0x1
+   112f2: fff58613     	addi	a2, a1, -0x1
+   112f6: 02b50533     	mul	a0, a0, a1
+   112fa: 85b2         	c.mv	a1, a2
+   112fc: fa7d         	c.bnez	a2, 0x112f2 <recurse+0x6>
+   112fe: 8082         	c.jr	ra
+   11300: 4505         	c.li	a0, 0x1
+   11302: 8082         	c.jr	ra
+
+0000000000011304 <shifts>:
+   11304: 00b51633     	sll	a2, a0, a1
+   11308: 00b556b3     	srl	a3, a0, a1
+   1130c: 40b55733     	sra	a4, a0, a1
+   11310: 00b5153b     	sllw	a0, a0, a1
+   11314: 1502         	c.slli	a0, 0x20
+   11316: 8e35         	c.xor	a2, a3
+   11318: 9101         	c.srli	a0, 0x20
+   1131a: 8e39         	c.xor	a2, a4
+   1131c: 8d31         	c.xor	a0, a2
+   1131e: 8082         	c.jr	ra
+
+0000000000011320 <switcher>:
+   11320: 01253593     	sltiu	a1, a0, 0x12
+   11324: 06500613     	addi	a2, zero, 0x65
+   11328: 02c50533     	mul	a0, a0, a2
+   1132c: 06450513     	addi	a0, a0, 0x64
+   11330: 40b005b3     	sub	a1, zero, a1
+   11334: 8d6d         	c.and	a0, a1
+   11336: 8082         	c.jr	ra

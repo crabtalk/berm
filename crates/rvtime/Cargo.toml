@@ -1,0 +1,20 @@
+[package]
+name = "rvtime"
+description = "A RISC-V compiler with a wasmtime-like interface"
+edition.workspace = true
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+compiler.workspace = true
+libc.workspace = true
+rv.workspace = true
+translator.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+libc.workspace = true
+rv.workspace = true

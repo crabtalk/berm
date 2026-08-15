@@ -1,0 +1,140 @@
+
+wide.elf:	file format elf64-littleriscv
+
+Disassembly of section .text:
+
+0000000000011190 <coverage>:
+   11190: 00058503     	lb	a0, 0x0(a1)
+   11194: 00259503     	lh	a0, 0x2(a1)
+   11198: 0045a503     	lw	a0, 0x4(a1)
+   1119c: 0085b503     	ld	a0, 0x8(a1)
+   111a0: 0015c503     	lbu	a0, 0x1(a1)
+   111a4: 0065d503     	lhu	a0, 0x6(a1)
+   111a8: 00c5e503     	lwu	a0, 0xc(a1)
+   111ac: 00c58023     	sb	a2, 0x0(a1)
+   111b0: 00c59123     	sh	a2, 0x2(a1)
+   111b4: 00c5a223     	sw	a2, 0x4(a1)
+   111b8: 00c5b423     	sd	a2, 0x8(a1)
+   111bc: 00b50063     	beq	a0, a1, 0x111bc <coverage+0x2c>
+   111c0: feb51ee3     	bne	a0, a1, 0x111bc <coverage+0x2c>
+   111c4: feb54ce3     	blt	a0, a1, 0x111bc <coverage+0x2c>
+   111c8: feb55ae3     	bge	a0, a1, 0x111bc <coverage+0x2c>
+   111cc: feb568e3     	bltu	a0, a1, 0x111bc <coverage+0x2c>
+   111d0: feb576e3     	bgeu	a0, a1, 0x111bc <coverage+0x2c>
+   111d4: 80058513     	addi	a0, a1, -0x800
+   111d8: 0115a513     	slti	a0, a1, 0x11
+   111dc: 0115b513     	sltiu	a0, a1, 0x11
+   111e0: 0ff5c513     	xori	a0, a1, 0xff
+   111e4: 0ff5e513     	ori	a0, a1, 0xff
+   111e8: f005f513     	andi	a0, a1, -0x100
+   111ec: 03f59513     	slli	a0, a1, 0x3f
+   111f0: 03f5d513     	srli	a0, a1, 0x3f
+   111f4: 43f5d513     	srai	a0, a1, 0x3f
+   111f8: 00c58533     	add	a0, a1, a2
+   111fc: 40c58533     	sub	a0, a1, a2
+   11200: 00c59533     	sll	a0, a1, a2
+   11204: 00c5a533     	slt	a0, a1, a2
+   11208: 00c5b533     	sltu	a0, a1, a2
+   1120c: 00c5c533     	xor	a0, a1, a2
+   11210: 00c5d533     	srl	a0, a1, a2
+   11214: 40c5d533     	sra	a0, a1, a2
+   11218: 00c5e533     	or	a0, a1, a2
+   1121c: 00c5f533     	and	a0, a1, a2
+   11220: fff5851b     	addiw	a0, a1, -0x1
+   11224: 01f5951b     	slliw	a0, a1, 0x1f
+   11228: 01f5d51b     	srliw	a0, a1, 0x1f
+   1122c: 41f5d51b     	sraiw	a0, a1, 0x1f
+   11230: 00c5853b     	addw	a0, a1, a2
+   11234: 40c5853b     	subw	a0, a1, a2
+   11238: 00c5953b     	sllw	a0, a1, a2
+   1123c: 00c5d53b     	srlw	a0, a1, a2
+   11240: 40c5d53b     	sraw	a0, a1, a2
+   11244: 02c58533     	mul	a0, a1, a2
+   11248: 02c59533     	mulh	a0, a1, a2
+   1124c: 02c5a533     	mulhsu	a0, a1, a2
+   11250: 02c5b533     	mulhu	a0, a1, a2
+   11254: 02c5c533     	div	a0, a1, a2
+   11258: 02c5d533     	divu	a0, a1, a2
+   1125c: 02c5e533     	rem	a0, a1, a2
+   11260: 02c5f533     	remu	a0, a1, a2
+   11264: 02c5853b     	mulw	a0, a1, a2
+   11268: 02c5c53b     	divw	a0, a1, a2
+   1126c: 02c5d53b     	divuw	a0, a1, a2
+   11270: 02c5e53b     	remw	a0, a1, a2
+   11274: 02c5f53b     	remuw	a0, a1, a2
+   11278: fffff537     	lui	a0, 0xfffff
+   1127c: 00001517     	auipc	a0, 0x1
+   11280: 004000ef     	jal	ra, 0x11284 <coverage+0xf4>
+   11284: 004580e7     	jalr	ra, 0x4(a1)
+   11288: 1005a52f     	lr.w	a0, (a1)
+   1128c: 1005b52f     	lr.d	a0, (a1)
+   11290: 18c5a52f     	sc.w	a0, a2, (a1)
+   11294: 18c5b52f     	sc.d	a0, a2, (a1)
+   11298: 1405a52f     	lr.w.aq	a0, (a1)
+   1129c: 1ec5b52f     	sc.d.aqrl	a0, a2, (a1)
+   112a0: 08c5a52f     	amoswap.w	a0, a2, (a1)
+   112a4: 08c5b52f     	amoswap.d	a0, a2, (a1)
+   112a8: 00c5a52f     	amoadd.w	a0, a2, (a1)
+   112ac: 00c5b52f     	amoadd.d	a0, a2, (a1)
+   112b0: 20c5a52f     	amoxor.w	a0, a2, (a1)
+   112b4: 20c5b52f     	amoxor.d	a0, a2, (a1)
+   112b8: 60c5a52f     	amoand.w	a0, a2, (a1)
+   112bc: 60c5b52f     	amoand.d	a0, a2, (a1)
+   112c0: 40c5a52f     	amoor.w	a0, a2, (a1)
+   112c4: 40c5b52f     	amoor.d	a0, a2, (a1)
+   112c8: 80c5a52f     	amomin.w	a0, a2, (a1)
+   112cc: 80c5b52f     	amomin.d	a0, a2, (a1)
+   112d0: a0c5a52f     	amomax.w	a0, a2, (a1)
+   112d4: a0c5b52f     	amomax.d	a0, a2, (a1)
+   112d8: c0c5a52f     	amominu.w	a0, a2, (a1)
+   112dc: c0c5b52f     	amominu.d	a0, a2, (a1)
+   112e0: e0c5a52f     	amomaxu.w	a0, a2, (a1)
+   112e4: e0c5b52f     	amomaxu.d	a0, a2, (a1)
+   112e8: 04c5a52f     	amoadd.w.aq	a0, a2, (a1)
+   112ec: 02c5b52f     	amoadd.d.rl	a0, a2, (a1)
+   112f0: 00000073     	ecall
+   112f4: 00100073     	ebreak
+   112f8: 0ff0000f     	fence	iorw, iorw
+   112fc: 0000100f     	fence.i
+   11300: 0028         	c.addi4spn	a0, sp, 0x8
+   11302: 41c8         	c.lw	a0, 0x4(a1)
+   11304: 6588         	c.ld	a0, 0x8(a1)
+   11306: c1c8         	c.sw	a0, 0x4(a1)
+   11308: e588         	c.sd	a0, 0x8(a1)
+   1130a: 0001         	c.nop
+   1130c: 0505         	c.addi	a0, 0x1
+   1130e: 2505         	c.addiw	a0, 0x1
+   11310: 557d         	c.li	a0, -0x1
+   11312: 6105         	c.addi16sp	sp, 0x20
+   11314: 6505         	c.lui	a0, 0x1
+   11316: 8105         	c.srli	a0, 0x1
+   11318: 8505         	c.srai	a0, 0x1
+   1131a: 997d         	c.andi	a0, -0x1
+   1131c: 8d0d         	c.sub	a0, a1
+   1131e: 8d2d         	c.xor	a0, a1
+   11320: 8d4d         	c.or	a0, a1
+   11322: 8d6d         	c.and	a0, a1
+   11324: 9d0d         	c.subw	a0, a1
+   11326: 9d2d         	c.addw	a0, a1
+   11328: a009         	c.j	0x1132a <coverage+0x19a>
+   1132a: c101         	c.beqz	a0, 0x1132a <coverage+0x19a>
+   1132c: fd7d         	c.bnez	a0, 0x1132a <coverage+0x19a>
+   1132e: 0506         	c.slli	a0, 0x1
+   11330: 4512         	c.lwsp	a0, 0x4(sp)
+   11332: 6522         	c.ldsp	a0, 0x8(sp)
+   11334: 852e         	c.mv	a0, a1
+   11336: 952e         	c.add	a0, a1
+   11338: c22a         	c.swsp	a0, 0x4(sp)
+   1133a: e42a         	c.sdsp	a0, 0x8(sp)
+   1133c: 9582         	c.jalr	a1
+   1133e: 9002         	c.ebreak
+   11340: 8082         	c.jr	ra
+
+0000000000011342 <_start>:
+   11342: 00001517     	auipc	a0, 0x1
+
+0000000000011346 <.Lpcrel_hi1>:
+   11346: 00000597     	auipc	a1, 0x0
+   1134a: e4a58593     	addi	a1, a1, -0x1b6
+   1134e: 00b53b23     	sd	a1, 0x16(a0)
+   11352: a001         	c.j	0x11352 <.Lpcrel_hi1+0xc>

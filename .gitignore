@@ -1,0 +1,6 @@
+/target
+Cargo.lock
+
+# Fixture build artifacts. The .elf and .objdump goldens are committed; the
+# RISC-V build trees that produce them are not.
+/fixtures/*/target
