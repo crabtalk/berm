@@ -26,11 +26,7 @@ impl Module {
     /// Compile a statically linked RV64 ELF image.
     pub fn new(engine: &Engine, bytes: &[u8]) -> Result<Module> {
         let program = rv::elf::load(bytes).context("failed to load the guest image")?;
-        let inner = compiler::Module::new(
-            engine.compiler(),
-            program,
-            engine.config().memory_size,
-        )?;
+        let inner = compiler::Module::new(engine.compiler(), program, engine.config().memory_size)?;
         Ok(Module {
             inner: Arc::new(inner),
         })
@@ -46,7 +42,11 @@ impl Module {
 
     /// Names of the functions this module exports.
     pub fn exports(&self) -> impl Iterator<Item = &str> {
-        self.inner.program().functions.values().map(|f| f.name.as_str())
+        self.inner
+            .program()
+            .functions
+            .values()
+            .map(|f| f.name.as_str())
     }
 
     /// The ELF entry point.

@@ -84,10 +84,12 @@ impl Translator<'_, '_> {
 
         let args = self.builder.block_params(entry).to_vec();
         self.vmctx = args[params::VMCTX];
-        self.memory =
-            self.builder
-                .ins()
-                .load(types::I64, MemFlagsData::trusted(), self.vmctx, offsets::MEMORY);
+        self.memory = self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            self.vmctx,
+            offsets::MEMORY,
+        );
 
         for slot in &mut self.regs {
             *slot = self.builder.declare_var(types::I64);
@@ -100,7 +102,8 @@ impl Translator<'_, '_> {
         for index in 0..32 {
             self.builder.def_var(self.regs[index], zero);
         }
-        self.builder.def_var(self.regs[Reg::SP.index()], args[params::SP]);
+        self.builder
+            .def_var(self.regs[Reg::SP.index()], args[params::SP]);
         for arg in 0..params::ARGS {
             self.builder
                 .def_var(self.regs[Reg::A0.index() + arg], args[params::A0 + arg]);
@@ -188,7 +191,12 @@ impl Translator<'_, '_> {
                 self.rset(rd, value);
             }
 
-            Inst::Branch { op, rs1, rs2, imm: _ } => {
+            Inst::Branch {
+                op,
+                rs1,
+                rs2,
+                imm: _,
+            } => {
                 let lhs = self.rget(rs1);
                 let rhs = self.rget(rs2);
                 let cond = self.builder.ins().icmp(inst::condition(op), lhs, rhs);
@@ -199,7 +207,14 @@ impl Translator<'_, '_> {
 
             Inst::Load { op, rd, rs1, imm } => {
                 let base = self.rget(rs1);
-                let value = inst::load(&mut self.builder, self.memory, op, base, imm, self.imports.memory_mask);
+                let value = inst::load(
+                    &mut self.builder,
+                    self.memory,
+                    op,
+                    base,
+                    imm,
+                    self.imports.memory_mask,
+                );
                 self.rset(rd, value);
             }
             Inst::Store { op, rs1, rs2, imm } => {
@@ -254,7 +269,14 @@ impl Translator<'_, '_> {
                 self.rset(rd, value);
             }
 
-            Inst::Amo { op, width, rd, rs1, rs2, .. } => {
+            Inst::Amo {
+                op,
+                width,
+                rd,
+                rs1,
+                rs2,
+                ..
+            } => {
                 let addr_value = self.rget(rs1);
                 let operand = self.rget(rs2);
                 let value = inst::amo(
@@ -279,7 +301,13 @@ impl Translator<'_, '_> {
                 );
                 self.rset(rd, value);
             }
-            Inst::StoreConditional { width, rd, rs1, rs2, .. } => {
+            Inst::StoreConditional {
+                width,
+                rd,
+                rs1,
+                rs2,
+                ..
+            } => {
                 let addr_value = self.rget(rs1);
                 let value = self.rget(rs2);
                 inst::atomic_store(
@@ -416,10 +444,7 @@ impl Translator<'_, '_> {
         let offset = self.builder.ins().isub(dest, text_base);
         let index = self.builder.ins().ushr_imm_u(offset, 1);
 
-        let in_range = self
-            .builder
-            .ins()
-            .icmp(IntCC::UnsignedLessThan, index, len);
+        let in_range = self.builder.ins().icmp(IntCC::UnsignedLessThan, index, len);
         let ok = self.builder.create_block();
         let bad = self.builder.create_block();
         self.builder.ins().brif(in_range, ok, &[], bad, &[]);

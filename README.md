@@ -54,9 +54,12 @@ their address taken, and therefore where an indirect call may legally land.
 Without them a computed jump cannot be checked, and the alternative — guessing
 from a heuristic scan — turns a missed switch table into a trap on correct code.
 
-Floating point (`F`/`D`) is not supported. Decoding happens at load time, so a
-`riscv64gc` image that actually uses it fails in `Module::new` with the offending
-instruction, rather than misbehaving later.
+The `F`/`D` extensions are not implemented, but **a guest can still use
+floating point**: on a target without hardware float, LLVM lowers `f32`/`f64`
+to soft-float calls into `compiler_builtins`, which are ordinary integer code.
+Results are bit-exact. What fails is an image built for a `riscv64gc` target,
+whose code really does contain `F`/`D` instructions — that is rejected in
+`Module::new`, naming the instruction, rather than misbehaving later.
 
 ## How it works
 
@@ -219,7 +222,9 @@ function entry.
 ## Limitations
 
 - **Linux is unverified.** Everything here has only run on macOS/arm64.
-- **No floating point.** RV64IMAC only; no `F`/`D`.
+- **No hardware floating point.** RV64IMAC only. Guests can use floats via
+  soft-float, but an image built for `riscv64gc` will not load — which is also
+  what rules out `std`, since every Rust RISC-V std target is `gc`.
 - **Tail calls grow the stack.** `jr` compiles as call-then-return, which is
   semantically identical but means unbounded tail recursion grows the *native*
   stack. Fixed by switching to `CallConv::Tail`.

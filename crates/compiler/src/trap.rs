@@ -83,11 +83,7 @@ where
     };
 
     let completed = LANDING_PAD.with(|slot| unsafe {
-        rvtime_protect(
-            run::<F, T>,
-            &raw mut payload as *mut c_void,
-            slot.as_ptr(),
-        )
+        rvtime_protect(run::<F, T>, &raw mut payload as *mut c_void, slot.as_ptr())
     });
 
     match (completed, payload.result) {

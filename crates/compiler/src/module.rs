@@ -208,12 +208,7 @@ fn define(
 /// already compiled in a previous run is deserialised rather than generated
 /// again. Code generation is ~99% of compile time, so this is where the whole
 /// saving is.
-fn emit(
-    jit: &mut JITModule,
-    engine: &Engine,
-    ctx: &mut CodegenContext,
-    id: FuncId,
-) -> Result<()> {
+fn emit(jit: &mut JITModule, engine: &Engine, ctx: &mut CodegenContext, id: FuncId) -> Result<()> {
     let Some(cache) = engine.cache() else {
         jit.define_function(id, ctx)?;
         return Ok(());
@@ -322,10 +317,7 @@ fn define_trampoline(
     let call = builder.ins().call_indirect(guest_sig, callee, &call_args);
     let results = builder.inst_results(call).to_vec();
 
-    for (value, reg) in results
-        .iter()
-        .zip([rv::Reg::SP, rv::Reg::A0, rv::Reg::A1])
-    {
+    for (value, reg) in results.iter().zip([rv::Reg::SP, rv::Reg::A0, rv::Reg::A1]) {
         builder.ins().store(
             MemFlagsData::trusted(),
             *value,

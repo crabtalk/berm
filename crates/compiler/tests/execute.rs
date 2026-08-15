@@ -100,7 +100,11 @@ fn direct_calls_and_real_recursion() {
     let mut guest = Guest::new();
 
     fn fib(n: u64) -> u64 {
-        if n < 2 { n } else { fib(n - 1).wrapping_add(fib(n - 2)) }
+        if n < 2 {
+            n
+        } else {
+            fib(n - 1).wrapping_add(fib(n - 2))
+        }
     }
 
     for n in [0u64, 1, 2, 10, 20] {
@@ -156,7 +160,11 @@ fn shifts_match_riscv_semantics() {
         (1, 64),
         (0x8000_0000_0000_0000, 1),
     ] {
-        assert_eq!(guest.call("shifts", &[a, b]), expected(a, b), "shifts({a:#x}, {b})");
+        assert_eq!(
+            guest.call("shifts", &[a, b]),
+            expected(a, b),
+            "shifts({a:#x}, {b})"
+        );
     }
 }
 
@@ -178,7 +186,11 @@ fn division_matches_riscv_semantics() {
         (i64::MIN as u64, u64::MAX),
         (12345, 6789),
     ] {
-        assert_eq!(guest.call("divides", &[a, b]), expected(a, b), "divides({a}, {b})");
+        assert_eq!(
+            guest.call("divides", &[a, b]),
+            expected(a, b),
+            "divides({a}, {b})"
+        );
     }
 }
 
@@ -224,7 +236,10 @@ fn every_function_compiles() {
 fn optimised_and_unoptimised_agree() {
     let load = || rv::elf::load(include_bytes!("../../../fixtures/basic.elf")).expect("loads");
 
-    for opt in [rvtime_compiler::OptLevel::None, rvtime_compiler::OptLevel::Speed] {
+    for opt in [
+        rvtime_compiler::OptLevel::None,
+        rvtime_compiler::OptLevel::Speed,
+    ] {
         let program = load();
         let memory = Memory::new(&program, MEMORY, STACK).expect("maps");
         let engine = Engine::new(opt).expect("engine");
@@ -264,9 +279,10 @@ fn the_whole_instruction_set_compiles() {
     let module = Module::new(&Engine::default(), program, MEMORY).expect("compiles");
 
     assert!(
-        module.program().functions.contains_key(
-            &module.program().symbols["coverage"]
-        ),
+        module
+            .program()
+            .functions
+            .contains_key(&module.program().symbols["coverage"]),
         "the coverage function should be loaded"
     );
     assert!(functions > 0);

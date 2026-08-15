@@ -55,7 +55,9 @@ fn auipc_jalr_pairs_resolve_to_direct_calls() {
 
     assert_eq!(
         called,
-        vec!["bump", "dispatch", "divides", "fib", "recurse", "shifts", "switcher"]
+        vec![
+            "bump", "dispatch", "divides", "fib", "recurse", "shifts", "switcher"
+        ]
     );
 }
 

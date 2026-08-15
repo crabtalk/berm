@@ -158,12 +158,21 @@ pub static EXPORTS_2: [extern "C" fn(u64, u64) -> u64; 6] =
     [call_add, call_sum, call_fill, call_mixed, write_at, init_heap];
 
 #[no_mangle]
-pub static EXPORTS_1: [extern "C" fn(u64) -> u64; 4] =
-    [call_refused, round_trip, read_at, alloc_sum];
+pub static EXPORTS_1: [extern "C" fn(u64) -> u64; 5] =
+    [call_refused, round_trip, read_at, alloc_sum, float_probe];
 
 #[no_mangle]
 pub static EXPORTS_0: [extern "C" fn() -> u64; 4] =
     [call_tick, call_unknown, heap_used, heap_free];
+
+/// Probes whether a guest can use floating point at all.
+#[inline(never)]
+#[no_mangle]
+pub extern "C" fn float_probe(bits: u64) -> u64 {
+    let x = f64::from_bits(bits);
+    let y = (x * 1.5 + 2.25) / 3.0;
+    y.to_bits()
+}
 
 #[no_mangle]
 pub static mut RESULT: u64 = 0;

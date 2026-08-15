@@ -912,8 +912,12 @@ mod guest_alloc {
     fn allocation_comes_out_of_the_committed_heap() {
         let (mut store, instance) = with_heap();
         let heap = store.heap().expect("instantiated");
-        let free = instance.get_typed_func::<(), u64>("heap_free").expect("heap_free");
-        let used = instance.get_typed_func::<(), u64>("heap_used").expect("heap_used");
+        let free = instance
+            .get_typed_func::<(), u64>("heap_free")
+            .expect("heap_free");
+        let used = instance
+            .get_typed_func::<(), u64>("heap_used")
+            .expect("heap_used");
         let sum = instance
             .get_typed_func::<(u64,), u64>("alloc_sum")
             .expect("alloc_sum");
@@ -983,8 +987,8 @@ mod cache {
 
     impl Dir {
         fn new(name: &str) -> Self {
-            let path = std::env::temp_dir()
-                .join(format!("rvtime-cache-{}-{name}", std::process::id()));
+            let path =
+                std::env::temp_dir().join(format!("rvtime-cache-{}-{name}", std::process::id()));
             let _ = std::fs::remove_dir_all(&path);
             Dir(path)
         }
@@ -1097,5 +1101,35 @@ mod cache {
             .expect("instantiates");
         let fib = instance.get_typed_func::<(u64,), u64>("fib").expect("fib");
         assert_eq!(fib.call(&mut store, (20,)).unwrap(), 6765);
+    }
+}
+
+/// Floating point in a guest.
+mod floats {
+    use super::*;
+
+    #[test]
+    fn guests_can_use_floating_point_via_soft_float() {
+        // rvtime implements no F/D extension, but that does not stop a guest
+        // using floats: on a target without hardware float, LLVM lowers them to
+        // calls into `compiler_builtins` (`__adddf3` and friends), which are
+        // ordinary integer code. Results must be bit-exact, since a guest that
+        // computed *nearly* the right float would be worse than one that
+        // refused to load.
+        let engine = Engine::default();
+        let module = Module::new(&engine, HOSTED).expect("compiles");
+        let mut store = Store::new(&engine, Host::default());
+        let instance = Linker::new(&engine)
+            .instantiate(&mut store, &module)
+            .expect("instantiates");
+        let probe = instance
+            .get_typed_func::<(u64,), u64>("float_probe")
+            .expect("float_probe");
+
+        for x in [0.0f64, 1.0, -3.5, 0.1, 1e300, f64::MIN_POSITIVE] {
+            let got = probe.call(&mut store, (x.to_bits(),)).unwrap();
+            let want = (x * 1.5 + 2.25) / 3.0;
+            assert_eq!(got, want.to_bits(), "mismatch for {x}");
+        }
     }
 }
