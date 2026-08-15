@@ -80,7 +80,19 @@ pub static EXPORTS: [extern "C" fn(u64, u64) -> u64; 2] = [add, multiply];
 ```
 
 and reference that table from `_start`, or the table itself will be collected
-along with everything it names.
+along with everything it names. One array per signature, since a const
+initialiser cannot cast a function pointer to a common type.
+
+`--no-gc-sections` looks like the obvious shortcut and is not one. It retains
+*every* section, including all of `core`, `alloc` and `compiler_builtins`.
+Measured on this repository's `hosted` fixture: **115 KB grows to 1.17 MB**, and
+2,441 instructions become 51,228. The cost is invisible on a toy guest with no
+dependencies and severe on a real one.
+
+`--export-dynamic` does not work either — it governs the dynamic symbol table,
+which a static binary does not have. The one precise alternative is
+`-Clink-arg=--undefined=<symbol>` per export, which trades the array for a list
+of linker flags that has to be kept in step with the same functions.
 
 ## Where to go next
 
