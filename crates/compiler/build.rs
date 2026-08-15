@@ -2,7 +2,9 @@ fn main() {
     println!("cargo:rerun-if-changed=csrc/trap.c");
 
     let mut build = cc::Build::new();
-    build.file("csrc/trap.c").define("_POSIX_C_SOURCE", "200809L");
+    build
+        .file("csrc/trap.c")
+        .define("_POSIX_C_SOURCE", "200809L");
 
     // `SA_ONSTACK` and `_setjmp`/`_longjmp` are XSI extensions, which strict
     // POSIX.1-2008 hides. Each libc has its own switch for exposing them, and
