@@ -1,10 +1,16 @@
 //! Guest state and the boundary between host and guest
 
 use crate::{Config, Engine, abi::Regs, linker::HostMap};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use compiler::{Memory, trap};
 use rv::Reg;
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 use translator::VmCtx;
 
 /// Why a guest stopped short.
@@ -27,6 +33,13 @@ pub enum Trap {
 
     /// A host function returned an error.
     HostCall(anyhow::Error),
+
+    /// The guest reached an instruction compilers place where control must not
+    /// go -- typically a panic path.
+    IllegalInstruction,
+
+    /// The host asked the guest to stop, and it did.
+    Interrupted,
 }
 
 impl fmt::Display for Trap {
@@ -42,6 +55,8 @@ impl fmt::Display for Trap {
             Trap::Breakpoint => write!(f, "guest executed ebreak"),
             Trap::UnknownHostCall(number) => write!(f, "no host function for call {number}"),
             Trap::HostCall(error) => write!(f, "host call failed: {error}"),
+            Trap::IllegalInstruction => write!(f, "guest reached an illegal instruction"),
+            Trap::Interrupted => write!(f, "guest was interrupted"),
         }
     }
 }
@@ -54,6 +69,10 @@ pub(crate) struct State<T> {
     pub memory: Memory,
     pub ctx: VmCtx,
     pub hosts: Arc<HostMap<T>>,
+
+    /// The flag compiled code polls on backward edges. Held in an `Arc` so an
+    /// [`Interrupt`] handle stays valid however the store moves.
+    pub interrupt: Arc<AtomicU64>,
 
     /// Set by a failing host call and taken by the entry point, so the error
     /// survives the return through compiled code.
@@ -72,12 +91,23 @@ pub struct Store<T> {
     pub(crate) state: Option<State<T>>,
 }
 
+// Every pointer reachable from a store is owned by it: `memory` is its own
+// mapping, `dispatch` and `trampoline` belong to the `Arc<Module>` it holds,
+// and `host_data` is rewritten on each entry. Moving the store moves all of
+// them together, so an embedder can hand one to another thread -- which it must
+// be able to do to run guests on a worker pool.
+//
+// Deliberately *not* `Sync`. Entering a guest takes `&mut Store`, so two
+// threads must never be inside one at the same time; `Send` without `Sync` is
+// exactly that rule.
+unsafe impl<T: Send> Send for Store<T> {}
+
 impl<T> Store<T> {
     /// Create a store holding `data`.
     pub fn new(engine: &Engine, data: T) -> Self {
         Store {
             data,
-            config: *engine.config(),
+            config: engine.config().clone(),
             engine: engine.clone(),
             state: None,
         }
@@ -101,6 +131,28 @@ impl<T> Store<T> {
     /// The engine this store was created with.
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    /// A handle that stops this guest from another thread.
+    ///
+    /// Requires [`Config::interruptible`](crate::Config::interruptible); without
+    /// it the compiled code has no checks to notice the request, so asking for a
+    /// handle that could never work is an error rather than a silent no-op.
+    pub fn interrupt_handle(&self) -> Result<Interrupt> {
+        let state = self.instantiated()?;
+        if !state.module.interruptible() {
+            bail!("this module was not compiled with Config::interruptible");
+        }
+        Ok(Interrupt(state.interrupt.clone()))
+    }
+
+    /// The guest heap: committed, zeroed, and guarded from the stack.
+    ///
+    /// rvtime commits the region but does not carve it up. Hand these bounds to
+    /// the guest -- through a host function you register, or as arguments to an
+    /// init export -- and let its allocator manage them.
+    pub fn heap(&self) -> Result<std::ops::Range<u64>> {
+        Ok(self.instantiated()?.memory.heap())
     }
 
     /// Read `len` bytes of guest memory at `addr`.
@@ -135,6 +187,7 @@ impl<T> Store<T> {
         let memory = Memory::new(module.program(), module.memory_size(), self.stack_size())
             .context("failed to map guest memory")?;
 
+        let interrupt = Arc::new(AtomicU64::new(0));
         let ctx = VmCtx {
             regs: [0; 32],
             memory: memory.base(),
@@ -144,6 +197,7 @@ impl<T> Store<T> {
             host_call: dispatch::<T> as *const u8,
             // Refreshed on every entry, because the store may have moved.
             host_data: std::ptr::null_mut(),
+            interrupt: Arc::as_ptr(&interrupt).cast(),
             trap: 0,
         };
 
@@ -152,6 +206,7 @@ impl<T> Store<T> {
             memory,
             ctx,
             hosts,
+            interrupt,
             failure: None,
         });
         Ok(())
@@ -216,6 +271,8 @@ pub(crate) fn enter<T, P: Regs, R: Regs>(
         translator::Trap::BadIndirectTarget => Err(Trap::BadIndirectTarget.into()),
         translator::Trap::Breakpoint => Err(Trap::Breakpoint.into()),
         translator::Trap::HostCall => Err(Trap::HostCall(anyhow!("host call failed")).into()),
+        translator::Trap::IllegalInstruction => Err(Trap::IllegalInstruction.into()),
+        translator::Trap::Interrupted => Err(Trap::Interrupted.into()),
     }
 }
 
@@ -227,12 +284,7 @@ extern "C" fn dispatch<T>(ctx: *mut VmCtx) -> u64 {
     // Read through the raw pointer rather than taking `&mut VmCtx`: the
     // context lives inside the store, and holding both references at once
     // would alias.
-    let (host_data, number) = unsafe {
-        (
-            (*ctx).host_data,
-            (*ctx).regs[Reg::A7.index()],
-        )
-    };
+    let (host_data, number) = unsafe { ((*ctx).host_data, (*ctx).regs[Reg::A7.index()]) };
 
     let store = unsafe { &mut *(host_data as *mut Store<T>) };
     let Some(state) = store.state.as_ref() else {
@@ -257,6 +309,33 @@ extern "C" fn dispatch<T>(ctx: *mut VmCtx) -> u64 {
 fn fail<T>(store: &mut Store<T>, trap: Trap) {
     if let Some(state) = store.state.as_mut() {
         state.failure = Some(trap);
+    }
+}
+
+/// Stops a running guest.
+///
+/// Cheap to clone and safe to share, so a watchdog can hold one while the guest
+/// runs on another thread.
+#[derive(Clone, Debug)]
+pub struct Interrupt(Arc<AtomicU64>);
+
+impl Interrupt {
+    /// Ask the guest to stop at its next backward edge.
+    ///
+    /// The call returns immediately; the guest stops when it next closes a
+    /// loop, and its pending call fails with [`Trap::Interrupted`].
+    pub fn interrupt(&self) {
+        self.0.store(1, Ordering::Release);
+    }
+
+    /// Withdraw a request, so the guest may run again.
+    pub fn clear(&self) {
+        self.0.store(0, Ordering::Release);
+    }
+
+    /// Whether a stop has been requested.
+    pub fn is_set(&self) -> bool {
+        self.0.load(Ordering::Acquire) != 0
     }
 }
 
@@ -286,6 +365,11 @@ impl<T> Caller<'_, T> {
         self.state_mut().ctx.regs[reg.index()] = value;
     }
 
+    /// The guest heap bounds.
+    pub fn heap(&self) -> std::ops::Range<u64> {
+        self.state().memory.heap()
+    }
+
     /// Read `len` bytes of guest memory at `addr`.
     pub fn read(&self, addr: u64, len: u64) -> Result<&[u8]> {
         self.state().memory.read(addr, len)
@@ -312,10 +396,16 @@ impl<T> Caller<'_, T> {
     }
 
     fn state(&self) -> &State<T> {
-        self.store.state.as_ref().expect("caller implies an instance")
+        self.store
+            .state
+            .as_ref()
+            .expect("caller implies an instance")
     }
 
     fn state_mut(&mut self) -> &mut State<T> {
-        self.store.state.as_mut().expect("caller implies an instance")
+        self.store
+            .state
+            .as_mut()
+            .expect("caller implies an instance")
     }
 }

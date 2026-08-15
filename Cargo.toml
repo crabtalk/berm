@@ -5,6 +5,7 @@ members = [
     "crates/compiler",
     "crates/rvtime",
 ]
+exclude = ["crates/guest"]
 resolver = "3"
 
 [workspace.package]
@@ -28,7 +29,7 @@ cranelift = { version = "0.134.3", features = [
     "native",
     "frontend",
 ] }
-cranelift-codegen = "0.134.3"
+cranelift-codegen = { version = "0.134.3", features = ["incremental-cache"] }
 libc = "0.2"
 object = "0.40"
 tracing = "0.1"

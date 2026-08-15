@@ -118,13 +118,7 @@ pub fn alu(b: &mut FunctionBuilder, op: AluOp, lhs: Value, rhs: Value, word: boo
     alu_typed(b, op, lhs, rhs, types::I64)
 }
 
-fn alu_typed(
-    b: &mut FunctionBuilder,
-    op: AluOp,
-    lhs: Value,
-    rhs: Value,
-    ty: types::Type,
-) -> Value {
+fn alu_typed(b: &mut FunctionBuilder, op: AluOp, lhs: Value, rhs: Value, ty: types::Type) -> Value {
     match op {
         AluOp::Add => b.ins().iadd(lhs, rhs),
         AluOp::Sub => b.ins().isub(lhs, rhs),

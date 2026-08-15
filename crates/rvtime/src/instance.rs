@@ -35,8 +35,22 @@ impl Instance {
             .entry(name)
             .ok_or_else(|| anyhow!("no exported function named {name:?}"))?;
 
-        if P::COUNT > 8 {
-            bail!("a guest call takes at most 8 arguments, {} given", P::COUNT);
+        if P::COUNT > rv::REGISTER_ARGS {
+            bail!(
+                "a guest call takes at most {} arguments, {} given",
+                rv::REGISTER_ARGS,
+                P::COUNT
+            );
+        }
+        // Only `a0` and `a1` come back from a guest function. Accepting a wider
+        // result type would read registers the callee never wrote and report
+        // them as returned values.
+        if R::COUNT > translator::RESULT_REGS {
+            bail!(
+                "a guest call returns at most {} values, {} requested",
+                translator::RESULT_REGS,
+                R::COUNT
+            );
         }
 
         Ok(TypedFunc {
@@ -89,6 +103,12 @@ pub struct TypedFunc<P, R> {
     name: String,
     marker: PhantomData<fn(P) -> R>,
 }
+
+// The entry pointer addresses code inside `module`, and the `Arc` keeps that
+// code alive for as long as the handle exists. The handle is immutable, so it
+// is safe to share as well as to move.
+unsafe impl<P, R> Send for TypedFunc<P, R> {}
+unsafe impl<P, R> Sync for TypedFunc<P, R> {}
 
 impl<P, R> std::fmt::Debug for TypedFunc<P, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

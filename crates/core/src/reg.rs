@@ -5,6 +5,9 @@ use core::fmt;
 /// The number of general-purpose registers.
 pub const REGISTER_COUNT: usize = 32;
 
+/// How many arguments the ABI passes in registers, `a0`..`a7`.
+pub const REGISTER_ARGS: usize = 8;
+
 /// A RISC-V general-purpose register, `x0`..`x31`.
 ///
 /// `x0` is hardwired to zero; the translator relies on [`Reg::is_zero`] to

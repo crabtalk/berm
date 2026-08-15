@@ -23,6 +23,7 @@ pub enum OptLevel {
 #[derive(Clone)]
 pub struct Engine {
     isa: OwnedTargetIsa,
+    cache: Option<std::sync::Arc<crate::Cache>>,
 }
 
 impl Engine {
@@ -44,7 +45,18 @@ impl Engine {
             .map_err(|e| anyhow!("unsupported host: {e}"))?
             .finish(settings::Flags::new(flags))?;
 
-        Ok(Engine { isa })
+        Ok(Engine { isa, cache: None })
+    }
+
+    /// Cache generated code under `dir`, reusing it across runs.
+    pub fn with_cache(mut self, dir: impl Into<std::path::PathBuf>) -> Result<Self> {
+        self.cache = Some(std::sync::Arc::new(crate::Cache::open(dir)?));
+        Ok(self)
+    }
+
+    /// The compiled-code cache, if one was configured.
+    pub fn cache(&self) -> Option<&std::sync::Arc<crate::Cache>> {
+        self.cache.as_ref()
     }
 
     /// The target ISA.

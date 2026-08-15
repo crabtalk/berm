@@ -30,6 +30,7 @@ impl Module {
             engine.compiler(),
             program,
             engine.config().memory_size,
+            engine.config().interruptible,
         )?;
         Ok(Module {
             inner: Arc::new(inner),
@@ -46,12 +47,21 @@ impl Module {
 
     /// Names of the functions this module exports.
     pub fn exports(&self) -> impl Iterator<Item = &str> {
-        self.inner.program().functions.values().map(|f| f.name.as_str())
+        self.inner
+            .program()
+            .functions
+            .values()
+            .map(|f| f.name.as_str())
     }
 
     /// The ELF entry point.
     pub fn entry_point(&self) -> u64 {
         self.inner.program().entry
+    }
+
+    /// Whether this module checks for interruption while running.
+    pub fn interruptible(&self) -> bool {
+        self.inner.interruptible()
     }
 
     /// The guest address space size this module was compiled for.

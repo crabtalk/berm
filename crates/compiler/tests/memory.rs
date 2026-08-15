@@ -33,13 +33,21 @@ fn isolated() -> Program {
                 addr: page,
                 data: vec![0x11; 16],
                 size: page,
-                perms: Perms { read: true, write: false, exec: true },
+                perms: Perms {
+                    read: true,
+                    write: false,
+                    exec: true,
+                },
             },
             Segment {
                 addr: page * 3,
                 data: vec![0x22; 16],
                 size: page,
-                perms: Perms { read: true, write: true, exec: false },
+                perms: Perms {
+                    read: true,
+                    write: true,
+                    exec: false,
+                },
             },
         ],
     }
@@ -83,8 +91,8 @@ fn unmapped_addresses_fault() {
     let memory = Memory::new(&program, memory_size(), stack_size()).expect("maps");
     trap::set_guest_region(memory.base() as usize, memory.size());
 
-    // Between the image and the stack there is nothing but guard pages.
-    let hole = memory_size() / 2;
+    // The only uncommitted gap is the guard page between heap and stack.
+    let hole = memory.heap().end;
     let base = memory.base();
     let fault = trap::protect(|| unsafe { ptr::read_volatile(base.add(hole as usize)) })
         .expect_err("guard page must fault");

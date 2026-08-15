@@ -24,35 +24,105 @@ pub enum Inst {
     /// and `rd == zero` otherwise is a tail call or computed jump.
     Jalr { rd: Reg, rs1: Reg, imm: i64 },
     /// Conditional branch, PC-relative.
-    Branch { op: Cond, rs1: Reg, rs2: Reg, imm: i64 },
+    Branch {
+        op: Cond,
+        rs1: Reg,
+        rs2: Reg,
+        imm: i64,
+    },
     /// `l{b,h,w,d}[u] rd, imm(rs1)`
-    Load { op: LoadOp, rd: Reg, rs1: Reg, imm: i64 },
+    Load {
+        op: LoadOp,
+        rd: Reg,
+        rs1: Reg,
+        imm: i64,
+    },
     /// `s{b,h,w,d} rs2, imm(rs1)`
-    Store { op: StoreOp, rs1: Reg, rs2: Reg, imm: i64 },
+    Store {
+        op: StoreOp,
+        rs1: Reg,
+        rs2: Reg,
+        imm: i64,
+    },
     /// Register-register ALU op on the full 64-bit width.
-    Alu { op: AluOp, rd: Reg, rs1: Reg, rs2: Reg },
+    Alu {
+        op: AluOp,
+        rd: Reg,
+        rs1: Reg,
+        rs2: Reg,
+    },
     /// Register-immediate ALU op on the full 64-bit width.
-    AluImm { op: AluOp, rd: Reg, rs1: Reg, imm: i64 },
+    AluImm {
+        op: AluOp,
+        rd: Reg,
+        rs1: Reg,
+        imm: i64,
+    },
     /// Register-register ALU op on the low 32 bits, sign-extended to 64.
-    AluW { op: AluOp, rd: Reg, rs1: Reg, rs2: Reg },
+    AluW {
+        op: AluOp,
+        rd: Reg,
+        rs1: Reg,
+        rs2: Reg,
+    },
     /// Register-immediate ALU op on the low 32 bits, sign-extended to 64.
-    AluImmW { op: AluOp, rd: Reg, rs1: Reg, imm: i64 },
+    AluImmW {
+        op: AluOp,
+        rd: Reg,
+        rs1: Reg,
+        imm: i64,
+    },
     /// M-extension op on the full 64-bit width.
-    Mul { op: MulOp, rd: Reg, rs1: Reg, rs2: Reg },
+    Mul {
+        op: MulOp,
+        rd: Reg,
+        rs1: Reg,
+        rs2: Reg,
+    },
     /// M-extension op on the low 32 bits, sign-extended to 64.
-    MulW { op: MulOp, rd: Reg, rs1: Reg, rs2: Reg },
+    MulW {
+        op: MulOp,
+        rd: Reg,
+        rs1: Reg,
+        rs2: Reg,
+    },
     /// `amo<op>.{w,d} rd, rs2, (rs1)` — atomic read-modify-write.
-    Amo { op: AmoOp, width: Width, rd: Reg, rs1: Reg, rs2: Reg, ord: Ordering },
+    Amo {
+        op: AmoOp,
+        width: Width,
+        rd: Reg,
+        rs1: Reg,
+        rs2: Reg,
+        ord: Ordering,
+    },
     /// `lr.{w,d} rd, (rs1)` — load-reserved.
-    LoadReserved { width: Width, rd: Reg, rs1: Reg, ord: Ordering },
+    LoadReserved {
+        width: Width,
+        rd: Reg,
+        rs1: Reg,
+        ord: Ordering,
+    },
     /// `sc.{w,d} rd, rs2, (rs1)` — store-conditional.
-    StoreConditional { width: Width, rd: Reg, rs1: Reg, rs2: Reg, ord: Ordering },
+    StoreConditional {
+        width: Width,
+        rd: Reg,
+        rs1: Reg,
+        rs2: Reg,
+        ord: Ordering,
+    },
     /// `fence` / `fence.i` — a no-op for a single-threaded guest.
     Fence,
     /// `ecall` — transfer to the host.
     Ecall,
     /// `ebreak` — breakpoint trap.
     Ebreak,
+    /// `unimp` — the defined illegal instruction.
+    ///
+    /// The all-zero halfword is guaranteed by the ISA to trap, and compilers
+    /// emit it deliberately where control must not reach: after a diverging
+    /// call, or for an unreachable branch. It is a real instruction meaning
+    /// "stop here", not undecodable input.
+    Unimp,
 }
 
 impl Inst {
@@ -60,7 +130,7 @@ impl Inst {
     pub fn is_terminator(&self) -> bool {
         matches!(
             self,
-            Inst::Jal { .. } | Inst::Jalr { .. } | Inst::Branch { .. } | Inst::Ebreak
+            Inst::Jal { .. } | Inst::Jalr { .. } | Inst::Branch { .. } | Inst::Ebreak | Inst::Unimp
         )
     }
 }

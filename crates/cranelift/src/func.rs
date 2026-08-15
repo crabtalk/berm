@@ -21,6 +21,9 @@ pub struct Imports<'a> {
     /// platform's C convention.
     pub host: SigRef,
 
+    /// Whether to emit interrupt checks on backward edges.
+    pub interruptible: bool,
+
     /// `guest memory size - 1`, applied to every computed address.
     ///
     /// This is what confines the guest to its own address space, so it has to
@@ -46,6 +49,7 @@ pub fn translate(
         blocks: BTreeMap::new(),
         vmctx: Value::from_u32(0),
         memory: Value::from_u32(0),
+        interrupt: None,
         terminated: false,
     };
 
@@ -71,6 +75,9 @@ struct Translator<'a, 'b> {
     vmctx: Value,
     memory: Value,
 
+    /// The interrupt flag pointer, loaded once when the function loops.
+    interrupt: Option<Value>,
+
     /// Whether the block being emitted already ended in a terminator.
     terminated: bool,
 }
@@ -84,10 +91,12 @@ impl Translator<'_, '_> {
 
         let args = self.builder.block_params(entry).to_vec();
         self.vmctx = args[params::VMCTX];
-        self.memory =
-            self.builder
-                .ins()
-                .load(types::I64, MemFlagsData::trusted(), self.vmctx, offsets::MEMORY);
+        self.memory = self.builder.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            self.vmctx,
+            offsets::MEMORY,
+        );
 
         for slot in &mut self.regs {
             *slot = self.builder.declare_var(types::I64);
@@ -100,7 +109,8 @@ impl Translator<'_, '_> {
         for index in 0..32 {
             self.builder.def_var(self.regs[index], zero);
         }
-        self.builder.def_var(self.regs[Reg::SP.index()], args[params::SP]);
+        self.builder
+            .def_var(self.regs[Reg::SP.index()], args[params::SP]);
         for arg in 0..params::ARGS {
             self.builder
                 .def_var(self.regs[Reg::A0.index() + arg], args[params::A0 + arg]);
@@ -117,6 +127,17 @@ impl Translator<'_, '_> {
                 );
                 self.builder.def_var(self.regs[reg.index()], value);
             }
+        }
+
+        // Only a looping function can spin, so only a looping function pays
+        // for the pointer load.
+        if self.imports.interruptible && self.analysis.has_backedge {
+            self.interrupt = Some(self.builder.ins().load(
+                types::I64,
+                MemFlagsData::trusted(),
+                self.vmctx,
+                offsets::INTERRUPT,
+            ));
         }
 
         for &leader in &self.analysis.leaders {
@@ -188,7 +209,12 @@ impl Translator<'_, '_> {
                 self.rset(rd, value);
             }
 
-            Inst::Branch { op, rs1, rs2, imm: _ } => {
+            Inst::Branch {
+                op,
+                rs1,
+                rs2,
+                imm: _,
+            } => {
                 let lhs = self.rget(rs1);
                 let rhs = self.rget(rs2);
                 let cond = self.builder.ins().icmp(inst::condition(op), lhs, rhs);
@@ -199,7 +225,14 @@ impl Translator<'_, '_> {
 
             Inst::Load { op, rd, rs1, imm } => {
                 let base = self.rget(rs1);
-                let value = inst::load(&mut self.builder, self.memory, op, base, imm, self.imports.memory_mask);
+                let value = inst::load(
+                    &mut self.builder,
+                    self.memory,
+                    op,
+                    base,
+                    imm,
+                    self.imports.memory_mask,
+                );
                 self.rset(rd, value);
             }
             Inst::Store { op, rs1, rs2, imm } => {
@@ -254,7 +287,14 @@ impl Translator<'_, '_> {
                 self.rset(rd, value);
             }
 
-            Inst::Amo { op, width, rd, rs1, rs2, .. } => {
+            Inst::Amo {
+                op,
+                width,
+                rd,
+                rs1,
+                rs2,
+                ..
+            } => {
                 let addr_value = self.rget(rs1);
                 let operand = self.rget(rs2);
                 let value = inst::amo(
@@ -279,7 +319,13 @@ impl Translator<'_, '_> {
                 );
                 self.rset(rd, value);
             }
-            Inst::StoreConditional { width, rd, rs1, rs2, .. } => {
+            Inst::StoreConditional {
+                width,
+                rd,
+                rs1,
+                rs2,
+                ..
+            } => {
                 let addr_value = self.rget(rs1);
                 let value = self.rget(rs2);
                 inst::atomic_store(
@@ -304,9 +350,40 @@ impl Translator<'_, '_> {
                 self.trap(Trap::Breakpoint);
                 self.terminated = true;
             }
+            Inst::Unimp => {
+                self.trap(Trap::IllegalInstruction);
+                self.terminated = true;
+            }
         }
 
         Ok(())
+    }
+
+    /// Stop if the host has asked the guest to.
+    ///
+    /// Emitted on backward edges, so a loop cannot run forever. The flag is
+    /// written by another thread, so the load must not be hoisted out of the
+    /// loop: it is deliberately left able to trap and not marked `can_move`,
+    /// which is what keeps Cranelift from treating it as loop-invariant.
+    fn check_interrupt(&mut self) {
+        let Some(pointer) = self.interrupt else {
+            return;
+        };
+
+        let flag = self
+            .builder
+            .ins()
+            .load(types::I64, MemFlagsData::new(), pointer, 0);
+        let raised = self.builder.ins().icmp_imm_s(IntCC::NotEqual, flag, 0);
+
+        let stop = self.builder.create_block();
+        let resume = self.builder.create_block();
+        self.builder.ins().brif(raised, stop, &[], resume, &[]);
+
+        self.builder.switch_to_block(stop);
+        self.trap(Trap::Interrupted);
+
+        self.builder.switch_to_block(resume);
     }
 
     /// Emit a conditional branch.
@@ -334,6 +411,11 @@ impl Translator<'_, '_> {
         Ok(())
     }
 
+    /// Whether a transfer from `addr` to `dest` closes a loop.
+    fn is_backward(addr: u64, dest: u64) -> bool {
+        dest <= addr
+    }
+
     /// Emit a jump, call, or return.
     fn transfer(&mut self, addr: u64, inst: Inst) -> Result<()> {
         let target = match self.analysis.targets.get(&addr) {
@@ -343,6 +425,9 @@ impl Translator<'_, '_> {
 
         match target {
             Target::Local(dest) => {
+                if Self::is_backward(addr, dest) {
+                    self.check_interrupt();
+                }
                 let block = self.blocks[&dest];
                 self.builder.ins().jump(block, &[]);
                 self.terminated = true;
@@ -412,10 +497,7 @@ impl Translator<'_, '_> {
         let offset = self.builder.ins().isub(dest, text_base);
         let index = self.builder.ins().ushr_imm_u(offset, 1);
 
-        let in_range = self
-            .builder
-            .ins()
-            .icmp(IntCC::UnsignedLessThan, index, len);
+        let in_range = self.builder.ins().icmp(IntCC::UnsignedLessThan, index, len);
         let ok = self.builder.create_block();
         let bad = self.builder.create_block();
         self.builder.ins().brif(in_range, ok, &[], bad, &[]);
@@ -539,10 +621,12 @@ impl Translator<'_, '_> {
     }
 
     /// Adopt the registers a callee returned.
+    ///
+    /// `sp` is not among them: it is callee-saved, so the callee has already
+    /// restored it and this function's own value still holds.
     fn apply_results(&mut self, results: &[Value]) {
-        self.rset(Reg::SP, results[0]);
-        self.rset(Reg::A0, results[1]);
-        self.rset(Reg::A1, results[2]);
+        self.rset(Reg::A0, results[0]);
+        self.rset(Reg::A1, results[1]);
     }
 
     /// Emit a return of the ABI-live registers.
@@ -554,10 +638,9 @@ impl Translator<'_, '_> {
     /// must not.
     fn ret(&mut self) {
         self.flush_globals();
-        let sp = self.rget(Reg::SP);
         let a0 = self.rget(Reg::A0);
         let a1 = self.rget(Reg::A1);
-        self.builder.ins().return_(&[sp, a0, a1]);
+        self.builder.ins().return_(&[a0, a1]);
     }
 
     /// Return, ending the current guest instruction.

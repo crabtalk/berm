@@ -75,6 +75,7 @@ fn normalize(mnemonic: &str) -> String {
         "c.sd" | "c.sdsp" => "sd",
         "c.sw" | "c.swsp" => "sw",
         "c.ebreak" => "ebreak",
+        "c.unimp" => "unimp",
         "fence.i" | "fence.tso" => "fence",
         other => other,
     }
@@ -180,6 +181,7 @@ fn mnemonic(inst: &Inst) -> String {
         Inst::Fence => "fence".into(),
         Inst::Ecall => "ecall".into(),
         Inst::Ebreak => "ebreak".into(),
+        Inst::Unimp => "unimp".into(),
     }
 }
 

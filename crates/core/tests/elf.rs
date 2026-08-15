@@ -12,13 +12,20 @@ fn program() -> rvtime_core::Program {
 #[test]
 fn recovers_functions_from_the_symbol_table() {
     let program = program();
-    let names: Vec<_> = program.functions.values().map(|f| f.name.as_str()).collect();
+    let names: Vec<_> = program
+        .functions
+        .values()
+        .map(|f| f.name.as_str())
+        .collect();
 
     for want in [
         "_start", "op_add", "op_sub", "op_mul", "dispatch", "switcher", "bump", "recurse",
         "shifts", "divides",
     ] {
-        assert!(names.contains(&want), "missing function {want}, found {names:?}");
+        assert!(
+            names.contains(&want),
+            "missing function {want}, found {names:?}"
+        );
     }
 }
 
@@ -73,7 +80,11 @@ fn decodes_the_leaf_functions_exactly() {
                 rs1: Reg::A0,
                 rs2: Reg::A1
             },
-            Inst::Jalr { rd: Reg::ZERO, rs1: Reg::RA, imm: 0 },
+            Inst::Jalr {
+                rd: Reg::ZERO,
+                rs1: Reg::RA,
+                imm: 0
+            },
         ]
     );
 }
@@ -127,6 +138,13 @@ fn entry_and_segments_fit_the_guest_address_space() {
 #[test]
 fn exposes_symbols_for_lookup() {
     let program = program();
-    let add = program.symbols.get("op_add").copied().expect("op_add symbol");
-    assert_eq!(program.function_at(add).map(|f| f.name.as_str()), Some("op_add"));
+    let add = program
+        .symbols
+        .get("op_add")
+        .copied()
+        .expect("op_add symbol");
+    assert_eq!(
+        program.function_at(add).map(|f| f.name.as_str()),
+        Some("op_add")
+    );
 }

@@ -61,6 +61,13 @@ pub struct Analysis {
     /// Whether the function writes `gp` or `tp`, in which case the values must
     /// be flushed back to the VM context before returning.
     pub writes_globals: bool,
+
+    /// Whether any transfer jumps backwards, i.e. the function contains a loop.
+    ///
+    /// A guest can only run forever by looping — unbounded recursion exhausts
+    /// the stack and traps — so a check on every backward edge is enough to
+    /// make any guest interruptible.
+    pub has_backedge: bool,
 }
 
 /// Analyse a function's control flow.
@@ -184,8 +191,14 @@ fn resolve(function: &Function, entries: &BTreeSet<u64>, analysis: &mut Analysis
         };
 
         if let Some(target) = target {
-            if let Target::Direct { addr: dest, .. } = target {
-                analysis.calls.insert(dest);
+            match target {
+                Target::Direct { addr: dest, .. } => {
+                    analysis.calls.insert(dest);
+                }
+                Target::Local(dest) if dest <= *addr => {
+                    analysis.has_backedge = true;
+                }
+                _ => {}
             }
             analysis.targets.insert(*addr, target);
         }
@@ -287,7 +300,12 @@ fn writes(inst: &Inst) -> Option<Reg> {
         | Inst::Amo { rd, .. }
         | Inst::LoadReserved { rd, .. }
         | Inst::StoreConditional { rd, .. } => Some(*rd),
-        Inst::Branch { .. } | Inst::Store { .. } | Inst::Fence | Inst::Ecall | Inst::Ebreak => None,
+        Inst::Branch { .. }
+        | Inst::Store { .. }
+        | Inst::Fence
+        | Inst::Ecall
+        | Inst::Ebreak
+        | Inst::Unimp => None,
     }
 }
 
@@ -308,7 +326,7 @@ fn reads(inst: &Inst) -> Vec<Reg> {
         | Inst::MulW { rs1, rs2, .. }
         | Inst::Amo { rs1, rs2, .. }
         | Inst::StoreConditional { rs1, rs2, .. } => vec![*rs1, *rs2],
-        Inst::Fence | Inst::Ebreak => vec![],
+        Inst::Fence | Inst::Ebreak | Inst::Unimp => vec![],
         // A host call may read any argument register.
         Inst::Ecall => (10..=17).map(Reg::new).collect(),
     }

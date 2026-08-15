@@ -141,8 +141,8 @@ fn disassemble(body: &[u8], start: u64) -> Result<Vec<(u64, crate::Inst)>> {
     let mut code = Vec::new();
     let mut offset = 0usize;
     while offset < body.len() {
-        let (inst, len) = decode(&body[offset..])
-            .with_context(|| format!("at {:#x}", start + offset as u64))?;
+        let (inst, len) =
+            decode(&body[offset..]).with_context(|| format!("at {:#x}", start + offset as u64))?;
         code.push((start + offset as u64, inst));
         offset += len;
     }

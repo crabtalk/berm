@@ -16,12 +16,18 @@ pub fn decode(bytes: &[u8]) -> Result<(Inst, usize)> {
     }
 
     let half = u16::from_le_bytes([bytes[0], bytes[1]]);
+    if half == 0 {
+        return Ok((Inst::Unimp, 2));
+    }
     if half & 0x3 != 0x3 {
         return Ok((compressed(half)?, 2));
     }
 
     if bytes.len() < 4 {
-        bail!("truncated 32-bit instruction: {} byte(s) available", bytes.len());
+        bail!(
+            "truncated 32-bit instruction: {} byte(s) available",
+            bytes.len()
+        );
     }
     let word = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
     if word & 0x1f == 0x1f {
@@ -51,8 +57,10 @@ fn uncompressed(w: u32) -> Result<Inst> {
     let imm_s = sext(((funct7 << 5) | ((w >> 7) & 0x1f)) as u64, 12);
     // B-type immediate, scrambled across the word and always even.
     let imm_b = sext(
-        ((((w >> 31) & 1) << 12) | (((w >> 7) & 1) << 11) | (((w >> 25) & 0x3f) << 5) | (((w >> 8) & 0xf) << 1))
-            as u64,
+        ((((w >> 31) & 1) << 12)
+            | (((w >> 7) & 1) << 11)
+            | (((w >> 25) & 0x3f) << 5)
+            | (((w >> 8) & 0xf) << 1)) as u64,
         13,
     );
     // U-type immediate, already shifted into place.
@@ -70,7 +78,11 @@ fn uncompressed(w: u32) -> Result<Inst> {
         0b0110111 => Inst::Lui { rd, imm: imm_u },
         0b0010111 => Inst::Auipc { rd, imm: imm_u },
         0b1101111 => Inst::Jal { rd, imm: imm_j },
-        0b1100111 if funct3 == 0 => Inst::Jalr { rd, rs1, imm: imm_i },
+        0b1100111 if funct3 == 0 => Inst::Jalr {
+            rd,
+            rs1,
+            imm: imm_i,
+        },
 
         0b1100011 => {
             let op = match funct3 {
@@ -82,7 +94,12 @@ fn uncompressed(w: u32) -> Result<Inst> {
                 0b111 => Cond::GeU,
                 _ => bail!("reserved branch funct3 {funct3:#05b}: {w:#010x}"),
             };
-            Inst::Branch { op, rs1, rs2, imm: imm_b }
+            Inst::Branch {
+                op,
+                rs1,
+                rs2,
+                imm: imm_b,
+            }
         }
 
         0b0000011 => {
@@ -96,7 +113,12 @@ fn uncompressed(w: u32) -> Result<Inst> {
                 0b110 => LoadOp::Wu,
                 _ => bail!("reserved load funct3 {funct3:#05b}: {w:#010x}"),
             };
-            Inst::Load { op, rd, rs1, imm: imm_i }
+            Inst::Load {
+                op,
+                rd,
+                rs1,
+                imm: imm_i,
+            }
         }
 
         0b0100011 => {
@@ -107,15 +129,34 @@ fn uncompressed(w: u32) -> Result<Inst> {
                 0b011 => StoreOp::D,
                 _ => bail!("reserved store funct3 {funct3:#05b}: {w:#010x}"),
             };
-            Inst::Store { op, rs1, rs2, imm: imm_s }
+            Inst::Store {
+                op,
+                rs1,
+                rs2,
+                imm: imm_s,
+            }
         }
 
         // OP-IMM: shifts take a 6-bit shamt and steal funct7's top bits.
         0b0010011 => match funct3 {
-            0b001 => Inst::AluImm { op: AluOp::Sll, rd, rs1, imm: ((w >> 20) & 0x3f) as i64 },
+            0b001 => Inst::AluImm {
+                op: AluOp::Sll,
+                rd,
+                rs1,
+                imm: ((w >> 20) & 0x3f) as i64,
+            },
             0b101 => {
-                let op = if funct7 & 0b010_0000 != 0 { AluOp::Sra } else { AluOp::Srl };
-                Inst::AluImm { op, rd, rs1, imm: ((w >> 20) & 0x3f) as i64 }
+                let op = if funct7 & 0b010_0000 != 0 {
+                    AluOp::Sra
+                } else {
+                    AluOp::Srl
+                };
+                Inst::AluImm {
+                    op,
+                    rd,
+                    rs1,
+                    imm: ((w >> 20) & 0x3f) as i64,
+                }
             }
             _ => {
                 let op = match funct3 {
@@ -127,7 +168,12 @@ fn uncompressed(w: u32) -> Result<Inst> {
                     0b111 => AluOp::And,
                     _ => unreachable!("shift funct3 handled above"),
                 };
-                Inst::AluImm { op, rd, rs1, imm: imm_i }
+                Inst::AluImm {
+                    op,
+                    rd,
+                    rs1,
+                    imm: imm_i,
+                }
             }
         },
 
@@ -166,11 +212,30 @@ fn uncompressed(w: u32) -> Result<Inst> {
 
         // OP-IMM-32: word-width shifts use a 5-bit shamt.
         0b0011011 => match funct3 {
-            0b000 => Inst::AluImmW { op: AluOp::Add, rd, rs1, imm: imm_i },
-            0b001 => Inst::AluImmW { op: AluOp::Sll, rd, rs1, imm: ((w >> 20) & 0x1f) as i64 },
+            0b000 => Inst::AluImmW {
+                op: AluOp::Add,
+                rd,
+                rs1,
+                imm: imm_i,
+            },
+            0b001 => Inst::AluImmW {
+                op: AluOp::Sll,
+                rd,
+                rs1,
+                imm: ((w >> 20) & 0x1f) as i64,
+            },
             0b101 => {
-                let op = if funct7 & 0b010_0000 != 0 { AluOp::Sra } else { AluOp::Srl };
-                Inst::AluImmW { op, rd, rs1, imm: ((w >> 20) & 0x1f) as i64 }
+                let op = if funct7 & 0b010_0000 != 0 {
+                    AluOp::Sra
+                } else {
+                    AluOp::Srl
+                };
+                Inst::AluImmW {
+                    op,
+                    rd,
+                    rs1,
+                    imm: ((w >> 20) & 0x1f) as i64,
+                }
             }
             _ => bail!("reserved OP-IMM-32 funct3 {funct3:#05b}: {w:#010x}"),
         },
@@ -229,8 +294,19 @@ fn atomic(w: u32, rd: Reg, rs1: Reg, rs2: Reg, funct3: u32) -> Result<Inst> {
     };
 
     let inst = match (w >> 27) & 0x1f {
-        0b00010 if rs2.is_zero() => Inst::LoadReserved { width, rd, rs1, ord },
-        0b00011 => Inst::StoreConditional { width, rd, rs1, rs2, ord },
+        0b00010 if rs2.is_zero() => Inst::LoadReserved {
+            width,
+            rd,
+            rs1,
+            ord,
+        },
+        0b00011 => Inst::StoreConditional {
+            width,
+            rd,
+            rs1,
+            rs2,
+            ord,
+        },
         funct5 => {
             let op = match funct5 {
                 0b00001 => AmoOp::Swap,
@@ -244,7 +320,14 @@ fn atomic(w: u32, rd: Reg, rs1: Reg, rs2: Reg, funct3: u32) -> Result<Inst> {
                 0b11100 => AmoOp::MaxU,
                 _ => bail!("reserved AMO funct5 {funct5:#07b}: {w:#010x}"),
             };
-            Inst::Amo { op, width, rd, rs1, rs2, ord }
+            Inst::Amo {
+                op,
+                width,
+                rd,
+                rs1,
+                rs2,
+                ord,
+            }
         }
     };
 
@@ -269,38 +352,83 @@ fn compressed(h: u16) -> Result<Inst> {
     let inst = match (h & 0x3, funct3) {
         // -- quadrant 0
         (0b00, 0b000) => {
-            let imm = (((h >> 11) & 0x3) << 4) | (((h >> 7) & 0xf) << 6) | (((h >> 6) & 1) << 2) | (((h >> 5) & 1) << 3);
+            let imm = (((h >> 11) & 0x3) << 4)
+                | (((h >> 7) & 0xf) << 6)
+                | (((h >> 6) & 1) << 2)
+                | (((h >> 5) & 1) << 3);
             if imm == 0 {
-                bail!("illegal instruction: {h:#06x}");
+                bail!("reserved c.addi4spn with a zero immediate: {h:#06x}");
             }
-            Inst::AluImm { op: AluOp::Add, rd: rd_c, rs1: Reg::SP, imm: imm as i64 }
+            Inst::AluImm {
+                op: AluOp::Add,
+                rd: rd_c,
+                rs1: Reg::SP,
+                imm: imm as i64,
+            }
         }
         (0b00, 0b010) => {
-            let imm = ((((h >> 10) & 0x7) << 3) | (((h >> 6) & 1) << 2) | (((h >> 5) & 1) << 6)) as i64;
-            Inst::Load { op: LoadOp::W, rd: rd_c, rs1: rs1_c, imm }
+            let imm =
+                ((((h >> 10) & 0x7) << 3) | (((h >> 6) & 1) << 2) | (((h >> 5) & 1) << 6)) as i64;
+            Inst::Load {
+                op: LoadOp::W,
+                rd: rd_c,
+                rs1: rs1_c,
+                imm,
+            }
         }
         (0b00, 0b011) => {
             let imm = ((((h >> 10) & 0x7) << 3) | (((h >> 5) & 0x3) << 6)) as i64;
-            Inst::Load { op: LoadOp::D, rd: rd_c, rs1: rs1_c, imm }
+            Inst::Load {
+                op: LoadOp::D,
+                rd: rd_c,
+                rs1: rs1_c,
+                imm,
+            }
         }
         (0b00, 0b110) => {
-            let imm = ((((h >> 10) & 0x7) << 3) | (((h >> 6) & 1) << 2) | (((h >> 5) & 1) << 6)) as i64;
-            Inst::Store { op: StoreOp::W, rs1: rs1_c, rs2: rd_c, imm }
+            let imm =
+                ((((h >> 10) & 0x7) << 3) | (((h >> 6) & 1) << 2) | (((h >> 5) & 1) << 6)) as i64;
+            Inst::Store {
+                op: StoreOp::W,
+                rs1: rs1_c,
+                rs2: rd_c,
+                imm,
+            }
         }
         (0b00, 0b111) => {
             let imm = ((((h >> 10) & 0x7) << 3) | (((h >> 5) & 0x3) << 6)) as i64;
-            Inst::Store { op: StoreOp::D, rs1: rs1_c, rs2: rd_c, imm }
+            Inst::Store {
+                op: StoreOp::D,
+                rs1: rs1_c,
+                rs2: rd_c,
+                imm,
+            }
         }
 
         // -- quadrant 1
-        (0b01, 0b000) => Inst::AluImm { op: AluOp::Add, rd, rs1: rd, imm: imm_ci },
+        (0b01, 0b000) => Inst::AluImm {
+            op: AluOp::Add,
+            rd,
+            rs1: rd,
+            imm: imm_ci,
+        },
         (0b01, 0b001) => {
             if rd.is_zero() {
                 bail!("c.addiw with rd=x0 is reserved: {h:#06x}");
             }
-            Inst::AluImmW { op: AluOp::Add, rd, rs1: rd, imm: imm_ci }
+            Inst::AluImmW {
+                op: AluOp::Add,
+                rd,
+                rs1: rd,
+                imm: imm_ci,
+            }
         }
-        (0b01, 0b010) => Inst::AluImm { op: AluOp::Add, rd, rs1: Reg::ZERO, imm: imm_ci },
+        (0b01, 0b010) => Inst::AluImm {
+            op: AluOp::Add,
+            rd,
+            rs1: Reg::ZERO,
+            imm: imm_ci,
+        },
         (0b01, 0b011) if rd == Reg::SP => {
             let imm = sext(
                 ((((h >> 12) & 1) << 9)
@@ -313,76 +441,179 @@ fn compressed(h: u16) -> Result<Inst> {
             if imm == 0 {
                 bail!("c.addi16sp with a zero immediate is reserved: {h:#06x}");
             }
-            Inst::AluImm { op: AluOp::Add, rd: Reg::SP, rs1: Reg::SP, imm }
+            Inst::AluImm {
+                op: AluOp::Add,
+                rd: Reg::SP,
+                rs1: Reg::SP,
+                imm,
+            }
         }
         (0b01, 0b011) => {
-            let imm = sext(((((h >> 12) & 1) << 17) | (((h >> 2) & 0x1f) << 12)) as u64, 18);
+            let imm = sext(
+                ((((h >> 12) & 1) << 17) | (((h >> 2) & 0x1f) << 12)) as u64,
+                18,
+            );
             if imm == 0 {
                 bail!("c.lui with a zero immediate is reserved: {h:#06x}");
             }
             Inst::Lui { rd, imm }
         }
         (0b01, 0b100) => match (h >> 10) & 0x3 {
-            0b00 => Inst::AluImm { op: AluOp::Srl, rd: rs1_c, rs1: rs1_c, imm: shamt },
-            0b01 => Inst::AluImm { op: AluOp::Sra, rd: rs1_c, rs1: rs1_c, imm: shamt },
-            0b10 => Inst::AluImm { op: AluOp::And, rd: rs1_c, rs1: rs1_c, imm: imm_ci },
+            0b00 => Inst::AluImm {
+                op: AluOp::Srl,
+                rd: rs1_c,
+                rs1: rs1_c,
+                imm: shamt,
+            },
+            0b01 => Inst::AluImm {
+                op: AluOp::Sra,
+                rd: rs1_c,
+                rs1: rs1_c,
+                imm: shamt,
+            },
+            0b10 => Inst::AluImm {
+                op: AluOp::And,
+                rd: rs1_c,
+                rs1: rs1_c,
+                imm: imm_ci,
+            },
             _ => {
                 let op = match ((h >> 12) & 1, (h >> 5) & 0x3) {
-                    (0, 0b00) => return Ok(Inst::Alu { op: AluOp::Sub, rd: rs1_c, rs1: rs1_c, rs2: rd_c }),
+                    (0, 0b00) => {
+                        return Ok(Inst::Alu {
+                            op: AluOp::Sub,
+                            rd: rs1_c,
+                            rs1: rs1_c,
+                            rs2: rd_c,
+                        });
+                    }
                     (0, 0b01) => AluOp::Xor,
                     (0, 0b10) => AluOp::Or,
                     (0, 0b11) => AluOp::And,
                     (1, 0b00) => {
-                        return Ok(Inst::AluW { op: AluOp::Sub, rd: rs1_c, rs1: rs1_c, rs2: rd_c });
+                        return Ok(Inst::AluW {
+                            op: AluOp::Sub,
+                            rd: rs1_c,
+                            rs1: rs1_c,
+                            rs2: rd_c,
+                        });
                     }
                     (1, 0b01) => {
-                        return Ok(Inst::AluW { op: AluOp::Add, rd: rs1_c, rs1: rs1_c, rs2: rd_c });
+                        return Ok(Inst::AluW {
+                            op: AluOp::Add,
+                            rd: rs1_c,
+                            rs1: rs1_c,
+                            rs2: rd_c,
+                        });
                     }
                     _ => bail!("reserved compressed ALU encoding: {h:#06x}"),
                 };
-                Inst::Alu { op, rd: rs1_c, rs1: rs1_c, rs2: rd_c }
+                Inst::Alu {
+                    op,
+                    rd: rs1_c,
+                    rs1: rs1_c,
+                    rs2: rd_c,
+                }
             }
         },
-        (0b01, 0b101) => Inst::Jal { rd: Reg::ZERO, imm: cj_offset(h) },
-        (0b01, 0b110) => Inst::Branch { op: Cond::Eq, rs1: rs1_c, rs2: Reg::ZERO, imm: cb_offset(h) },
-        (0b01, 0b111) => Inst::Branch { op: Cond::Ne, rs1: rs1_c, rs2: Reg::ZERO, imm: cb_offset(h) },
+        (0b01, 0b101) => Inst::Jal {
+            rd: Reg::ZERO,
+            imm: cj_offset(h),
+        },
+        (0b01, 0b110) => Inst::Branch {
+            op: Cond::Eq,
+            rs1: rs1_c,
+            rs2: Reg::ZERO,
+            imm: cb_offset(h),
+        },
+        (0b01, 0b111) => Inst::Branch {
+            op: Cond::Ne,
+            rs1: rs1_c,
+            rs2: Reg::ZERO,
+            imm: cb_offset(h),
+        },
 
         // -- quadrant 2
-        (0b10, 0b000) => Inst::AluImm { op: AluOp::Sll, rd, rs1: rd, imm: shamt },
+        (0b10, 0b000) => Inst::AluImm {
+            op: AluOp::Sll,
+            rd,
+            rs1: rd,
+            imm: shamt,
+        },
         (0b10, 0b010) => {
             if rd.is_zero() {
                 bail!("c.lwsp with rd=x0 is reserved: {h:#06x}");
             }
-            let imm = ((((h >> 12) & 1) << 5) | (((h >> 4) & 0x7) << 2) | (((h >> 2) & 0x3) << 6)) as i64;
-            Inst::Load { op: LoadOp::W, rd, rs1: Reg::SP, imm }
+            let imm =
+                ((((h >> 12) & 1) << 5) | (((h >> 4) & 0x7) << 2) | (((h >> 2) & 0x3) << 6)) as i64;
+            Inst::Load {
+                op: LoadOp::W,
+                rd,
+                rs1: Reg::SP,
+                imm,
+            }
         }
         (0b10, 0b011) => {
             if rd.is_zero() {
                 bail!("c.ldsp with rd=x0 is reserved: {h:#06x}");
             }
-            let imm = ((((h >> 12) & 1) << 5) | (((h >> 5) & 0x3) << 3) | (((h >> 2) & 0x7) << 6)) as i64;
-            Inst::Load { op: LoadOp::D, rd, rs1: Reg::SP, imm }
+            let imm =
+                ((((h >> 12) & 1) << 5) | (((h >> 5) & 0x3) << 3) | (((h >> 2) & 0x7) << 6)) as i64;
+            Inst::Load {
+                op: LoadOp::D,
+                rd,
+                rs1: Reg::SP,
+                imm,
+            }
         }
         (0b10, 0b100) => match ((h >> 12) & 1, rd.is_zero(), rs2.is_zero()) {
             // c.jr
-            (0, false, true) => Inst::Jalr { rd: Reg::ZERO, rs1: rd, imm: 0 },
+            (0, false, true) => Inst::Jalr {
+                rd: Reg::ZERO,
+                rs1: rd,
+                imm: 0,
+            },
             // c.mv
-            (0, _, false) => Inst::Alu { op: AluOp::Add, rd, rs1: Reg::ZERO, rs2 },
+            (0, _, false) => Inst::Alu {
+                op: AluOp::Add,
+                rd,
+                rs1: Reg::ZERO,
+                rs2,
+            },
             // c.ebreak
             (1, true, true) => Inst::Ebreak,
             // c.jalr
-            (1, false, true) => Inst::Jalr { rd: Reg::RA, rs1: rd, imm: 0 },
+            (1, false, true) => Inst::Jalr {
+                rd: Reg::RA,
+                rs1: rd,
+                imm: 0,
+            },
             // c.add
-            (1, _, false) => Inst::Alu { op: AluOp::Add, rd, rs1: rd, rs2 },
+            (1, _, false) => Inst::Alu {
+                op: AluOp::Add,
+                rd,
+                rs1: rd,
+                rs2,
+            },
             _ => bail!("reserved compressed encoding: {h:#06x}"),
         },
         (0b10, 0b110) => {
             let imm = ((((h >> 9) & 0xf) << 2) | (((h >> 7) & 0x3) << 6)) as i64;
-            Inst::Store { op: StoreOp::W, rs1: Reg::SP, rs2, imm }
+            Inst::Store {
+                op: StoreOp::W,
+                rs1: Reg::SP,
+                rs2,
+                imm,
+            }
         }
         (0b10, 0b111) => {
             let imm = ((((h >> 10) & 0x7) << 3) | (((h >> 7) & 0x7) << 6)) as i64;
-            Inst::Store { op: StoreOp::D, rs1: Reg::SP, rs2, imm }
+            Inst::Store {
+                op: StoreOp::D,
+                rs1: Reg::SP,
+                rs2,
+                imm,
+            }
         }
 
         _ => bail!("unsupported compressed instruction: {h:#06x}"),

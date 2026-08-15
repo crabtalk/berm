@@ -11,8 +11,13 @@
 //! boundary only the ones the RISC-V ABI says are live get passed:
 //!
 //! ```text
-//! fn(vmctx, sp, a0..a7) -> (sp, a0, a1)
+//! fn(vmctx, sp, a0..a7) -> (a0, a1)
 //! ```
+//!
+//! `sp` goes in but does not come back. It is callee-saved, so a conforming
+//! function restores it before returning and the caller's own value is still
+//! correct. Returning it would also cost a third result register, which
+//! x86_64's `Fast` convention does not have.
 //!
 //! Callee-saved registers stay in the caller's variables and are never handed
 //! over. A callee that clobbers `s0` spills it to the guest stack in its own
@@ -35,8 +40,8 @@ use cranelift::{
 };
 
 pub use crate::{
-    func::Imports,
     analyze::{Analysis, Target, analyze},
+    func::Imports,
     func::translate,
 };
 
@@ -71,6 +76,13 @@ pub struct VmCtx {
     /// Opaque pointer to the embedder's state, read by the host call handler.
     pub host_data: *mut core::ffi::c_void,
 
+    /// Points at a flag the host sets to stop the guest. Null when the module
+    /// was not compiled interruptible.
+    ///
+    /// Read through a pointer rather than held inline so the handle stays valid
+    /// when the store moves, and so a watchdog on another thread can share it.
+    pub interrupt: *const u64,
+
     /// Set by compiled code before an abrupt return. See [`Trap`].
     pub trap: u64,
 }
@@ -91,8 +103,10 @@ pub mod offsets {
     pub const HOST_CALL: i32 = TEXT_BASE + 8;
     /// Embedder state pointer.
     pub const HOST_DATA: i32 = HOST_CALL + 8;
+    /// Interrupt flag pointer.
+    pub const INTERRUPT: i32 = HOST_DATA + 8;
     /// Trap code.
-    pub const TRAP: i32 = HOST_DATA + 8;
+    pub const TRAP: i32 = INTERRUPT + 8;
 
     /// Offset of guest register `n`.
     pub const fn reg(n: usize) -> i32 {
@@ -115,6 +129,11 @@ pub enum Trap {
     Breakpoint = 2,
     /// A host call failed.
     HostCall = 3,
+    /// The guest reached an `unimp`, which compilers place where control must
+    /// not go.
+    IllegalInstruction = 4,
+    /// The host asked the guest to stop.
+    Interrupted = 5,
 }
 
 impl Trap {
@@ -124,6 +143,8 @@ impl Trap {
             1 => Trap::BadIndirectTarget,
             2 => Trap::Breakpoint,
             3 => Trap::HostCall,
+            4 => Trap::IllegalInstruction,
+            5 => Trap::Interrupted,
             _ => Trap::None,
         }
     }
@@ -132,9 +153,17 @@ impl Trap {
 /// Calling convention for guest-to-guest calls.
 ///
 /// `Fast` rather than a platform C convention: these signatures are wide (ten
-/// parameters, three results) and are never called directly by the host, which
-/// goes through a trampoline instead.
+/// parameters) and are never called directly by the host, which goes through a
+/// trampoline instead.
 pub const GUEST_CALL_CONV: CallConv = CallConv::Fast;
+
+/// Argument registers that survive a guest return.
+///
+/// A compiled function returns `(a0, a1)`. Anything a caller reads beyond these
+/// two would be whatever the register file held before the call, not a returned
+/// value. Two is also the most x86_64's `Fast` convention can return in
+/// registers, so widening this would need a struct-return argument.
+pub const RESULT_REGS: usize = 2;
 
 /// Parameter positions in a compiled guest function.
 pub mod params {
@@ -154,7 +183,7 @@ pub mod params {
 pub fn signature() -> Signature {
     Signature {
         params: vec![AbiParam::new(types::I64); params::COUNT],
-        returns: vec![AbiParam::new(types::I64); 3],
+        returns: vec![AbiParam::new(types::I64); RESULT_REGS],
         call_conv: GUEST_CALL_CONV,
     }
 }
