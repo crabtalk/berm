@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["rvtime",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.97.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"enum\" href=\"rvtime/enum.Strategy.html\" title=\"enum rvtime::Strategy\">Strategy</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.97.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"rvtime/struct.Config.html\" title=\"struct rvtime::Config\">Config</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.97.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"rvtime/struct.Engine.html\" title=\"struct rvtime::Engine\">Engine</a>",0]]],["rvtime_compiler",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.97.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"enum\" href=\"rvtime_compiler/engine/enum.OptLevel.html\" title=\"enum rvtime_compiler::engine::OptLevel\">OptLevel</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.97.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"rvtime_compiler/engine/struct.Engine.html\" title=\"struct rvtime_compiler::engine::Engine\">Engine</a>",0]]],["rvtime_cranelift",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.97.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"rvtime_cranelift/struct.Analysis.html\" title=\"struct rvtime_cranelift::Analysis\">Analysis</a>",0]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[783,602,306]}

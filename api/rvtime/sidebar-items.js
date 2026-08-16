@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["OptLevel","Strategy","Trap"],"struct":["Caller","Config","Engine","Instance","Interrupt","Linker","Module","Reg","Store","TypedFunc"],"trait":["IntoHostFunc","Regs"],"type":["HostFn"]};

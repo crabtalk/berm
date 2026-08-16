@@ -1,0 +1,64 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="A RISC-V compiler with a wasmtime-like interface."><title>rvtime - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="rvtime" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc mod crate"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Crate rvtime</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../rvtime/index.html">rvtime</a><span class="version">0.0.2</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#how-this-differs-from-wasmtime" title="How this differs from wasmtime">How this differs from wasmtime</a></li><li><a href="#guest-memory" title="Guest memory">Guest memory</a></li><li><a href="#guest-requirements" title="Guest requirements">Guest requirements</a></li></ul><h3><a href="#structs">Crate Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#traits" title="Traits">Traits</a></li><li><a href="#types" title="Type Aliases">Type Aliases</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1>Crate <span>rvtime</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/rvtime/lib.rs.html#1-98">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>A RISC-V compiler with a wasmtime-like interface.</p>
+<p>Load a statically linked RV64IMAC ELF, compile it to native code with
+Cranelift, call its exported functions from Rust, and let it call back.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>rvtime::{Caller, Config, Engine, Linker, Module, Store};
+
+<span class="kw">let </span>engine = Engine::new(<span class="kw-2">&amp;</span>Config::default())<span class="question-mark">?</span>;
+<span class="kw">let </span>module = Module::from_file(<span class="kw-2">&amp;</span>engine, <span class="string">"guest.elf"</span>)<span class="question-mark">?</span>;
+
+<span class="kw">let </span><span class="kw-2">mut </span>store = Store::new(<span class="kw-2">&amp;</span>engine, <span class="number">0u64</span>);
+<span class="kw">let </span><span class="kw-2">mut </span>linker = Linker::new(<span class="kw-2">&amp;</span>engine);
+
+<span class="comment">// The guest reaches this with `ecall` and `a7 == 1`.
+</span>linker.func_wrap(<span class="number">1</span>, |<span class="kw-2">mut </span>caller: Caller&lt;<span class="lifetime">'_</span>, u64&gt;, a: u64, b: u64| {
+    <span class="kw-2">*</span>caller.data_mut() += <span class="number">1</span>;
+    <span class="prelude-val">Ok</span>(a + b)
+})<span class="question-mark">?</span>;
+
+<span class="kw">let </span>instance = linker.instantiate(<span class="kw-2">&amp;mut </span>store, <span class="kw-2">&amp;</span>module)<span class="question-mark">?</span>;
+<span class="kw">let </span>add = instance.get_typed_func::&lt;(u64, u64), u64&gt;(<span class="string">"op_add"</span>)<span class="question-mark">?</span>;
+<span class="macro">assert_eq!</span>(add.call(<span class="kw-2">&amp;mut </span>store, (<span class="number">10</span>, <span class="number">3</span>))<span class="question-mark">?</span>, <span class="number">13</span>);</code></pre></div><h3 id="how-this-differs-from-wasmtime"><a class="doc-anchor" href="#how-this-differs-from-wasmtime">§</a>How this differs from wasmtime</h3>
+<ul>
+<li><strong>Host functions are keyed by number, not name.</strong> A guest calls them with
+<code>ecall</code>, taking the number from <code>a7</code>. An ELF has no symbolic import table
+to resolve names against.</li>
+<li><strong>A store holds one instance.</strong> A program image is one address space and
+one register file; there is nothing to gain from sharing a store.</li>
+<li><strong>Signatures are not checked.</strong> Arguments are plain 64-bit words in
+<code>a0</code>..<code>a7</code>, so the type parameters on
+<a href="struct.Instance.html#method.get_typed_func" title="method rvtime::Instance::get_typed_func"><code>get_typed_func</code></a> choose how many registers to
+use rather than describing something the guest declared.</li>
+</ul>
+<h3 id="guest-memory"><a class="doc-anchor" href="#guest-memory">§</a>Guest memory</h3>
+<p>Each store reserves a guest address space of
+<a href="struct.Config.html#method.memory_size" title="method rvtime::Config::memory_size"><code>Config::memory_size</code></a> bytes — 64 MiB by default. The
+reservation is lazy, so an unused tail costs address space rather than
+resident memory, but it is still per-store address space, which matters when
+many guests run at once.</p>
+<p>The size must be a power of two. Guest addresses are confined by masking
+with <code>memory_size - 1</code>, which is what keeps a program inside its own memory;
+any other size would leave part of the mask’s range pointing past the
+reservation. The mask is compiled into the code, so a <a href="struct.Module.html" title="struct rvtime::Module"><code>Module</code></a> is tied to
+the size its <a href="struct.Engine.html" title="struct rvtime::Engine"><code>Engine</code></a> was configured with, and a <a href="struct.Store.html" title="struct rvtime::Store"><code>Store</code></a> always maps at
+the module’s size.</p>
+<p>One consequence worth knowing: confinement is not a precise bounds check. An
+address past the end of the space wraps and may land on a mapped page rather
+than faulting. The guest still cannot reach anything outside its own memory.</p>
+<p>The space is laid out as:</p>
+<div class="example-wrap"><pre class="language-text"><code>[ image ][ heap ][ guard ]        ...        [ stack ]
+0                                                size</code></pre></div>
+<p>The heap is committed read-write and zeroed, and is what a guest allocator
+manages. rvtime does not carve it up or hand it to the guest: read the
+bounds with <a href="struct.Store.html#method.heap" title="method rvtime::Store::heap"><code>Store::heap</code></a> and pass them in however your host interface
+prefers — a host function you register, or arguments to an init export.
+Committing it costs address space rather than memory, since pages are
+faulted in only when touched.</p>
+<h3 id="guest-requirements"><a class="doc-anchor" href="#guest-requirements">§</a>Guest requirements</h3>
+<p>The image must be a statically linked RV64IMAC ELF <strong>linked with
+<code>--emit-relocs</code></strong>. The relocations are what identify which functions have
+their address taken, and therefore where an indirect call may legally land.
+Without them a computed jump has no way to be checked.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.Caller.html" title="struct rvtime::Caller">Caller</a></dt><dd>A host function’s view of the guest that called it.</dd><dt><a class="struct" href="struct.Config.html" title="struct rvtime::Config">Config</a></dt><dd>How an <a href="struct.Engine.html" title="struct rvtime::Engine"><code>Engine</code></a> behaves.</dd><dt><a class="struct" href="struct.Engine.html" title="struct rvtime::Engine">Engine</a></dt><dd>A compilation target and the configuration it was built with.</dd><dt><a class="struct" href="struct.Instance.html" title="struct rvtime::Instance">Instance</a></dt><dd>A module instantiated into a store.</dd><dt><a class="struct" href="struct.Interrupt.html" title="struct rvtime::Interrupt">Interrupt</a></dt><dd>Stops a running guest.</dd><dt><a class="struct" href="struct.Linker.html" title="struct rvtime::Linker">Linker</a></dt><dd>Defines the host functions a guest can call.</dd><dt><a class="struct" href="struct.Module.html" title="struct rvtime::Module">Module</a></dt><dd>A compiled RISC-V program.</dd><dt><a class="struct" href="struct.Reg.html" title="struct rvtime::Reg">Reg</a></dt><dd>Guest registers, re-exported for host functions that work on them directly.
+A RISC-V general-purpose register, <code>x0</code>..<code>x31</code>.</dd><dt><a class="struct" href="struct.Store.html" title="struct rvtime::Store">Store</a></dt><dd>Owns the guest’s memory, registers, and the embedder’s own data.</dd><dt><a class="struct" href="struct.TypedFunc.html" title="struct rvtime::TypedFunc">Typed<wbr>Func</a></dt><dd>An exported guest function with a Rust signature.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.OptLevel.html" title="enum rvtime::OptLevel">OptLevel</a></dt><dd>How hard Cranelift should work.</dd><dt><a class="enum" href="enum.Strategy.html" title="enum rvtime::Strategy">Strategy</a></dt><dd>When functions get compiled.</dd><dt><a class="enum" href="enum.Trap.html" title="enum rvtime::Trap">Trap</a></dt><dd>Why a guest stopped short.</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.IntoHostFunc.html" title="trait rvtime::IntoHostFunc">Into<wbr>Host<wbr>Func</a></dt><dd>Converts a closure into a <a href="type.HostFn.html" title="type rvtime::HostFn"><code>HostFn</code></a> by reading its arguments out of the
+argument registers and writing its results back.</dd><dt><a class="trait" href="trait.Regs.html" title="trait rvtime::Regs">Regs</a></dt><dd>A value or tuple carried in the argument registers.</dd></dl><h2 id="types" class="section-header">Type Aliases<a href="#types" class="anchor">§</a></h2><dl class="item-table"><dt><a class="type" href="type.HostFn.html" title="type rvtime::HostFn">HostFn</a></dt><dd>A host function, erased down to the register file it operates on.</dd></dl></section></div></main></body></html>
