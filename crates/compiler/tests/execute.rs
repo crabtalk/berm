@@ -30,6 +30,7 @@ impl Guest {
             host_data: std::ptr::null_mut(),
             interrupt: std::ptr::null(),
             trap: 0,
+            detail: 0,
         };
 
         trap::set_guest_region(memory.base() as usize, memory.size());
@@ -256,6 +257,7 @@ fn optimised_and_unoptimised_agree() {
             host_data: std::ptr::null_mut(),
             interrupt: std::ptr::null(),
             trap: 0,
+            detail: 0,
         };
         trap::set_guest_region(memory.base() as usize, memory.size());
         ctx.regs[Reg::SP.index()] = memory.stack_pointer();

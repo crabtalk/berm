@@ -27,8 +27,8 @@ pub struct Imports<'a> {
     /// `guest memory size - 1`, applied to every computed address.
     ///
     /// This is what confines the guest to its own address space, so it has to
-    /// match the size the memory was actually mapped with. See
-    /// [`crate::inst::address`].
+    /// match the size the memory was actually mapped with. Applied by the
+    /// address lowering in `inst::address`.
     pub memory_mask: i64,
 }
 
@@ -442,6 +442,9 @@ impl Translator<'_, '_> {
                 let computed = self.builder.ins().iadd_imm_s(base, imm);
                 // The architecture clears the low bit of a jalr target.
                 let dest = self.builder.ins().band_imm_s(computed, !1);
+                if tail {
+                    self.jump_table(dest);
+                }
                 self.call_indirect(dest, tail)?;
             }
         }
@@ -464,6 +467,34 @@ impl Translator<'_, '_> {
             self.emit_return();
         }
         Ok(())
+    }
+
+    /// Send a computed jump to a block of this function when it lands on one.
+    ///
+    /// LLVM lowers a dense `match` to a table of addresses in `.rodata` and a
+    /// `jalr` through it, so the target is inside the function rather than at
+    /// another function's entry. The dispatch table cannot express that — it
+    /// maps entry addresses to compiled functions, and a CLIF function has one
+    /// entry — so each candidate is compared here and taken as a local jump.
+    ///
+    /// The candidates are exactly the addresses a relocation named inside this
+    /// function, which is the same evidence [`Self::call_indirect`] trusts to
+    /// decide that a target is legal at all. A computed jump that matches none
+    /// of them falls through to that path and is checked there.
+    ///
+    /// Only reached when `rd` is `zero`: a jump table never links a return
+    /// address, so an indirect *call* skips these comparisons entirely.
+    fn jump_table(&mut self, dest: Value) {
+        for target in &self.analysis.table {
+            let block = self.blocks[target];
+            let hit = self
+                .builder
+                .ins()
+                .icmp_imm_s(IntCC::Equal, dest, *target as i64);
+            let miss = self.builder.create_block();
+            self.builder.ins().brif(hit, block, &[], miss, &[]);
+            self.builder.switch_to_block(miss);
+        }
     }
 
     /// Emit an indirect call through the dispatch table.
@@ -503,7 +534,7 @@ impl Translator<'_, '_> {
         self.builder.ins().brif(in_range, ok, &[], bad, &[]);
 
         self.builder.switch_to_block(bad);
-        self.trap(Trap::BadIndirectTarget);
+        self.trap_at(Trap::BadIndirectTarget, dest);
 
         self.builder.switch_to_block(ok);
         let slot = self.builder.ins().imul_imm_u(index, 8);
@@ -521,7 +552,7 @@ impl Translator<'_, '_> {
         self.builder.ins().brif(known, go, &[], unknown, &[]);
 
         self.builder.switch_to_block(unknown);
-        self.trap(Trap::BadIndirectTarget);
+        self.trap_at(Trap::BadIndirectTarget, dest);
 
         self.builder.switch_to_block(go);
         let args = self.call_args();
@@ -658,6 +689,16 @@ impl Translator<'_, '_> {
             .ins()
             .store(MemFlagsData::trusted(), code, self.vmctx, offsets::TRAP);
         self.ret();
+    }
+
+    /// Trap, recording the address it was about. The guest already had it in a
+    /// register, and a reader who has to disassemble the image to recover it is
+    /// paying for something we threw away.
+    fn trap_at(&mut self, trap: Trap, detail: Value) {
+        self.builder
+            .ins()
+            .store(MemFlagsData::trusted(), detail, self.vmctx, offsets::DETAIL);
+        self.trap(trap);
     }
 
     /// Read a guest register. `x0` folds to a constant.

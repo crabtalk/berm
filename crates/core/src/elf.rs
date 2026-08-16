@@ -4,14 +4,17 @@
 //!
 //! - **function boundaries**, from `STT_FUNC` symbols. Interior `.L*` labels
 //!   share the address space of real functions and must be filtered out.
-//! - **indirect jump targets**, from `R_RISCV_64` relocations landing in
-//!   `.text`. This is why the guest must be linked with `--emit-relocs`; the
-//!   alternative is guessing, and a wrong guess traps on correct code.
+//! - **indirect jump targets**, from the relocations that name a `.text`
+//!   address — `R_RISCV_64` for one stored in data, `R_RISCV_PCREL_HI20` for
+//!   one materialised into a register. This is why the guest must be linked
+//!   with `--emit-relocs`; the alternative is guessing, and a wrong guess traps
+//!   on correct code.
 
 use crate::{Function, MAX_MEMORY_SIZE, Perms, Program, Segment, decode};
 use anyhow::{Context, Result, bail};
 use object::{
-    Object, ObjectSection, ObjectSegment, ObjectSymbol, RelocationTarget, SectionKind, SymbolKind,
+    Object, ObjectSection, ObjectSegment, ObjectSymbol, RelocationFlags, RelocationTarget,
+    SectionKind, SymbolKind,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -149,13 +152,33 @@ fn disassemble(body: &[u8], start: u64) -> Result<Vec<(u64, crate::Inst)>> {
     Ok(code)
 }
 
-/// Addresses reachable by an indirect jump, from `R_RISCV_64` relocations.
+/// Addresses reachable by an indirect jump, from the relocations that name a
+/// code address.
+///
+/// Two relocation types do that, and both are needed:
+///
+/// - `R_RISCV_64` — an address stored in data. A vtable slot, or an entry in
+///   the jump table LLVM emits for a dense `match`.
+/// - `R_RISCV_PCREL_HI20` — an address materialised into a register by
+///   `auipc`+`addi`. This is how `core::fmt` builds the formatter pointers it
+///   later calls through, so a guest that formats anything depends on it.
+///
+/// The `LO12` halves are deliberately absent: their relocation names the
+/// `auipc` instruction rather than the address being formed, so counting them
+/// would add the call site to the set of things callable. `R_RISCV_CALL_PLT`
+/// is absent because a direct call is resolved statically and never reaches
+/// the dispatch table.
 fn indirect_targets(elf: &object::File<'_>, text: &std::ops::Range<u64>) -> Result<BTreeSet<u64>> {
     let mut targets = BTreeSet::new();
     for section in elf.sections() {
         for (_, reloc) in section.relocations() {
-            // Only absolute 64-bit relocations name a code address directly.
-            if reloc.size() != 64 {
+            let RelocationFlags::Elf { r_type } = reloc.flags() else {
+                continue;
+            };
+            if !matches!(
+                r_type,
+                object::elf::R_RISCV_64 | object::elf::R_RISCV_PCREL_HI20
+            ) {
                 continue;
             }
             let RelocationTarget::Symbol(index) = reloc.target() else {

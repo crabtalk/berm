@@ -85,6 +85,14 @@ pub struct VmCtx {
 
     /// Set by compiled code before an abrupt return. See [`Trap`].
     pub trap: u64,
+
+    /// What the trap was about, when the trap has an address to name — the
+    /// rejected target of [`Trap::BadIndirectTarget`]. Zero otherwise.
+    ///
+    /// A trap that says only "indirect jump to an unknown target" costs its
+    /// reader an ELF dump to find out which one, and the guest already had the
+    /// address in a register when it gave up.
+    pub detail: u64,
 }
 
 /// Byte offsets into [`VmCtx`], used by generated code.
@@ -107,6 +115,8 @@ pub mod offsets {
     pub const INTERRUPT: i32 = HOST_DATA + 8;
     /// Trap code.
     pub const TRAP: i32 = INTERRUPT + 8;
+    /// What the trap was about, when it has an address to name.
+    pub const DETAIL: i32 = TRAP + 8;
 
     /// Offset of guest register `n`.
     pub const fn reg(n: usize) -> i32 {

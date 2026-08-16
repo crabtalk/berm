@@ -186,7 +186,7 @@ fn define(
     let entries: std::collections::BTreeSet<u64> = program.functions.keys().copied().collect();
 
     for (addr, function) in &program.functions {
-        let analysis = translator::analyze(function, &entries);
+        let analysis = translator::analyze(function, &entries, &program.indirect);
 
         let mut ctx = CodegenContext::new();
         ctx.func = Function::with_name_signature(

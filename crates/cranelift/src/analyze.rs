@@ -47,6 +47,11 @@ pub struct Analysis {
     /// Addresses that start a basic block.
     pub leaders: BTreeSet<u64>,
 
+    /// Relocation-named addresses *inside* this function, which is what a jump
+    /// table's entries are. A computed jump may land on one, and it is a local
+    /// jump rather than a call — nothing else in the program may target them.
+    pub table: BTreeSet<u64>,
+
     /// Resolved control transfers, keyed by the address of the instruction.
     pub targets: BTreeMap<u64, Target>,
 
@@ -77,9 +82,21 @@ pub struct Analysis {
 /// sufficient, because a `jal ra, <local label>` targets an address inside the
 /// current function, and recursion targets an address that is both a function
 /// entry and inside the current function.
-pub fn analyze(function: &Function, entries: &BTreeSet<u64>) -> Analysis {
+///
+/// `indirect` is every address a relocation names as reachable by a computed
+/// jump. Those falling inside this function are its jump tables.
+pub fn analyze(function: &Function, entries: &BTreeSet<u64>, indirect: &BTreeSet<u64>) -> Analysis {
     let mut analysis = Analysis::default();
     analysis.leaders.insert(function.range.start);
+
+    // An address the linker named *and* placed inside this function is a jump
+    // table entry. The function's own start is excluded: a computed call that
+    // recurses is an ordinary indirect call, and it already has a dispatch slot.
+    analysis.table = indirect
+        .range(function.range.start + 1..function.range.end)
+        .copied()
+        .collect();
+    analysis.leaders.extend(&analysis.table);
 
     leaders(function, &mut analysis);
     resolve(function, entries, &mut analysis);
@@ -91,8 +108,10 @@ pub fn analyze(function: &Function, entries: &BTreeSet<u64>) -> Analysis {
 /// Find basic block boundaries.
 ///
 /// Every branch and PC-relative jump has a statically known target, so this
-/// needs no constant tracking. Computed jumps leave the function and therefore
-/// never introduce a local leader.
+/// needs no constant tracking. A computed jump's own targets are not found
+/// here — they cannot be, since the address is computed — but they are leaders
+/// all the same, which is why [`analyze`] seeds them from the relocations
+/// before this runs.
 fn leaders(function: &Function, analysis: &mut Analysis) {
     let range = &function.range;
 

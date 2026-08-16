@@ -45,6 +45,29 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
 
+  # The examples are documentation: the book includes them by reference rather
+  # than pasting them, so running them here is what keeps the docs honest.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: latest
+
+      - name: run the examples
+        run: |
+          for example in calling_a_guest host_functions guest_heap interrupting; do
+            echo "::group::$example"
+            cargo run --quiet -p rvtime --example "$example"
+            echo "::endgroup::"
+          done
+
+      - name: build the book
+        run: mdbook build docs
+
   # The guest SDK and the fixtures sit outside the workspace, so nothing above
   # compiles them. Without this they rot silently until someone regenerates a
   # fixture.

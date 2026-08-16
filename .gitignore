@@ -1,8 +1,10 @@
 /target
 Cargo.lock
 
-# RISC-V build trees. These crates are outside the workspace, so they each get
-# their own target dir. The fixtures' .elf and .objdump goldens are committed;
-# the trees that produce them are not.
+# RISC-V build trees. The fixtures are outside the workspace, so they each get
+# their own target dir. Their .elf and .objdump goldens are committed; the
+# trees that produce them are not.
 /fixtures/*/target
-/crates/guest/target
+
+# mdbook output
+/docs/book

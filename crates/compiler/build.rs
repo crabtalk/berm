@@ -1,6 +1,22 @@
 fn main() {
     println!("cargo:rerun-if-changed=csrc/trap.c");
 
+    // Guest memory and trap recovery are POSIX. Without this the build fails
+    // inside the C compiler complaining about `sigaction`, which reads like a
+    // broken crate rather than an unsupported platform.
+    //
+    // Windows would need `VirtualAlloc`/`VirtualProtect` and a vectored
+    // exception handler. Recovery could not reuse `longjmp`: cranelift-jit
+    // never registers unwind tables with the OS, so there is nothing to
+    // describe the JIT frames an unwinder would have to walk.
+    let family = std::env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
+    if !family.split(',').any(|f| f == "unix") {
+        panic!(
+            "rvtime supports Linux and macOS. Windows is not supported; see \
+             https://crabtalk.github.io/rvtime/limitations.html"
+        );
+    }
+
     let mut build = cc::Build::new();
     build
         .file("csrc/trap.c")

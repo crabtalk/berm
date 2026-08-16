@@ -23,7 +23,10 @@ pub enum Trap {
     },
 
     /// An indirect jump targeted something that is not a function entry.
-    BadIndirectTarget,
+    BadIndirectTarget {
+        /// The address the guest tried to reach.
+        target: u64,
+    },
 
     /// The guest executed `ebreak`.
     Breakpoint,
@@ -51,7 +54,9 @@ impl fmt::Display for Trap {
             Trap::MemoryFault { address: None } => {
                 write!(f, "memory fault outside the guest address space")
             }
-            Trap::BadIndirectTarget => write!(f, "indirect jump to an unknown target"),
+            Trap::BadIndirectTarget { target } => {
+                write!(f, "indirect jump to an unknown target {target:#x}")
+            }
             Trap::Breakpoint => write!(f, "guest executed ebreak"),
             Trap::UnknownHostCall(number) => write!(f, "no host function for call {number}"),
             Trap::HostCall(error) => write!(f, "host call failed: {error}"),
@@ -199,6 +204,7 @@ impl<T> Store<T> {
             host_data: std::ptr::null_mut(),
             interrupt: Arc::as_ptr(&interrupt).cast(),
             trap: 0,
+            detail: 0,
         };
 
         self.state = Some(State {
@@ -239,6 +245,7 @@ pub(crate) fn enter<T, P: Regs, R: Regs>(
 
     state.failure = None;
     state.ctx.trap = 0;
+    state.ctx.detail = 0;
     state.ctx.host_data = host_data.cast();
     state.ctx.regs = [0; 32];
     state.ctx.regs[Reg::SP.index()] = state.memory.stack_pointer();
@@ -268,7 +275,10 @@ pub(crate) fn enter<T, P: Regs, R: Regs>(
 
     match translator::Trap::from_code(state.ctx.trap) {
         translator::Trap::None => Ok(R::read(&state.ctx.regs)),
-        translator::Trap::BadIndirectTarget => Err(Trap::BadIndirectTarget.into()),
+        translator::Trap::BadIndirectTarget => Err(Trap::BadIndirectTarget {
+            target: state.ctx.detail,
+        }
+        .into()),
         translator::Trap::Breakpoint => Err(Trap::Breakpoint.into()),
         translator::Trap::HostCall => Err(Trap::HostCall(anyhow!("host call failed")).into()),
         translator::Trap::IllegalInstruction => Err(Trap::IllegalInstruction.into()),

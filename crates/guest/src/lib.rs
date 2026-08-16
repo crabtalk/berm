@@ -1,8 +1,8 @@
 //! Guest-side support for programs running under rvtime.
 //!
-//! This crate is compiled *for* RISC-V and linked into the guest, not into the
-//! host. It supplies the two things every guest needs and nothing else: a way
-//! to reach the host, and an allocator.
+//! This crate is compiled *for* RISC-V and linked into the guest. It supplies
+//! the two things every guest needs and nothing else: a way to reach the host,
+//! and an allocator.
 //!
 //! ```ignore
 //! #![no_std]
@@ -25,6 +25,15 @@
 //! }
 //! ```
 //!
+//! ## Off the guest's target
+//!
+//! It also builds for the host, where every wrapper is present but panics if
+//! it is actually reached, and no global allocator is installed. That is not
+//! for running guests off-target — it is so a guest author can `cargo test`
+//! their own logic natively, without a RISC-V toolchain and without an
+//! embedder, and only cross-compile to test the parts that genuinely talk to a
+//! host.
+//!
 //! ## What is deliberately absent
 //!
 //! There are no standard host functions here. rvtime is a mechanism and the
@@ -41,6 +50,10 @@
 //! pointer and a length in two registers.
 
 #![no_std]
+
+#[cfg_attr(target_arch = "riscv64", path = "sys/riscv.rs")]
+#[cfg_attr(not(target_arch = "riscv64"), path = "sys/stub.rs")]
+mod sys;
 
 #[cfg(feature = "alloc")]
 pub mod heap;
@@ -59,7 +72,7 @@ pub mod heap;
 /// ```
 #[inline]
 pub fn abort() -> ! {
-    unsafe { core::arch::asm!("ebreak", options(noreturn, nostack)) }
+    sys::abort()
 }
 
 /// Make a host call with no arguments.
@@ -72,25 +85,17 @@ pub fn abort() -> ! {
 /// meaning what it thinks it means.
 #[inline]
 pub unsafe fn call0(number: u64) -> u64 {
-    let out: u64;
-    unsafe {
-        core::arch::asm!("ecall", in("a7") number, out("a0") out);
-    }
-    out
+    unsafe { sys::call0(number) }
 }
 
-/// Make a host call with one argument. See [`call0`] for safety.
+/// Make a host call with one argument.
 ///
 /// # Safety
 ///
 /// See [`call0`].
 #[inline]
 pub unsafe fn call1(number: u64, a0: u64) -> u64 {
-    let out: u64;
-    unsafe {
-        core::arch::asm!("ecall", in("a7") number, inlateout("a0") a0 => out);
-    }
-    out
+    unsafe { sys::call1(number, a0) }
 }
 
 /// Make a host call with two arguments.
@@ -100,16 +105,7 @@ pub unsafe fn call1(number: u64, a0: u64) -> u64 {
 /// See [`call0`].
 #[inline]
 pub unsafe fn call2(number: u64, a0: u64, a1: u64) -> u64 {
-    let out: u64;
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            in("a7") number,
-            inlateout("a0") a0 => out,
-            in("a1") a1,
-        );
-    }
-    out
+    unsafe { sys::call2(number, a0, a1) }
 }
 
 /// Make a host call with three arguments.
@@ -119,17 +115,7 @@ pub unsafe fn call2(number: u64, a0: u64, a1: u64) -> u64 {
 /// See [`call0`].
 #[inline]
 pub unsafe fn call3(number: u64, a0: u64, a1: u64, a2: u64) -> u64 {
-    let out: u64;
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            in("a7") number,
-            inlateout("a0") a0 => out,
-            in("a1") a1,
-            in("a2") a2,
-        );
-    }
-    out
+    unsafe { sys::call3(number, a0, a1, a2) }
 }
 
 /// Make a host call with four arguments.
@@ -139,18 +125,7 @@ pub unsafe fn call3(number: u64, a0: u64, a1: u64, a2: u64) -> u64 {
 /// See [`call0`].
 #[inline]
 pub unsafe fn call4(number: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let out: u64;
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            in("a7") number,
-            inlateout("a0") a0 => out,
-            in("a1") a1,
-            in("a2") a2,
-            in("a3") a3,
-        );
-    }
-    out
+    unsafe { sys::call4(number, a0, a1, a2, a3) }
 }
 
 /// Make a host call with five arguments.
@@ -160,19 +135,7 @@ pub unsafe fn call4(number: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// See [`call0`].
 #[inline]
 pub unsafe fn call5(number: u64, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
-    let out: u64;
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            in("a7") number,
-            inlateout("a0") a0 => out,
-            in("a1") a1,
-            in("a2") a2,
-            in("a3") a3,
-            in("a4") a4,
-        );
-    }
-    out
+    unsafe { sys::call5(number, a0, a1, a2, a3, a4) }
 }
 
 /// Make a host call with six arguments.
@@ -181,19 +144,7 @@ pub unsafe fn call5(number: u64, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64) ->
 ///
 /// See [`call0`].
 #[inline]
+#[allow(clippy::too_many_arguments)]
 pub unsafe fn call6(number: u64, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
-    let out: u64;
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            in("a7") number,
-            inlateout("a0") a0 => out,
-            in("a1") a1,
-            in("a2") a2,
-            in("a3") a3,
-            in("a4") a4,
-            in("a5") a5,
-        );
-    }
-    out
+    unsafe { sys::call6(number, a0, a1, a2, a3, a4, a5) }
 }
