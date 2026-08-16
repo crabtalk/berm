@@ -1,11 +1,14 @@
 [package]
 name = "rvtime-guest"
 description = "Guest-side support for programs running under rvtime"
-version = "0.0.1"
-edition = "2024"
-repository = "https://github.com/crabtalk/rvtime"
-license = "Apache-2.0"
-authors = ["clearloop <tianyi.gc@gmail.com>"]
+edition.workspace = true
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords = ["riscv", "no-std", "guest", "rvtime"]
+categories = ["no-std", "embedded"]
 
 # The crate builds anywhere, but only the guest target has the `ecall` these
 # wrappers exist for. Documenting against it shows the real thing rather than

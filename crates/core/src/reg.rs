@@ -18,7 +18,8 @@ pub struct Reg(u8);
 macro_rules! regs {
     ($($name:ident = $index:expr, $abi:literal;)*) => {
         impl Reg {
-            $(pub const $name: Reg = Reg($index);)*
+            $(#[doc = concat!("`", $abi, "`, `x", stringify!($index), "`.")]
+            pub const $name: Reg = Reg($index);)*
 
             /// The ABI name, as printed by `objdump`.
             pub const fn abi(self) -> &'static str {
