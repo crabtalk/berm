@@ -98,6 +98,12 @@ itself, anonymously, and fills in the digest, tools and usage from the config
 blob — so a listing describes what a registry will actually serve rather than
 what a publisher claimed, and a harness nobody can pull cannot be listed.
 
+An index authenticates nobody by itself: what it checks is the artifact, and a
+full OCI reference already names an owner the registry vouched for. A service
+that wants publishers identified mounts the index behind its own auth and says
+who is asking. `BERM_TOKEN` carries a credential when the index in front of you
+wants one — never a GitHub token, which would let an index act as you.
+
 Entries are keyed by digest, which is what makes them safe to keep: the bytes at
 a digest never change, so a recorded description of them cannot go stale.
 Re-pushing a tag adds an entry rather than rewriting one.

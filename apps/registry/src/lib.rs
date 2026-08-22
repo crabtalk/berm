@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
 
+pub use api::router;
 pub use entry::Entry;
 pub use store::Store;
 
@@ -20,6 +21,15 @@ mod api;
 mod entry;
 mod publish;
 mod store;
+
+/// Who is publishing, according to whoever mounted [`router`].
+///
+/// The index authenticates nobody: a service that mounts it validates its own
+/// credential and inserts this, the way cloud already hands `sync` and `agent`
+/// their callers. Absent means the index is running open, which is what the
+/// standalone binary does.
+#[derive(Clone)]
+pub struct Caller(pub String);
 
 pub struct Index {
     /// Harness repository — `ghcr.io/clearloop/fs` — to its versions, in the

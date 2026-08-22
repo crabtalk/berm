@@ -16,9 +16,23 @@ berm-registry --index ./index                  # or a directory
 curl "http://127.0.0.1:7788/harnesses?q=read"
 curl http://127.0.0.1:7788/harnesses/ghcr.io/clearloop/fs
 curl -X POST http://127.0.0.1:7788/harnesses \
-  -H "Authorization: Bearer $GITHUB_TOKEN" \
   -d '{"reference":"ghcr.io/clearloop/fs:v1.0.0"}'
 ```
+
+## Mounting it
+
+The routes carry no authentication. `router()` hands them over so a service can
+own the policy over them, and say who is publishing by inserting a `Caller`:
+
+```rust
+.merge(berm_registry::router(index))
+.route_layer(middleware::from_fn(auth::require_session))
+```
+
+Which is why the index validates no credential and holds no accounts: it never
+sees one. Run bare, as the binary above does, it is open — and that is a real
+mode, not a gap, because an entry is a full OCI reference and whoever holds that
+namespace already proved it to the registry that issued their push token.
 
 ## What it stores
 
@@ -31,8 +45,7 @@ not rewrite an entry; it adds one, and the old line still truthfully describes
 the old bytes. That is the whole reason this may cache anything at all.
 
 Entries are full OCI references, so the index allocates no names and squatting
-is impossible: ownership was already proved to the registry that issued the push
-token.
+is impossible.
 
 ## What it does not store
 
@@ -42,8 +55,9 @@ losing the process costs a restart. Publishing pulls the artifact *anonymously*
 to fill an entry in, which means what gets listed is what a registry will
 actually serve, and a harness nobody can pull cannot be listed.
 
-Identity is borrowed: a publisher's token is checked against GitHub on every
-request and never kept. There is no account here to create, lose or reset.
+No credentials of anyone else's, either. The index validates the artifact, not
+the publisher, so nobody has to hand it a token that would let it act as them
+somewhere else.
 
 ## Not in this yet
 

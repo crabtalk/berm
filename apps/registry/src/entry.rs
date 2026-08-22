@@ -15,14 +15,22 @@ pub struct Entry {
     pub reference: String,
     /// sha256 of the ELF, `sha256:`-prefixed, as the registry addresses it.
     pub digest: String,
-    /// The GitHub login that published it, verified at the time.
-    pub publisher: String,
+    /// Whoever the mounting service vouched for, if it vouched for anyone. An
+    /// open index records none, and the reference already names an owner that
+    /// anyone can check against the registry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
     pub usage: String,
     pub tools: Vec<ToolSpec>,
 }
 
 impl Entry {
-    pub fn new(reference: String, digest: String, publisher: String, manifest: Manifest) -> Self {
+    pub fn new(
+        reference: String,
+        digest: String,
+        publisher: Option<String>,
+        manifest: Manifest,
+    ) -> Self {
         Self {
             reference,
             digest,

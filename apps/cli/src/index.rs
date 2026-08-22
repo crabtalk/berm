@@ -16,7 +16,8 @@ const INDEX: &str = "BERM_INDEX";
 pub struct Entry {
     pub reference: String,
     pub digest: String,
-    pub publisher: String,
+    #[serde(default)]
+    pub publisher: Option<String>,
     pub usage: String,
     pub tools: Vec<ToolSpec>,
 }
@@ -47,13 +48,18 @@ impl Index {
             .context("the index returned something that is not a harness list")
     }
 
-    pub fn publish(&self, reference: &str, token: &str) -> Result<Entry> {
+    /// The token is whatever the index in front of you wants, and an open one
+    /// wants none — so it rides along when there is one and is not invented
+    /// when there is not.
+    pub fn publish(&self, reference: &str, token: Option<&str>) -> Result<Entry> {
         let url = format!("{}/harnesses", self.host);
-        let request = self
+        let mut request = self
             .http
             .post(url)
-            .bearer_auth(token)
             .json(&serde_json::json!({ "reference": reference }));
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
         http::read(&self.host, request.send())?
             .json()
             .context("the index returned something that is not a harness")

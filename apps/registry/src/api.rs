@@ -3,11 +3,11 @@
 //! Resource-shaped, like bermd's, for the same reason: the clients are a CLI, a
 //! browser and `curl`, and a harness is a resource.
 
-use crate::{Entry, Index};
+use crate::{Caller, Entry, Index};
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode, header::AUTHORIZATION},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -15,6 +15,11 @@ use berm_api::Failed;
 use serde::Deserialize;
 use std::sync::Arc;
 
+/// The index's routes, carrying no authentication of their own.
+///
+/// A service that mounts these owns the policy over them — a scope, a session,
+/// a throttle — and says who is publishing by inserting a [`Caller`]. Mounted
+/// bare, as the standalone binary does, the index is open.
 pub fn router(index: Arc<Index>) -> Router {
     Router::new()
         .route("/harnesses", get(search).post(publish))
@@ -57,22 +62,11 @@ struct Publish {
 /// not choose where it lands.
 async fn publish(
     State(index): State<Arc<Index>>,
-    headers: HeaderMap,
+    caller: Option<Extension<Caller>>,
     Json(request): Json<Publish>,
 ) -> Result<Json<Entry>, Refused> {
-    let token = headers
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .ok_or_else(|| {
-            Refused(
-                StatusCode::UNAUTHORIZED,
-                "publishing needs a GitHub token in Authorization".to_owned(),
-            )
-        })?;
-
     let entry = index
-        .publish(&request.reference, token)
+        .publish(&request.reference, caller.map(|Extension(who)| who.0))
         .await
         // The reference and the token are both the caller's: an unreadable
         // artifact or a token GitHub will not vouch for is their business, not

@@ -1,22 +1,18 @@
-//! Publishing: prove who is asking, then prove what they are pointing at.
+//! Publishing: what is being pointed at has to be real.
 
 use crate::{Entry, Index};
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use berm_oci::{Access, Reference, Registry};
-use serde_json::Value;
 use std::str::FromStr;
-
-const API: &str = "https://api.github.com";
-/// GitHub refuses a request that does not identify itself.
-const AGENT: &str = concat!("berm-registry/", env!("CARGO_PKG_VERSION"));
 
 impl Index {
     /// Record one reference.
     ///
-    /// Identity is checked before the artifact, so a stranger without a token
-    /// cannot make this process go and fetch things on their behalf.
-    pub async fn publish(&self, reference: &str, token: &str) -> Result<Entry> {
-        let publisher = login(token).await?;
+    /// The artifact is what gets checked, not the publisher: an entry is a full
+    /// OCI reference, and whoever holds that namespace already proved it to the
+    /// registry that issued their push token. `publisher` is whatever the
+    /// mounting service vouched for, and nothing here needs it to be anyone.
+    pub async fn publish(&self, reference: &str, publisher: Option<String>) -> Result<Entry> {
         let reference = Reference::from_str(reference)?;
         let key = format!("{}/{}", reference.registry, reference.repository);
         let name = reference.to_string();
@@ -42,30 +38,4 @@ impl Index {
             .push(entry.clone());
         Ok(entry)
     }
-}
-
-/// Who is asking, according to GitHub.
-///
-/// Identity is borrowed and checked per request: there is no account here to
-/// create, lose or reset, and still a login to attribute a bad entry to.
-async fn login(token: &str) -> Result<String> {
-    let response = reqwest::Client::new()
-        .get(format!("{API}/user"))
-        .header("User-Agent", AGENT)
-        .bearer_auth(token)
-        .send()
-        .await
-        .context("cannot reach GitHub to check the token")?;
-    if !response.status().is_success() {
-        bail!("GitHub does not recognise that token");
-    }
-
-    let user: Value = response
-        .json()
-        .await
-        .context("GitHub returned a user that is not JSON")?;
-    user.get("login")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .context("GitHub returned a user without a login")
 }
