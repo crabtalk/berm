@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["_CRABTALK_BUFFER"],"fn":["berm_tool_boom","berm_tool_chatty","berm_tool_echo","berm_tool_probe","main"],"mod":["tools"],"static":["_CRABTALK_ABI","_CRABTALK_ARGS","_CRABTALK_OUT"]};
+window.SIDEBAR_ITEMS = {"fn":["main"]};

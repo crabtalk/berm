@@ -4,25 +4,25 @@
 <a href=#4 id=4 data-nosnippet>4</a>//! invocation under rvtime: arguments are pulled in through host calls, the
 <a href=#5 id=5 data-nosnippet>5</a>//! result is read back out of guest memory, and nothing survives the call.
 <a href=#6 id=6 data-nosnippet>6</a>//!
-<a href=#7 id=7 data-nosnippet>7</a>//! A harness reaches the world only through *system harnesses* it was given,
-<a href=#8 id=8 data-nosnippet>8</a>//! and the grant is the [`Linker`] it is instantiated with — an ungranted call
-<a href=#9 id=9 data-nosnippet>9</a>//! traps because nothing is registered for it, not because a check said no.
-<a href=#10 id=10 data-nosnippet>10</a>//!
-<a href=#11 id=11 data-nosnippet>11</a>//! A system harness is native host code behind a name, the way a precompile is
-<a href=#12 id=12 data-nosnippet>12</a>//! native code behind an address. berm ships none: what a filesystem is bounded
-<a href=#13 id=13 data-nosnippet>13</a>//! by, what shape a command's result takes, where bytes persist — each is a
-<a href=#14 id=14 data-nosnippet>14</a>//! decision about a host, and berm has no host. An embedder passes [`Harness`]
-<a href=#15 id=15 data-nosnippet>15</a>//! values to [`Berm::load`] and that list is the whole of what a guest can
-<a href=#16 id=16 data-nosnippet>16</a>//! reach.
-<a href=#17 id=17 data-nosnippet>17</a>
-<a href=#18 id=18 data-nosnippet>18</a></span><span class="kw">use </span>anyhow::{Context, <span class="prelude-ty">Result</span>, bail};
-<a href=#19 id=19 data-nosnippet>19</a><span class="kw">pub use </span>manifest::{Manifest, ToolSpec};
-<a href=#20 id=20 data-nosnippet>20</a><span class="kw">use </span>rvtime::{Caller, Linker, Module, Store, TypedFunc};
-<a href=#21 id=21 data-nosnippet>21</a><span class="kw">pub use </span>rvtime::{Config, Engine};
-<a href=#22 id=22 data-nosnippet>22</a><span class="kw">use </span>std::{collections::BTreeMap, sync::Arc};
-<a href=#23 id=23 data-nosnippet>23</a>
-<a href=#24 id=24 data-nosnippet>24</a><span class="kw">pub mod </span>abi;
-<a href=#25 id=25 data-nosnippet>25</a><span class="kw">mod </span>manifest;
+<a href=#7 id=7 data-nosnippet>7</a>//! A harness reaches the world only through the *system harnesses* it was
+<a href=#8 id=8 data-nosnippet>8</a>//! given, and that list is the [`Linker`] it is instantiated with — a call to
+<a href=#9 id=9 data-nosnippet>9</a>//! anything else traps because nothing is registered for it, not because a
+<a href=#10 id=10 data-nosnippet>10</a>//! check said no.
+<a href=#11 id=11 data-nosnippet>11</a>//!
+<a href=#12 id=12 data-nosnippet>12</a>//! A system harness is native host code behind a name, the way a precompile is
+<a href=#13 id=13 data-nosnippet>13</a>//! native code behind an address. berm ships none: what a filesystem is bounded
+<a href=#14 id=14 data-nosnippet>14</a>//! by, what shape a command's result takes, where bytes persist — each is a
+<a href=#15 id=15 data-nosnippet>15</a>//! decision about a host, and berm has no host. An embedder passes [`Harness`]
+<a href=#16 id=16 data-nosnippet>16</a>//! values to [`Berm::load`] and that list is the whole of what a guest can
+<a href=#17 id=17 data-nosnippet>17</a>//! reach.
+<a href=#18 id=18 data-nosnippet>18</a>
+<a href=#19 id=19 data-nosnippet>19</a></span><span class="kw">use </span>anyhow::{Context, <span class="prelude-ty">Result</span>, bail};
+<a href=#20 id=20 data-nosnippet>20</a><span class="kw">pub use </span>berm_api::{Manifest, ToolSpec};
+<a href=#21 id=21 data-nosnippet>21</a><span class="kw">use </span>rvtime::{Caller, Linker, Module, Store, TypedFunc};
+<a href=#22 id=22 data-nosnippet>22</a><span class="kw">pub use </span>rvtime::{Config, Engine};
+<a href=#23 id=23 data-nosnippet>23</a><span class="kw">use </span>std::{collections::BTreeMap, sync::Arc};
+<a href=#24 id=24 data-nosnippet>24</a>
+<a href=#25 id=25 data-nosnippet>25</a><span class="kw">pub mod </span>abi;
 <a href=#26 id=26 data-nosnippet>26</a><span class="kw">mod </span>watchdog;
 <a href=#27 id=27 data-nosnippet>27</a><span class="kw">pub mod </span>wire;
 <a href=#28 id=28 data-nosnippet>28</a>
@@ -104,9 +104,9 @@
 <a href=#104 id=104 data-nosnippet>104</a>            },
 <a href=#105 id=105 data-nosnippet>105</a>        )<span class="question-mark">?</span>;
 <a href=#106 id=106 data-nosnippet>106</a>
-<a href=#107 id=107 data-nosnippet>107</a>        <span class="comment">// The other half of every system harness call. Plumbing rather than a
-<a href=#108 id=108 data-nosnippet>108</a>        // grant: a harness given none never stages anything, so this
-<a href=#109 id=109 data-nosnippet>109</a>        // is registered unconditionally and has nothing to hand over.
+<a href=#107 id=107 data-nosnippet>107</a>        <span class="comment">// The other half of every system harness call. A harness given no
+<a href=#108 id=108 data-nosnippet>108</a>        // system harnesses never stages anything, so this is registered
+<a href=#109 id=109 data-nosnippet>109</a>        // unconditionally and has nothing to hand over.
 <a href=#110 id=110 data-nosnippet>110</a>        </span>linker.func_wrap(
 <a href=#111 id=111 data-nosnippet>111</a>            abi::HOST_RESULT_READ,
 <a href=#112 id=112 data-nosnippet>112</a>            |<span class="kw-2">mut </span>caller: Caller&lt;<span class="lifetime">'_</span>, Invocation&gt;, ptr, capacity| {

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-bf7eb20f.js";
+            window.path_to_searchindex_js = "../searchindex-ab244f8b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b2bf2442.js"></script>
+        <script src="../toc-4d41d46a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -231,12 +231,19 @@ the model looking complete.</p>
 <p>Returning <code>Err(Failed)</code> reports failure through the ABI. It is not a trap: the
 host sees a tool that ran and failed, and hands the message back as a result.</p>
 <h2 id="building"><a class="header" href="#building">Building</a></h2>
-<p>The guest target, and <code>--emit-relocs</code> — which is not optional, because the
-relocations are what identify indirect-call targets:</p>
+<p><code>berm new</code> writes the crate, so none of the ceremony below has to be typed:</p>
 <pre><code class="language-sh">rustup target add riscv64imac-unknown-none-elf
-cargo build --release --target riscv64imac-unknown-none-elf \
-  --config 'target.riscv64imac-unknown-none-elf.rustflags=["-Clink-arg=--emit-relocs"]'
+berm new my-harness
+cd my-harness
+cargo build --release --target riscv64imac-unknown-none-elf
 </code></pre>
+<p>Two things it sets up are worth knowing, because a reader who does not will
+delete one of them. <code>.cargo/config.toml</code> carries <code>--emit-relocs</code>, which is not
+optional: the relocations are what identify indirect-call targets. And the tools
+live in <code>src/lib.rs</code> under a three-line <code>src/bin/main.rs</code> that does nothing but
+<code>extern crate</code> them, because cargo emits an image for a bin target and an
+archive for a lib — the library alone never gets linked, and the binary alone
+cannot be reached from <code>tests/</code>.</p>
 <p>Off that target the crate is an ordinary library, so tools can be unit tested
 natively instead of cross-compiling to run anything at all. <code>berm_lang::test</code>
 stands in for the host: it holds the argument blob and collects what a harness

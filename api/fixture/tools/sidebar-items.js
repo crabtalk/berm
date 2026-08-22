@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["boom","chatty","echo","probe"],"struct":["Echo"]};

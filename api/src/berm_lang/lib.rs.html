@@ -24,9 +24,9 @@
 <a href=#24 id=24 data-nosnippet>24</a>//! Every `pub fn` in the module is a tool; its doc comment is what the model
 <a href=#25 id=25 data-nosnippet>25</a>//! reads when deciding whether to call it.
 <a href=#26 id=26 data-nosnippet>26</a>//!
-<a href=#27 id=27 data-nosnippet>27</a>//! Build with the `riscv64imac-unknown-none-elf` target and
-<a href=#28 id=28 data-nosnippet>28</a>//! `-Clink-arg=--emit-relocs`; the template's `.cargo/config.toml` carries
-<a href=#29 id=29 data-nosnippet>29</a>//! both, and neither is optional.
+<a href=#27 id=27 data-nosnippet>27</a>//! Build for `riscv64imac-unknown-none-elf` with `-Clink-arg=--emit-relocs`,
+<a href=#28 id=28 data-nosnippet>28</a>//! neither of which is optional. `berm new` writes a crate whose
+<a href=#29 id=29 data-nosnippet>29</a>//! `.cargo/config.toml` carries the flag.
 <a href=#30 id=30 data-nosnippet>30</a>//!
 <a href=#31 id=31 data-nosnippet>31</a>//! This crate declares no system harness of its own: what a harness can reach
 <a href=#32 id=32 data-nosnippet>32</a>//! is whatever its host registered, and naming any of it here would be the SDK

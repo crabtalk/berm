@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["Failed","Harness","ToolSpec"]};
+window.SIDEBAR_ITEMS = {"constant":["ABI_SECTION","ABI_VERSION"],"struct":["Failed","Harness","Manifest","ToolSpec"]};

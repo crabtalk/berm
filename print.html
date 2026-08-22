@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-bf7eb20f.js";
+            window.path_to_searchindex_js = "searchindex-ab244f8b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-b2bf2442.js"></script>
+        <script src="toc-4d41d46a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -191,9 +191,9 @@ and traps; berm knows about tools, manifests, and arguments. Every convention
 that makes a guest a <em>harness</em> lives on the berm side, which is what leaves
 rvtime usable for a guest that is not one.</p>
 <h2 id="how-to-read-this"><a class="header" href="#how-to-read-this">How to read this</a></h2>
-<p>Start with berm to write or run a harness. Its four chapters cover what the
+<p>Start with berm to write or run a harness. Its five chapters cover what the
 sandbox guarantees, how to write a guest against it, what an image declares
-about itself, and how the service serves it.</p>
+about itself, how one travels between machines, and how the service serves it.</p>
 <p>Read rvtime to change the compiler, or when something surprises you and the
 question is whether it was deliberate. Its
 <a href="#calling-a-guest">examples</a> are real programs in the
@@ -223,10 +223,10 @@ somewhere a host is holding.</p>
 <p>This is the opposite of a container, and it is why there is no lifecycle to
 manage — nothing to start, stop, or restart. What is expensive is compilation,
 not instantiation, and compilation is paid once per image.</p>
-<h2 id="the-grant-is-the-linker"><a class="header" href="#the-grant-is-the-linker">The grant is the linker</a></h2>
-<p>A harness reaches the world only through <em>system harnesses</em> it was given, and
-the grant is the <code>Linker</code> it is instantiated with. An ungranted call traps
-because nothing is registered for the number the guest put in <code>a7</code> — not
+<h2 id="the-linker-is-the-boundary"><a class="header" href="#the-linker-is-the-boundary">The linker is the boundary</a></h2>
+<p>A harness reaches the world only through the <em>system harnesses</em> it was given,
+and that list is the <code>Linker</code> it is instantiated with. A call to anything else
+traps because nothing is registered for the number the guest put in <code>a7</code> — not
 because a check ran and said no. There is no check to write, and none to forget.</p>
 <p>berm ships none. What a filesystem is bounded by, what shape a command’s result
 takes, where bytes persist — each is a decision about a host, and berm has no
@@ -296,12 +296,19 @@ the model looking complete.</p>
 <p>Returning <code>Err(Failed)</code> reports failure through the ABI. It is not a trap: the
 host sees a tool that ran and failed, and hands the message back as a result.</p>
 <h2 id="building"><a class="header" href="#building">Building</a></h2>
-<p>The guest target, and <code>--emit-relocs</code> — which is not optional, because the
-relocations are what identify indirect-call targets:</p>
+<p><code>berm new</code> writes the crate, so none of the ceremony below has to be typed:</p>
 <pre><code class="language-sh">rustup target add riscv64imac-unknown-none-elf
-cargo build --release --target riscv64imac-unknown-none-elf \
-  --config 'target.riscv64imac-unknown-none-elf.rustflags=["-Clink-arg=--emit-relocs"]'
+berm new my-harness
+cd my-harness
+cargo build --release --target riscv64imac-unknown-none-elf
 </code></pre>
+<p>Two things it sets up are worth knowing, because a reader who does not will
+delete one of them. <code>.cargo/config.toml</code> carries <code>--emit-relocs</code>, which is not
+optional: the relocations are what identify indirect-call targets. And the tools
+live in <code>src/lib.rs</code> under a three-line <code>src/bin/main.rs</code> that does nothing but
+<code>extern crate</code> them, because cargo emits an image for a bin target and an
+archive for a lib — the library alone never gets linked, and the binary alone
+cannot be reached from <code>tests/</code>.</p>
 <p>Off that target the crate is an ordinary library, so tools can be unit tested
 natively instead of cross-compiling to run anything at all. <code>berm_lang::test</code>
 stands in for the host: it holds the argument blob and collects what a harness
@@ -343,6 +350,104 @@ are matched by the <code>berm_tool_</code> prefix.</p>
 <p>Both are the same idea as compiling at deploy rather than on first call: a
 broken image should fail for whoever introduced it, not for whoever happens to
 use it next.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="publishing-a-harness"><a class="header" href="#publishing-a-harness">Publishing a Harness</a></h1>
+<p>A harness is one file, so it travels as one OCI layer with no tarball around it.</p>
+<pre><code class="language-sh">berm push ghcr.io/org/example:v1 ./target/riscv64imac-unknown-none-elf/release/example
+berm deploy example ghcr.io/org/example:v1
+</code></pre>
+<p><code>deploy</code> takes a file or a reference, not two commands: a path that exists is
+read, and anything else is resolved as a reference and pulled. The bytes reach
+the service the same way either way, so <code>bermd</code> never talks to a registry, holds
+no credentials, and still restores from <code>--root</code> on start without a network.</p>
+<h2 id="the-artifact"><a class="header" href="#the-artifact">The artifact</a></h2>
+<pre><code class="language-json">{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "artifactType": "application/vnd.berm.harness.v1",
+  "config": { "mediaType": "application/vnd.berm.manifest.v1+json", "digest": "sha256:…" },
+  "layers": [ { "mediaType": "application/vnd.berm.harness.v1", "digest": "sha256:…" } ]
+}
+</code></pre>
+<p>The config blob is the <a href="#the-manifest"><code>.berm.abi</code></a> section carried out of the
+ELF byte for byte, so what a registry serves cannot disagree with what the image
+holds. It is also what makes a listing cheap: the tools, their schemas and the
+usage are one small blob, and reading them never means pulling the harness.</p>
+<p>Nothing about the harness is repeated in annotations. Only
+<code>org.opencontainers.image.source</code> and <code>.revision</code> are set, from
+<code>GITHUB_REPOSITORY</code> and <code>GITHUB_SHA</code> when a build has them, which is what makes
+GHCR show a package against its repository.</p>
+<h2 id="one-digest"><a class="header" href="#one-digest">One digest</a></h2>
+<p>Because the layer is the ELF and nothing else, the layer’s digest is sha256 of
+the ELF — the same hash <code>berm ls</code> reports, carrying the registry’s <code>sha256:</code>
+prefix:</p>
+<pre><code class="language-console">$ berm push 127.0.0.1:5000/berm/fixture:v1 ./fixture
+127.0.0.1:5000/berm/fixture:v1
+  digest  sha256:222890c498ed28f4bf60670a223141489d9879020bd1890111b8c11ac79fa31d
+
+$ shasum -a256 ./fixture
+222890c498ed28f4bf60670a223141489d9879020bd1890111b8c11ac79fa31d
+</code></pre>
+<p>A pulled image is checked against the digest the registry advertised before it
+goes anywhere, so a registry that serves the wrong bytes is caught by the deploy
+rather than by the model.</p>
+<h2 id="what-push-refuses"><a class="header" href="#what-push-refuses">What push refuses</a></h2>
+<p><code>berm push</code> reads the manifest out of the ELF before it uploads anything, which
+means a broken image is refused by whoever built it rather than at deploy on
+someone else’s machine. Reading it never runs the guest.</p>
+<h2 id="from-a-workflow"><a class="header" href="#from-a-workflow">From a workflow</a></h2>
+<p><code>GITHUB_TOKEN</code> is the credential, and with <code>berm push</code> the step is one line —
+there is no action to install.</p>
+<pre><code class="language-yaml">permissions:
+  packages: write
+
+steps:
+  - run: cargo build --release --target riscv64imac-unknown-none-elf
+  - run: berm push ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
+           target/riscv64imac-unknown-none-elf/release/example
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+</code></pre>
+<p>Locally, <code>GITHUB_TOKEN=$(gh auth token)</code> does the same. <code>~/.docker/config.json</code>
+is not read.</p>
+<h2 id="being-found"><a class="header" href="#being-found">Being found</a></h2>
+<p>Pushing makes a harness fetchable, not findable. Nothing can enumerate the
+harnesses on a registry — GitHub’s Packages API refuses to list even public
+packages without a token — so an index has to be told a harness exists.</p>
+<pre><code class="language-sh">berm publish ghcr.io/org/example:v1
+berm search "read a file"
+</code></pre>
+<p><code>--index &lt;url&gt;</code>, or <code>BERM_INDEX</code>. There is no default: a built-in one would
+make berm ship an opinion about whose list you read.</p>
+<p><code>publish</code> records a reference and nothing else. The index pulls the artifact
+itself, anonymously, and fills in the digest, tools and usage from the config
+blob — so a listing describes what a registry will actually serve rather than
+what a publisher claimed, and a harness nobody can pull cannot be listed.</p>
+<p>Entries are keyed by digest, which is what makes them safe to keep: the bytes at
+a digest never change, so a recorded description of them cannot go stale.
+Re-pushing a tag adds an entry rather than rewriting one.</p>
+<h2 id="the-list-is-a-git-repository"><a class="header" href="#the-list-is-a-git-repository">The list is a git repository</a></h2>
+<p>One JSON Lines file per harness, one line per version — so a copy of an index is
+a clone, and searching your copy needs no service, no credential and no network.
+<code>berm search</code> keeps that copy for you under <code>~/.berm/index</code>, cloning it the
+first time and not touching the network again:</p>
+<pre><code class="language-sh">berm search "read a file"                     # the default list
+git -C ~/.berm/index/github.com/crabtalk/berm-index pull    # refresh it
+</code></pre>
+<p>The default is <code>https://github.com/crabtalk/berm-index.git</code>. <code>--index</code> or
+<code>BERM_INDEX</code> names another, and takes three shapes: a directory to read as-is, a
+<code>.git</code> URL to keep a copy of, or the URL of a service. Publishing needs the
+service, because appending to the list means holding a credential for the
+repository; reading never does.</p>
+<p><code>BERM_TOKEN</code> carries a credential when the service in front of you wants one.
+Never a GitHub token: an index has no business holding something that could act
+as you elsewhere.</p>
+<p><a href="https://github.com/crabtalk/berm/tree/main/apps/index"><code>berm-indexd</code></a> serves
+those two routes over a directory, so the loop can be run without deploying
+anything. What it writes is what a clone holds, so the same directory reads back
+with no service at all.</p>
+<p><code>berm push</code> talks to no index at all — publishing is a separate act, so an
+upload that succeeded is never undone by a listing that failed.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="running-the-service"><a class="header" href="#running-the-service">Running the Service</a></h1>
 <p><code>bermd</code> is a long-running service that deploys harnesses and serves their tools

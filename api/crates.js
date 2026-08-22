@@ -1,2 +1,2 @@
-window.ALL_CRATES = ["berm","berm_api","berm_cli","berm_codegen","berm_lang","bermd","fixture","rvtime","rvtime_compiler","rvtime_core","rvtime_cranelift","rvtime_guest"];
-//{"start":21,"fragment_lengths":[6,11,11,15,12,8,10,9,18,14,19,15]}
+window.ALL_CRATES = ["berm","berm_api","berm_cli","berm_codegen","berm_fixture","berm_index","berm_indexd","berm_lang","berm_oci","bermd","fixture","rvtime","rvtime_compiler","rvtime_core","rvtime_cranelift","rvtime_guest"];
+//{"start":21,"fragment_lengths":[6,11,11,15,15,13,14,12,11,8,10,9,18,14,19,15]}

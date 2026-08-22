@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-bf7eb20f.js";
+            window.path_to_searchindex_js = "../searchindex-ab244f8b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-b2bf2442.js"></script>
+        <script src="../toc-4d41d46a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -201,10 +201,10 @@ somewhere a host is holding.</p>
 <p>This is the opposite of a container, and it is why there is no lifecycle to
 manage — nothing to start, stop, or restart. What is expensive is compilation,
 not instantiation, and compilation is paid once per image.</p>
-<h2 id="the-grant-is-the-linker"><a class="header" href="#the-grant-is-the-linker">The grant is the linker</a></h2>
-<p>A harness reaches the world only through <em>system harnesses</em> it was given, and
-the grant is the <code>Linker</code> it is instantiated with. An ungranted call traps
-because nothing is registered for the number the guest put in <code>a7</code> — not
+<h2 id="the-linker-is-the-boundary"><a class="header" href="#the-linker-is-the-boundary">The linker is the boundary</a></h2>
+<p>A harness reaches the world only through the <em>system harnesses</em> it was given,
+and that list is the <code>Linker</code> it is instantiated with. A call to anything else
+traps because nothing is registered for the number the guest put in <code>a7</code> — not
 because a check ran and said no. There is no check to write, and none to forget.</p>
 <p>berm ships none. What a filesystem is bounded by, what shape a command’s result
 takes, where bytes persist — each is a decision about a host, and berm has no

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["cmd"],"struct":["Client"]};
+window.SIDEBAR_ITEMS = {"mod":["cmd","index"],"struct":["Client"]};
