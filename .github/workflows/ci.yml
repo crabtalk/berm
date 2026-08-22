@@ -94,9 +94,7 @@ jobs:
           for dir in fixtures/*/; do
             [ -f "$dir/Cargo.toml" ] || continue
             echo "::group::$dir"
-            (cd "$dir" && cargo build --release \
-              --target riscv64imac-unknown-none-elf \
-              --config 'target.riscv64imac-unknown-none-elf.rustflags=["-Clink-arg=--emit-relocs"]')
+            (cd "$dir" && cargo build --release --target riscv64imac-unknown-none-elf)
             echo "::endgroup::"
           done
 

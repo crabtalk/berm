@@ -3,11 +3,16 @@
 The command-line client for [bermd](../service).
 
 ```sh
+berm new example
 berm deploy example ./harness.elf
 berm ls
 berm inspect example
 berm rm example
 ```
+
+`new` is the one subcommand that does not talk to the service: it writes a
+harness crate ready to build, pinning the `berm-lang` that shipped with this
+binary.
 
 `--host` points at a service somewhere other than `http://127.0.0.1:7777`.
 

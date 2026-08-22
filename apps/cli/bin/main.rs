@@ -20,6 +20,8 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Scaffold a harness crate.
+    New { name: String },
     /// List deployed harnesses.
     Ls,
     /// Deploy an ELF, replacing whatever holds the name.
@@ -35,6 +37,7 @@ fn main() -> Result<()> {
     let client = Client::new(args.host);
 
     match &args.command {
+        Command::New { name } => cmd::new::run(name),
         Command::Ls => cmd::ls::run(&client),
         Command::Deploy { name, image } => cmd::deploy::run(&client, name, image),
         Command::Inspect { name } => cmd::inspect::run(&client, name),

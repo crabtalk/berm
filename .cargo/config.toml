@@ -1,0 +1,3 @@
+# Not optional: the relocations are what identify indirect-call targets.
+[target.riscv64imac-unknown-none-elf]
+rustflags = ["-Clink-arg=--emit-relocs"]
