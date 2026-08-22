@@ -1,8 +1,8 @@
 use berm_gui::Workbench;
 use bezel::{
     gpui::{
-        App, AppContext as _, Bounds, Menu, MenuItem, WindowBounds, WindowOptions, actions, px,
-        size,
+        App, AppContext as _, Bounds, Menu, MenuItem, TitlebarOptions, WindowBounds, WindowOptions,
+        actions, point, px, size,
     },
     theme::{
         Theme,
@@ -34,6 +34,13 @@ fn main() {
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     window_background: Theme::of(cx).window_background_appearance(),
+                    // No titlebar: the rail runs to the top of the window and
+                    // the lights sit in its gutter, aligned with its heading.
+                    titlebar: Some(TitlebarOptions {
+                        title: None,
+                        appears_transparent: true,
+                        traffic_light_position: Some(point(px(20.0), px(15.0))),
+                    }),
                     ..Default::default()
                 },
                 |window, cx| {

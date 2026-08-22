@@ -1,6 +1,6 @@
 //! What a harness says it is: its usage, its tools, their arguments.
 
-use crate::{Tab, Workbench, utils};
+use crate::{TITLEBAR, Tab, Workbench, utils};
 use berm_api::ToolSpec;
 use bermd::Deployed;
 use bezel::{
@@ -51,7 +51,7 @@ impl Workbench {
         div()
             .flex_none()
             .px(px(28.0))
-            .pt(px(24.0))
+            .pt(px(TITLEBAR))
             .flex()
             .flex_col()
             .child(

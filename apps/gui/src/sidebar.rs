@@ -1,6 +1,6 @@
 //! The rail of deployed harnesses.
 
-use crate::{Sheet, Workbench, utils};
+use crate::{Sheet, TITLEBAR, Workbench, utils};
 use bermd::Deployed;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
@@ -25,7 +25,7 @@ impl Workbench {
             .child(
                 div()
                     .px(px(20.0))
-                    .pt(px(20.0))
+                    .pt(px(TITLEBAR))
                     .pb(px(12.0))
                     .child(theme.page_header("Harnesses", Some(self.harnesses.len()))),
             )

@@ -32,6 +32,10 @@ mod utils;
 /// interchangeable and a `berm` CLI finds either without being told.
 const ADDR: &str = "127.0.0.1:7777";
 
+/// The strip the traffic lights ride on. Both panes start below it: the window
+/// has no titlebar of its own, and the whole strip is the system's drag region.
+pub const TITLEBAR: f32 = 44.0;
+
 pub fn init(cx: &mut App) {
     focus::init(cx);
     input::init(cx);
