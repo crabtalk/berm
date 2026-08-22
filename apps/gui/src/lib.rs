@@ -6,9 +6,12 @@
 //! harnesses the window paints.
 
 use anyhow::{Context as _, Result};
+use berm_index::{Entry, Source};
 use bermd::{Deployed, Service};
 use bezel::{
-    gpui::{AnyElement, App, ClipboardItem, Context, Entity, Window, div, prelude::*, px},
+    gpui::{
+        AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, Window, div, prelude::*, px,
+    },
     motion,
     theme::Theme,
     ui::{
@@ -24,6 +27,7 @@ use tokio::{net::TcpListener, runtime::Runtime, sync::broadcast};
 
 mod deploy;
 mod detail;
+mod index;
 mod run;
 mod sidebar;
 mod utils;
@@ -61,6 +65,25 @@ enum Tab {
     Run,
 }
 
+/// What the pane is on: a harness this machine holds, or one the index lists.
+///
+/// The entry is held whole rather than looked up, so editing the search does
+/// not empty the pane under the person reading it.
+enum Showing {
+    Deployed(String),
+    Published(Entry),
+}
+
+/// What the index last said about the term in the field.
+enum Found {
+    /// Nothing typed, or nothing asked yet.
+    Idle,
+    Listed(Vec<Entry>),
+    /// The list could not be read at all — a clone that failed, a service that
+    /// is not there.
+    Unreachable(String),
+}
+
 pub struct Workbench {
     /// Beside gpui's own executor, because `Service` is tokio: the
     /// `spawn_blocking` a call enters the guest on panics outside a runtime.
@@ -71,7 +94,19 @@ pub struct Workbench {
     /// By name, not index: a refresh renumbers the list, and a harness removed
     /// under the pane should empty it rather than hand the selection to a
     /// neighbour.
-    selection: Option<String>,
+    selection: Option<Showing>,
+    /// The list of published harnesses, opened once — a `.git` default clones
+    /// the first time, and doing that under a keystroke would race a second
+    /// clone into the same directory.
+    index: Option<Arc<Source>>,
+    query: Entity<TextField>,
+    /// The term [`Found`] is an answer to, which is also what says whether the
+    /// rail is showing what is deployed or what is published.
+    term: String,
+    found: Found,
+    /// Bumped per edit, so an answer that comes back under an old number is
+    /// dropped rather than painted over a newer one.
+    asked: usize,
     /// Which schemas are open, keyed the way MCP names a tool.
     expanded: HashSet<String>,
     tab: Tab,
@@ -82,12 +117,18 @@ pub struct Workbench {
     transcript: Vec<Invocation>,
     /// The deploy sheet, while it is open.
     sheet: Option<Sheet>,
+    /// The image being deployed, while it is being deployed — a path from the
+    /// sheet or a reference from the index, whichever asked.
+    deploying: Option<String>,
     /// Whether the header is asking about removing the selected harness.
     confirming: bool,
     /// Why the last change to the deployed set was refused. One field for both
     /// deploy and removal: what a person needs is the reason, and which of the
     /// two it was is already on screen.
     refused: Option<String>,
+    /// The window's resting focus: a press moves focus to the innermost handle
+    /// it lands in, so without one here a click off a field never takes it.
+    focus_handle: FocusHandle,
 }
 
 impl Workbench {
@@ -109,11 +150,44 @@ impl Workbench {
         })
         .detach();
 
+        // Beside the engine rather than after it: reading the list needs
+        // nothing from the service, and the clone it may do is slow.
+        let opening = rt.spawn_blocking(|| Source::new(None));
+        cx.spawn(async move |this, cx| {
+            let opened = match opening.await {
+                Ok(Ok(source)) => Ok(Arc::new(source)),
+                Ok(Err(error)) => Err(format!("{error:#}")),
+                Err(error) => Err(format!("opening the index panicked: {error}")),
+            };
+            let _ = this.update(cx, |this, cx| {
+                match opened {
+                    Ok(source) => {
+                        this.index = Some(source);
+                        // A term typed while this was opening was never asked.
+                        if !this.term.is_empty() {
+                            this.look(cx);
+                        }
+                    }
+                    Err(error) => this.found = Found::Unreachable(error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+
+        let query = cx.new(|cx| TextField::new(cx).with_placeholder("Search the index…"));
+        cx.observe(&query, |this, _, cx| this.search(cx)).detach();
+
         Self {
             rt,
             engine: Engine::Starting,
             harnesses: Vec::new(),
             selection: None,
+            index: None,
+            query,
+            term: String::new(),
+            found: Found::Idle,
+            asked: 0,
             expanded: HashSet::new(),
             tab: Tab::Tools,
             tool: None,
@@ -124,13 +198,18 @@ impl Workbench {
             }),
             transcript: Vec::new(),
             sheet: None,
+            deploying: None,
             confirming: false,
             refused: None,
+            focus_handle: cx.focus_handle(),
         }
     }
 
+    /// The deployed harness the pane is on, if it is on one.
     fn selected(&self) -> Option<&Arc<Deployed>> {
-        let name = self.selection.as_ref()?;
+        let Some(Showing::Deployed(name)) = &self.selection else {
+            return None;
+        };
         self.harnesses
             .iter()
             .find(|deployed| deployed.name == *name)
@@ -138,7 +217,7 @@ impl Workbench {
 
     /// Show a harness, with the Run pane pointed at its first tool.
     fn select(&mut self, name: &str, cx: &mut Context<Self>) {
-        self.selection = Some(name.to_owned());
+        self.selection = Some(Showing::Deployed(name.to_owned()));
         self.tool = None;
         self.confirming = false;
         let first = self
@@ -243,7 +322,9 @@ impl Render for Workbench {
         if motion::hover_fades_active() {
             window.request_animation_frame();
         }
-        div()
+        // Traversal on the root, so `tab` works wherever focus happens to be.
+        focus::traversal(div())
+            .track_focus(&self.focus_handle)
             .relative()
             .size_full()
             .flex()

@@ -1,6 +1,6 @@
 //! What a harness says it is: its usage, its tools, their arguments.
 
-use crate::{TITLEBAR, Tab, Workbench, utils};
+use crate::{Showing, TITLEBAR, Tab, Workbench, utils};
 use berm_api::ToolSpec;
 use bermd::Deployed;
 use bezel::{
@@ -15,6 +15,9 @@ use std::sync::Arc;
 
 impl Workbench {
     pub(crate) fn detail(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        if let Some(Showing::Published(entry)) = &self.selection {
+            return self.published(entry, theme, cx);
+        }
         let Some(deployed) = self.selected() else {
             return div()
                 .flex_1()
@@ -36,7 +39,10 @@ impl Workbench {
             .flex_col()
             .child(self.header(deployed, theme, cx))
             .child(match self.tab {
-                Tab::Tools => self.tools(deployed, theme, cx),
+                Tab::Tools => {
+                    let manifest = deployed.manifest();
+                    self.tools(&deployed.name, &manifest.usage, &manifest.tools, theme, cx)
+                }
                 Tab::Run => self.run_pane(deployed, theme, cx),
             })
             .into_any_element()
@@ -83,7 +89,7 @@ impl Workbench {
             .into_any_element()
     }
 
-    fn tab(
+    pub(crate) fn tab(
         &self,
         tab: Tab,
         label: &'static str,
@@ -100,8 +106,17 @@ impl Workbench {
             .into_any_element()
     }
 
-    fn tools(&self, deployed: &Arc<Deployed>, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let manifest = deployed.manifest();
+    /// What a harness offers, whether it is deployed or only listed: `of` is
+    /// what its tools are named under, which is a name here and a reference in
+    /// the index.
+    pub(crate) fn tools(
+        &self,
+        of: &str,
+        usage: &str,
+        tools: &[ToolSpec],
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         div()
             .id("tools")
             .flex_1()
@@ -115,24 +130,21 @@ impl Workbench {
                     .flex_col()
                     // Before the tools, because choosing among them is what it
                     // answers and no single tool's description does.
-                    .when(!manifest.usage.is_empty(), |pane| {
+                    .when(!usage.is_empty(), |pane| {
                         pane.child(
                             div()
                                 .mt(px(20.0))
                                 .text_size(px(13.0))
                                 .text_color(theme.text_muted)
-                                .child(manifest.usage.clone()),
+                                .child(usage.to_owned()),
                         )
                     })
                     .child(
                         theme.group_box().children(
-                            manifest
-                                .tools
+                            tools
                                 .iter()
                                 .enumerate()
-                                .map(|(index, tool)| {
-                                    self.tool(&deployed.name, tool, index == 0, theme, cx)
-                                })
+                                .map(|(index, tool)| self.tool(of, tool, index == 0, theme, cx))
                                 .collect::<Vec<_>>(),
                         ),
                     ),

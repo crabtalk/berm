@@ -14,8 +14,8 @@ struct Args {
     #[arg(long, global = true, default_value = "http://127.0.0.1:7777")]
     host: String,
 
-    /// Which harness index to read and publish to. No default: a built-in one
-    /// would make berm ship an opinion about whose list you read.
+    /// Which harness index to read and publish to: a directory, a `.git` URL
+    /// to keep a copy of, or a service. `BERM_INDEX`, then the default list.
     #[arg(long, global = true)]
     index: Option<String>,
 
@@ -63,8 +63,8 @@ fn main() -> Result<ExitCode> {
         Command::Ls => cmd::ls::run(&client)?,
         Command::Deploy { name, image } => cmd::deploy::run(&client, name, image)?,
         Command::Push { reference, image } => cmd::push::run(reference, image)?,
-        Command::Publish { reference } => cmd::publish::run(args.index.as_ref(), reference)?,
-        Command::Search { term } => cmd::search::run(args.index.as_ref(), term)?,
+        Command::Publish { reference } => cmd::publish::run(args.index.as_deref(), reference)?,
+        Command::Search { term } => cmd::search::run(args.index.as_deref(), term)?,
         Command::Inspect { name } => cmd::inspect::run(&client, name)?,
         Command::Rm { name } => cmd::rm::run(&client, name)?,
         // The one command whose exit code carries a result rather than a

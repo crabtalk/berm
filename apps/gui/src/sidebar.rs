@@ -1,6 +1,6 @@
-//! The rail of deployed harnesses.
+//! The rail of harnesses — what is deployed, or what the index lists.
 
-use crate::{Sheet, TITLEBAR, Workbench, utils};
+use crate::{Found, Sheet, Showing, TITLEBAR, Workbench, utils};
 use bermd::Deployed;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
@@ -13,6 +13,16 @@ const WIDTH: f32 = 260.0;
 
 impl Workbench {
     pub(crate) fn sidebar(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        // One rail, two lists: an empty field is what this machine holds, and a
+        // term is what has been published.
+        let (heading, count) = match self.term.is_empty() {
+            true => ("Harnesses", self.harnesses.len()),
+            false => match &self.found {
+                Found::Listed(entries) => ("Index", entries.len()),
+                _ => ("Index", 0),
+            },
+        };
+
         div()
             .w(px(WIDTH))
             .flex_none()
@@ -26,23 +36,11 @@ impl Workbench {
                 div()
                     .px(px(20.0))
                     .pt(px(TITLEBAR))
-                    .pb(px(12.0))
-                    .child(theme.page_header("Harnesses", Some(self.harnesses.len()))),
+                    .pb(px(10.0))
+                    .child(theme.page_header(heading, Some(count))),
             )
-            .child(
-                div()
-                    .id("harnesses")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .children(
-                        self.harnesses
-                            .iter()
-                            .enumerate()
-                            .map(|(index, deployed)| self.row(deployed, index == 0, theme, cx))
-                            .collect::<Vec<_>>(),
-                    ),
-            )
+            .child(div().px(px(16.0)).pb(px(10.0)).child(self.query.clone()))
+            .child(self.list(theme, cx))
             .child(
                 div()
                     .flex_none()
@@ -67,6 +65,47 @@ impl Workbench {
             .into_any_element()
     }
 
+    fn list(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let rail = div().id("harnesses").flex_1().min_h_0().overflow_y_scroll();
+        if self.term.is_empty() {
+            return rail
+                .children(
+                    self.harnesses
+                        .iter()
+                        .enumerate()
+                        .map(|(index, deployed)| self.row(deployed, index == 0, theme, cx))
+                        .collect::<Vec<_>>(),
+                )
+                .into_any_element();
+        }
+
+        let note = |copy: String| {
+            div()
+                .px(px(20.0))
+                .py(px(10.0))
+                .text_size(px(12.5))
+                .text_color(theme.text_muted)
+                .child(copy)
+        };
+        match &self.found {
+            Found::Idle => rail.child(note("searching…".to_owned())),
+            Found::Unreachable(error) => {
+                rail.child(note(error.clone()).text_color(theme.danger_muted))
+            }
+            Found::Listed(entries) if entries.is_empty() => {
+                rail.child(note(format!("nothing published matches {:?}", self.term)))
+            }
+            Found::Listed(entries) => rail.children(
+                entries
+                    .iter()
+                    .enumerate()
+                    .map(|(index, entry)| self.result(entry, index == 0, theme, cx))
+                    .collect::<Vec<_>>(),
+            ),
+        }
+        .into_any_element()
+    }
+
     fn row(
         &self,
         deployed: &Arc<Deployed>,
@@ -75,7 +114,7 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let name = deployed.name.clone();
-        let selected = self.selection.as_ref() == Some(&name);
+        let selected = matches!(&self.selection, Some(Showing::Deployed(at)) if *at == name);
         let tools = deployed.manifest().tools.len();
 
         theme

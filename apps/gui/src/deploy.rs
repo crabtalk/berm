@@ -14,7 +14,6 @@ use bezel::{
 pub struct Sheet {
     name: Entity<TextField>,
     image: Entity<TextField>,
-    working: bool,
 }
 
 impl Sheet {
@@ -24,7 +23,6 @@ impl Sheet {
             image: cx.new(|cx| {
                 TextField::new(cx).with_placeholder("./harness.elf or ghcr.io/org/echo:v1")
             }),
-            working: false,
         }
     }
 }
@@ -35,19 +33,17 @@ impl Workbench {
     /// Deploying is where a broken harness is refused, so the compiler's own
     /// words go on screen rather than "deploy failed" — for an author, that
     /// message is the whole point of the screen.
-    fn deploy(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn deploy(&mut self, name: String, spec: String, cx: &mut Context<Self>) {
         let Engine::Serving { service, .. } = &self.engine else {
             return;
         };
-        let Some(sheet) = &self.sheet else { return };
-        let name = sheet.name.read(cx).content().to_string();
-        let spec = sheet.image.read(cx).content().to_string();
         let service = service.clone();
+        let image = spec.clone();
 
         let deploying = self.rt.spawn(async move {
             // Reading an image reaches a registry or the filesystem, neither of
             // which a runtime worker can afford to block on.
-            let elf = tokio::task::spawn_blocking(move || utils::image(&spec)).await??;
+            let elf = tokio::task::spawn_blocking(move || utils::image(&image)).await??;
             service.deploy(&name, elf).await
         });
         cx.spawn(async move |this, cx| {
@@ -58,11 +54,10 @@ impl Workbench {
             };
             let _ = this.update(cx, |this, cx| {
                 this.refused = refused;
+                this.deploying = None;
                 // The `changed` broadcast brings the new harness in.
                 if this.refused.is_none() {
                     this.sheet = None;
-                } else if let Some(sheet) = &mut this.sheet {
-                    sheet.working = false;
                 }
                 cx.notify();
             });
@@ -70,17 +65,23 @@ impl Workbench {
         .detach();
 
         self.refused = None;
-        if let Some(sheet) = &mut self.sheet {
-            sheet.working = true;
-        }
+        self.deploying = Some(spec);
         cx.notify();
+    }
+
+    /// What the sheet's two fields are for.
+    fn submit(&mut self, cx: &mut Context<Self>) {
+        let Some(sheet) = &self.sheet else { return };
+        let name = sheet.name.read(cx).content().to_string();
+        let spec = sheet.image.read(cx).content().to_string();
+        self.deploy(name, spec, cx);
     }
 
     fn undeploy(&mut self, cx: &mut Context<Self>) {
         let Engine::Serving { service, .. } = &self.engine else {
             return;
         };
-        let Some(name) = self.selection.clone() else {
+        let Some(name) = self.selected().map(|deployed| deployed.name.clone()) else {
             return;
         };
         let service = service.clone();
@@ -190,7 +191,7 @@ impl Workbench {
                             .items_center()
                             .justify_end()
                             .gap(px(8.0))
-                            .when(sheet.working, |row| {
+                            .when(self.deploying.is_some(), |row| {
                                 row.child(
                                     div()
                                         .mr_auto()
@@ -212,7 +213,7 @@ impl Workbench {
                                 theme
                                     .button("Deploy", ButtonStyle::Prominent, None)
                                     .id("deploy-confirm")
-                                    .on_click(cx.listener(|this, _, _, cx| this.deploy(cx))),
+                                    .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
                             ),
                     ),
             )

@@ -50,7 +50,10 @@ impl Workbench {
         let Engine::Serving { service, .. } = &self.engine else {
             return;
         };
-        let (Some(harness), Some(tool)) = (self.selection.clone(), self.tool.clone()) else {
+        let (Some(harness), Some(tool)) = (
+            self.selected().map(|deployed| deployed.name.clone()),
+            self.tool.clone(),
+        ) else {
             return;
         };
         let service = service.clone();
@@ -142,7 +145,7 @@ impl Workbench {
                         self.transcript
                             .iter()
                             .enumerate()
-                            .filter(|(_, entry)| Some(&entry.harness) == self.selection.as_ref())
+                            .filter(|(_, entry)| entry.harness == deployed.name)
                             // Newest first: the result you just asked for is
                             // under the button you pressed, not below the scroll.
                             .rev()

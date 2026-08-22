@@ -1,6 +1,7 @@
 //! Small transforms the window paints with.
 
 use anyhow::{Context, Result};
+use berm_index::Entry;
 use berm_oci::{Access, Reference, Registry};
 use serde_json::{Map, Value};
 use std::{fs, path::Path, str::FromStr};
@@ -8,8 +9,20 @@ use std::{fs, path::Path, str::FromStr};
 /// How much of a digest reads as an identity without taking the row.
 const DIGEST_SHORT: usize = 12;
 
+/// The `sha256:` an index carries is how a registry addresses the bytes, not
+/// part of what tells two of them apart.
 pub fn short(digest: &str) -> &str {
-    &digest[..DIGEST_SHORT.min(digest.len())]
+    let hex = digest.strip_prefix("sha256:").unwrap_or(digest);
+    &hex[..DIGEST_SHORT.min(hex.len())]
+}
+
+/// A published harness as a person reads it: the name its author gave the
+/// image, and the version it was pushed under.
+pub fn split(entry: &Entry) -> (&str, &str) {
+    let key = entry.key();
+    let name = key.rsplit('/').next().unwrap_or(key);
+    let version = entry.reference[key.len()..].trim_start_matches([':', '@']);
+    (name, version)
 }
 
 /// Read an image: a file if one is there, a registry reference otherwise. The

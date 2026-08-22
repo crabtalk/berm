@@ -90,8 +90,7 @@ berm publish ghcr.io/org/example:v1
 berm search "read a file"
 ```
 
-`--index <url>`, or `BERM_INDEX`. There is no default: a built-in one would
-make berm ship an opinion about whose list you read.
+`--index <url>`, or `BERM_INDEX`, or the default list below.
 
 `publish` records a reference and nothing else. The index pulls the artifact
 itself, anonymously, and fills in the digest, tools and usage from the config
