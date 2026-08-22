@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["Entry","Index"]};
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT"],"enum":["Source"],"struct":["Entry","Index"]};
