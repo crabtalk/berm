@@ -5,4 +5,3 @@ pub use client::Client;
 mod client;
 pub mod cmd;
 mod http;
-pub mod index;

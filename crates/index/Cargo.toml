@@ -12,5 +12,9 @@ categories = ["virtualization"]
 [dependencies]
 anyhow.workspace = true
 berm-api.workspace = true
+# TLS, because an index service is the one shape of list that is not a
+# directory on this machine. `query`, so a search term with a space in it is
+# encoded rather than pasted.
+reqwest = { workspace = true, features = ["blocking", "json", "query", "rustls"] }
 serde.workspace = true
 serde_json.workspace = true

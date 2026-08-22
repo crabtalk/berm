@@ -2,7 +2,7 @@
 
 use crate::http;
 use anyhow::{Context, Result};
-use berm_api::Harness;
+use berm_api::{Harness, Output};
 
 pub struct Client {
     host: String,
@@ -34,6 +34,13 @@ impl Client {
         http::read(&self.host, self.http.put(self.url(name)).body(elf).send())?
             .json()
             .context("bermd returned something that is not a harness")
+    }
+
+    pub fn run(&self, harness: &str, tool: &str, arguments: Vec<u8>) -> Result<Output> {
+        let url = format!("{}/tools/{tool}", self.url(harness));
+        http::read(&self.host, self.http.post(url).body(arguments).send())?
+            .json()
+            .context("bermd returned something that is not a tool result")
     }
 
     pub fn undeploy(&self, name: &str) -> Result<()> {

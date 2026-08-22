@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use bermd::Service;
 use clap::Parser;
 use std::{net::SocketAddr, path::PathBuf};
+use tokio::net::TcpListener;
 
 #[derive(Parser)]
 #[command(version, about = "Deploys harnesses and serves their tools over MCP")]
@@ -31,5 +32,12 @@ async fn main() -> Result<()> {
         None => PathBuf::from(std::env::var("HOME").context("HOME is not set")?).join(".berm"),
     };
 
-    Service::new(root).await?.serve(args.addr).await
+    let service = Service::new(root).await?;
+    let listener = TcpListener::bind(args.addr)
+        .await
+        .with_context(|| format!("failed to bind {}", args.addr))?;
+
+    let addr = args.addr;
+    tracing::info!("listening on http://{addr}, mcp at http://{addr}/mcp");
+    service.serve(listener).await
 }

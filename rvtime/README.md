@@ -1,7 +1,7 @@
 # rvtime
 
 [![CI](https://github.com/crabtalk/berm/actions/workflows/ci.yml/badge.svg)](https://github.com/crabtalk/berm/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-crabtalk.github.io-blue)](https://crabtalk.github.io/berm/rvtime/introduction.html)
+[![Docs](https://img.shields.io/badge/docs-crabtalk.github.io-blue)](https://crabtalk.github.io/berm/book/rvtime/introduction.html)
 
 A RISC-V compiler with a wasmtime-like interface.
 
@@ -28,7 +28,7 @@ assert_eq!(add.call(&mut store, (10, 3))?, 13);
 
 ## Documentation
 
-- **[Guide and design notes](https://crabtalk.github.io/berm/rvtime/introduction.html)** — how it works
+- **[Guide and design notes](https://crabtalk.github.io/berm/book/rvtime/introduction.html)** — how it works
   and why, with worked examples.
 - **[API reference](https://crabtalk.github.io/berm/api/)** — generated from the
   source.
@@ -48,8 +48,8 @@ is not supported — memory and traps are POSIX.
 
 Guests must be linked with **`--emit-relocs`**; that is the first thing to check
 when one fails to load. See
-[Getting Started](https://crabtalk.github.io/berm/rvtime/getting-started.html), and
-[Limitations](https://crabtalk.github.io/berm/rvtime/limitations.html) for what is not
+[Getting Started](https://crabtalk.github.io/berm/book/rvtime/getting-started.html), and
+[Limitations](https://crabtalk.github.io/berm/book/rvtime/limitations.html) for what is not
 done yet.
 
 ## Building

@@ -11,8 +11,11 @@
 
 use anyhow::{Context, Result};
 use berm::{Config, Engine};
-use std::{collections::BTreeMap, net::SocketAddr, path::PathBuf, sync::Arc};
-use tokio::sync::{RwLock, broadcast};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use tokio::{
+    net::TcpListener,
+    sync::{RwLock, broadcast},
+};
 
 pub use harness::Deployed;
 
@@ -50,12 +53,12 @@ impl Service {
         Ok(service)
     }
 
-    pub async fn serve(self: Arc<Self>, addr: SocketAddr) -> Result<()> {
-        let listener = tokio::net::TcpListener::bind(addr)
-            .await
-            .with_context(|| format!("failed to bind {addr}"))?;
-
-        tracing::info!("listening on http://{addr}, mcp at http://{addr}/mcp");
+    /// Serve on an already-bound listener.
+    ///
+    /// Binding is the caller's because its failure — the port is taken, by a
+    /// second berm holding the same root — is the one startup error that has to
+    /// be known *before* anything claims to be serving.
+    pub async fn serve(self: Arc<Self>, listener: TcpListener) -> Result<()> {
         axum::serve(listener, api::router(self))
             .with_graceful_shutdown(async {
                 let _ = tokio::signal::ctrl_c().await;
@@ -73,7 +76,7 @@ impl Service {
         self.deployed.read().await.get(name).cloned()
     }
 
-    fn subscribe(&self) -> broadcast::Receiver<()> {
+    pub fn subscribe(&self) -> broadcast::Receiver<()> {
         self.changed.subscribe()
     }
 }

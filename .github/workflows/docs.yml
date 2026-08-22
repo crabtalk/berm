@@ -1,11 +1,12 @@
-name: Deploy Docs
+name: Deploy Site
 
-# The book carries design and examples; rustdoc goes alongside it at /api so
-# API documentation is generated from the source and cannot drift from it.
+# One build for the whole site: `bun run build` drives mdbook and rustdoc into
+# `www/static` first, so what CI publishes is what `bun run dev` serves.
 on:
   push:
     branches: [main]
     paths:
+      - "www/**"
       - "docs/**"
       # The book includes the examples by reference, and rustdoc comes from the
       # sources, so both invalidate the published site.
@@ -29,25 +30,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
       - uses: peaceiris/actions-mdbook@v2
         with:
           mdbook-version: "latest"
 
-      - run: mdbook build docs
+      - run: bun install --frozen-lockfile
+        working-directory: www
 
-      - name: build the API documentation
-        run: cargo doc --no-deps --workspace
+      - run: bun run build
+        working-directory: www
         env:
           RUSTDOCFLAGS: -D warnings
-
-      - name: place the API documentation under /api
-        run: |
-          mv target/doc docs/book/api
-          # rustdoc emits no root index, so send /api to the main crate.
-          echo '<meta http-equiv="refresh" content="0;url=berm/index.html">' \
-            > docs/book/api/index.html
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/book
+          publish_dir: ./www/build

@@ -1,0 +1,24 @@
+{
+	"name": "berm-www",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"book": "cd .. && mdbook build docs --dest-dir www/static/book",
+		"api": "cd .. && cargo doc --no-deps --workspace && rm -rf www/static/api && cp -R target/doc www/static/api && echo '<meta http-equiv=\"refresh\" content=\"0;url=berm/index.html\">' > www/static/api/index.html",
+		"dev": "bun run ensure && vite dev",
+		"ensure": "test -d static/book || bun run book; test -d static/api || bun run api",
+		"build": "bun run book && bun run api && vite build",
+		"preview": "vite preview"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-static": "^3.0.8",
+		"@sveltejs/kit": "^2.20.0",
+		"@sveltejs/vite-plugin-svelte": "^5.0.3",
+		"svelte": "^5.20.0",
+		"vite": "^6.0.0"
+	},
+	"dependencies": {
+		"lucide-static": "^1.31.0",
+		"simple-icons": "^16.28.0"
+	}
+}

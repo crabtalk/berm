@@ -1,0 +1,8 @@
+node_modules
+.svelte-kit
+build
+
+# mdbook and rustdoc output; `bun run book` and `bun run api` put them here so
+# one build produces the whole site, locally and in CI alike.
+static/book
+static/api

@@ -1,13 +1,13 @@
 //! `berm search` — what has been published.
 
-use crate::index::Index;
 use anyhow::Result;
+use berm_index::Source;
 
 /// Enough of a digest to tell two images apart at a glance, as `ls` uses.
 const SHORT: usize = 12;
 
-pub fn run(index: Option<&String>, term: &str) -> Result<()> {
-    let entries = Index::new(index)?.search(term)?;
+pub fn run(index: Option<&str>, term: &str) -> Result<()> {
+    let entries = Source::new(index)?.search(term)?;
     if entries.is_empty() {
         match term.is_empty() {
             true => println!("nothing published"),

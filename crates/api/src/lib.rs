@@ -83,6 +83,27 @@ pub struct ToolSpec {
     pub parameters: serde_json::Value,
 }
 
+/// What running a tool produced.
+///
+/// [`Self::Failed`] is the harness's own report, and it arrives with the same
+/// `200` a result does: the call was fine and the tool said no. A refusal — no
+/// such harness, no such tool, a trap — is a [`Failed`] with a status to match.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Output {
+    Done(String),
+    Failed(String),
+}
+
+impl From<Result<String, String>> for Output {
+    fn from(outcome: Result<String, String>) -> Self {
+        match outcome {
+            Ok(result) => Self::Done(result),
+            Err(failure) => Self::Failed(failure),
+        }
+    }
+}
+
 /// What the control API returns instead of a resource when it refuses one.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Failed {

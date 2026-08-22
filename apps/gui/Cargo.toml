@@ -1,0 +1,31 @@
+[package]
+name = "berm-gui"
+description = "A workbench for harnesses — deploy one, read its tools, run them"
+edition.workspace = true
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+authors.workspace = true
+# A git dependency cannot be published, and the app is not a library anyone
+# depends on.
+publish = false
+
+[[bin]]
+name = "berm-gui"
+path = "bin/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+berm-api.workspace = true
+berm-index.workspace = true
+berm-oci.workspace = true
+bermd.workspace = true
+bezel.workspace = true
+# `actions!` expands to literal `gpui::` paths, so the crate name has to be in
+# scope even though no type is ever named through it.
+gpui.workspace = true
+# The facade re-exports gpui but not the platform, and this gpui has no
+# `Application::new()`.
+gpui_platform.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

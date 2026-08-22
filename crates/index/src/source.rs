@@ -1,40 +1,40 @@
 //! Reaching an index.
 //!
-//! Which index is the caller's choice: there is no default here, because a
-//! built-in one would make berm ship an opinion about whose list you read.
-//!
-//! A clone of the index is a directory, and a service that publishes into one
-//! is a URL — so `--index` takes either, the same way `berm deploy` takes a
-//! file or a registry reference.
+//! A clone of the list is a directory and a service that publishes into one is
+//! a URL, so what a caller names takes either shape — the same way `berm
+//! deploy` takes a file or a registry reference.
 
-use crate::http;
+use crate::Entry;
 use anyhow::{Context, Result, bail};
-use berm_index::Entry;
+use berm_api::Failed;
+use reqwest::blocking::{Client, Response};
 use std::{
     path::{Path, PathBuf},
     process::Command,
 };
 
-/// Where to look, when `--index` is not given.
-const INDEX: &str = "BERM_INDEX";
+/// Where to look, when nothing is named.
+const ENV: &str = "BERM_INDEX";
 
 /// The list read when nothing else is named.
-const DEFAULT: &str = "https://github.com/crabtalk/berm-index.git";
+pub const DEFAULT: &str = "https://github.com/crabtalk/berm-index.git";
 
-pub enum Index {
+pub enum Source {
     /// A clone of the list. Reading it needs no service and no credential.
     Local(PathBuf),
     Remote {
         host: String,
-        http: reqwest::blocking::Client,
+        http: Client,
     },
 }
 
-impl Index {
-    pub fn new(index: Option<&String>) -> Result<Self> {
+impl Source {
+    /// Blocking, and a `.git` URL clones the first time — so this belongs off
+    /// whatever thread paints, and off the path a keystroke takes.
+    pub fn new(index: Option<&str>) -> Result<Self> {
         let index = match index {
-            Some(index) => index.clone(),
-            None => std::env::var(INDEX).unwrap_or_else(|_| DEFAULT.to_owned()),
+            Some(index) => index.to_owned(),
+            None => std::env::var(ENV).unwrap_or_else(|_| DEFAULT.to_owned()),
         };
 
         if Path::new(&index).is_dir() {
@@ -47,20 +47,20 @@ impl Index {
         }
         Ok(Self::Remote {
             host: index.trim_end_matches('/').to_owned(),
-            http: reqwest::blocking::Client::new(),
+            http: Client::new(),
         })
     }
 
     pub fn search(&self, term: &str) -> Result<Vec<Entry>> {
         match self {
-            Self::Local(root) => Ok(berm_index::Index::load(root)?
+            Self::Local(root) => Ok(crate::Index::load(root)?
                 .search(term)
                 .into_iter()
                 .cloned()
                 .collect()),
             Self::Remote { host, http } => {
                 let request = http.get(format!("{host}/berm")).query(&[("q", term)]);
-                http::read(host, request.send())?
+                read(host, request.send())?
                     .json()
                     .context("the index returned something that is not a harness list")
             }
@@ -81,7 +81,7 @@ impl Index {
         if let Some(token) = token {
             request = request.bearer_auth(token);
         }
-        http::read(host, request.send())?
+        read(host, request.send())?
             .json()
             .context("the index returned something that is not a harness")
     }
@@ -112,4 +112,19 @@ fn mirror(url: &str) -> Result<PathBuf> {
         bail!("git could not clone {url}");
     }
     Ok(into)
+}
+
+/// Turn a refusal into the message the index sent, rather than a status code
+/// the caller then has to go and look up.
+fn read(host: &str, response: reqwest::Result<Response>) -> Result<Response> {
+    let response = response.with_context(|| format!("cannot reach {host}"))?;
+    if response.status().is_success() {
+        return Ok(response);
+    }
+
+    let status = response.status();
+    match response.json::<Failed>() {
+        Ok(failed) => bail!("{}", failed.error),
+        Err(_) => bail!("{host} answered {status}"),
+    }
 }

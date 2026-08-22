@@ -1,0 +1,147 @@
+:root {
+	--bg: #000;
+	--panel: #0a0a0a;
+	--line: #232323;
+	--line-strong: #363636;
+	--text: #ededed;
+	--muted: #a1a1a1;
+	--faint: #6f6f6f;
+	/* The page carries one hue, and it is the sand a berm is built from. It marks
+	   the two things worth reading twice: a digest, and a keyword. */
+	--sand: #d8a657;
+	--mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+	color-scheme: dark;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: -apple-system, BlinkMacSystemFont, 'Inter', system-ui, sans-serif;
+	font-size: 15px;
+	line-height: 1.6;
+	-webkit-font-smoothing: antialiased;
+}
+
+a {
+	color: var(--text);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+code {
+	font-family: var(--mono);
+	font-size: 0.9em;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	padding: 0.1em 0.35em;
+}
+
+pre {
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 14px 16px;
+	overflow-x: auto;
+}
+
+pre code {
+	background: none;
+	border: 0;
+	padding: 0;
+	font-size: 13px;
+}
+
+/* The copy button is delegated from the layout and reused by every block on the
+   page, so its rules live here rather than in any one component. */
+/* `min-width: 0` because a grid item defaults to refusing to shrink below its
+   min-content, and the widest line here is a 64-character digest: without it the
+   track holds the block open and the page scrolls sideways instead of the
+   `pre`. */
+.code-block {
+	position: relative;
+	min-width: 0;
+}
+
+.copy {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: grid;
+	place-items: center;
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	border: 1px solid var(--line-strong);
+	border-radius: 6px;
+	background: var(--bg);
+	color: var(--muted);
+	cursor: pointer;
+	opacity: 0;
+	transition:
+		opacity 0.12s,
+		color 0.12s,
+		border-color 0.12s;
+}
+
+.code-block:hover .copy,
+.copy:focus-visible {
+	opacity: 1;
+}
+
+.copy:hover {
+	color: var(--text);
+	border-color: var(--text);
+}
+
+.copy svg {
+	width: 14px;
+	height: 14px;
+}
+
+/* lucide names its own marks, so swapping them needs no extra markup. */
+.copy .lucide-check,
+.copy.copied .lucide-copy {
+	display: none;
+}
+
+.copy.copied .lucide-check {
+	display: block;
+}
+
+.copy.copied {
+	opacity: 1;
+	color: var(--text);
+}
+
+/* Three tokens, hand-marked. The page has one Rust block and three shell blocks
+   — too few to be worth shipping a highlighter for, and these are the only
+   spans any of them need. */
+.mark {
+	color: var(--sand);
+}
+
+.s {
+	color: #9ec87c;
+}
+
+.c {
+	color: var(--faint);
+}
+
+h1,
+h2,
+h3 {
+	line-height: 1.25;
+	letter-spacing: -0.01em;
+}
