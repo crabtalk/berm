@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["berm_api",[["impl <a class=\"trait\" href=\"https://docs.rs/serde_core/1.0.229/serde_core/ser/trait.Serialize.html\" title=\"trait serde_core::ser::Serialize\">Serialize</a> for <a class=\"struct\" href=\"berm_api/struct.Failed.html\" title=\"struct berm_api::Failed\">Failed</a>",0],["impl <a class=\"trait\" href=\"https://docs.rs/serde_core/1.0.229/serde_core/ser/trait.Serialize.html\" title=\"trait serde_core::ser::Serialize\">Serialize</a> for <a class=\"struct\" href=\"berm_api/struct.Harness.html\" title=\"struct berm_api::Harness\">Harness</a>",0],["impl <a class=\"trait\" href=\"https://docs.rs/serde_core/1.0.229/serde_core/ser/trait.Serialize.html\" title=\"trait serde_core::ser::Serialize\">Serialize</a> for <a class=\"struct\" href=\"berm_api/struct.ToolSpec.html\" title=\"struct berm_api::ToolSpec\">ToolSpec</a>",0]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[842]}
