@@ -7,6 +7,7 @@
 - [Overview](./berm/overview.md)
 - [Writing a Harness](./berm/writing-a-harness.md)
 - [The Manifest](./berm/manifest.md)
+- [Publishing a Harness](./berm/publishing.md)
 - [Running the Service](./berm/service.md)
 
 # rvtime

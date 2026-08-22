@@ -17,13 +17,12 @@
 //! reach.
 
 use anyhow::{Context, Result, bail};
-pub use manifest::{Manifest, ToolSpec};
+pub use berm_api::{Manifest, ToolSpec};
 use rvtime::{Caller, Linker, Module, Store, TypedFunc};
 pub use rvtime::{Config, Engine};
 use std::{collections::BTreeMap, sync::Arc};
 
 pub mod abi;
-mod manifest;
 mod watchdog;
 pub mod wire;
 

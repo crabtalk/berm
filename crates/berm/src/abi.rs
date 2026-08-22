@@ -39,10 +39,6 @@ pub const fn hash(name: &str) -> u64 {
     result
 }
 
-/// ELF section carrying the harness's manifest: ABI version, tools, and the
-/// system harnesses it wants. A section rather than an export, so reading what a
-/// harness claims to be never means running it.
-pub const ABI_SECTION: &str = ".berm.abi";
 /// Where this guest's heap starts. `() -> address`
 pub const HOST_HEAP_START: u64 = hash("berm.heap.start");
 /// How many bytes of it there are. `() -> length`
