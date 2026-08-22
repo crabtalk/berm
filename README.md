@@ -44,6 +44,23 @@ berm ls
 See [`apps/service`](apps/service) for the control API and what a deployed
 harness can reach.
 
+## Moving harnesses
+
+A harness is one file, so it travels as one OCI layer with no tarball around it
+— and because the layer is the ELF and nothing else, the digest a registry
+addresses it by is the digest `berm ls` prints.
+
+```sh
+berm push ghcr.io/org/example:v1 ./harness.elf
+berm deploy example ghcr.io/org/example:v1
+berm search "read a file"
+```
+
+`deploy` takes a file or a reference. Finding one is a separate question, since
+no registry will tell you who published a harness: the list is a git repository,
+so `search` reads a clone of it with no service and no credential. See
+[Publishing a Harness](https://crabtalk.github.io/berm/berm/publishing.html).
+
 ## Documentation
 
 - **[Guide and design notes](https://crabtalk.github.io/berm/)** — how it works
