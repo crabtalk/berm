@@ -17,8 +17,9 @@ doc = false
 [dependencies]
 anyhow.workspace = true
 berm-api.workspace = true
+berm-index.workspace = true
 berm-oci.workspace = true
 clap.workspace = true
-reqwest = { workspace = true, features = ["blocking", "json"] }
-serde.workspace = true
+# `query`, so a search term with a space in it is encoded rather than pasted.
+reqwest = { workspace = true, features = ["blocking", "json", "query"] }
 serde_json.workspace = true

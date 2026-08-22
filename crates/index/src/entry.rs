@@ -3,21 +3,21 @@
 use berm_api::{Manifest, ToolSpec};
 use serde::{Deserialize, Serialize};
 
-/// What the index records about a harness at one digest.
+/// What an index records about a harness at one digest.
 ///
 /// Keyed by a digest, which is why the tools and usage beside it are safe to
 /// keep: the bytes at a digest can never change, so a copy of what they said
 /// cannot go stale. Re-pushing a tag does not rewrite an entry — it adds one,
 /// and the old line still truthfully describes the old bytes.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entry {
     /// As published, tag and all.
     pub reference: String,
     /// sha256 of the ELF, `sha256:`-prefixed, as the registry addresses it.
     pub digest: String,
-    /// Whoever the mounting service vouched for, if it vouched for anyone. An
-    /// open index records none, and the reference already names an owner that
-    /// anyone can check against the registry.
+    /// Whoever the publishing service vouched for, if it vouched for anyone.
+    /// An open index records none, and the reference already names an owner
+    /// that anyone can check against the registry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publisher: Option<String>,
     pub usage: String,
@@ -37,6 +37,18 @@ impl Entry {
             publisher,
             usage: manifest.usage,
             tools: manifest.tools,
+        }
+    }
+
+    /// The harness this is a version of — the reference without its tag, which
+    /// is what one file in the index is named for.
+    pub fn key(&self) -> &str {
+        match self.reference.split_once('@') {
+            Some((repository, _)) => repository,
+            None => self
+                .reference
+                .rsplit_once(':')
+                .map_or(self.reference.as_str(), |(repository, _)| repository),
         }
     }
 

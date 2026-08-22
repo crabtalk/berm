@@ -9,7 +9,10 @@ const SHORT: usize = 12;
 pub fn run(index: Option<&String>, term: &str) -> Result<()> {
     let entries = Index::new(index)?.search(term)?;
     if entries.is_empty() {
-        println!("nothing published matches {term:?}");
+        match term.is_empty() {
+            true => println!("nothing published"),
+            false => println!("nothing published matches {term:?}"),
+        }
         return Ok(());
     }
 
@@ -32,7 +35,7 @@ pub fn run(index: Option<&String>, term: &str) -> Result<()> {
     Ok(())
 }
 
-fn digest(entry: &crate::index::Entry) -> &str {
+fn digest(entry: &berm_index::Entry) -> &str {
     let hex = entry
         .digest
         .strip_prefix("sha256:")
@@ -40,7 +43,7 @@ fn digest(entry: &crate::index::Entry) -> &str {
     hex.get(..SHORT).unwrap_or(hex)
 }
 
-fn tools(entry: &crate::index::Entry) -> String {
+fn tools(entry: &berm_index::Entry) -> String {
     entry
         .tools
         .iter()

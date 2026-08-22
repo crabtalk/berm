@@ -98,17 +98,36 @@ itself, anonymously, and fills in the digest, tools and usage from the config
 blob — so a listing describes what a registry will actually serve rather than
 what a publisher claimed, and a harness nobody can pull cannot be listed.
 
-An index authenticates nobody by itself: what it checks is the artifact, and a
-full OCI reference already names an owner the registry vouched for. A service
-that wants publishers identified mounts the index behind its own auth and says
-who is asking. `BERM_TOKEN` carries a credential when the index in front of you
-wants one — never a GitHub token, which would let an index act as you.
-
 Entries are keyed by digest, which is what makes them safe to keep: the bytes at
 a digest never change, so a recorded description of them cannot go stale.
 Re-pushing a tag adds an entry rather than rewriting one.
 
-[`berm-registry`](https://github.com/crabtalk/berm/tree/main/apps/registry) is
-an index you can run. `berm push` does not talk to one — publishing is a
-separate act, so an upload that succeeded is never undone by a listing that
-failed.
+## The list is a git repository
+
+One JSON Lines file per harness, one line per version — so a copy of an index is
+a clone, and searching your copy needs no service, no credential and no network.
+`berm search` keeps that copy for you under `~/.berm/index`, cloning it the
+first time and not touching the network again:
+
+```sh
+berm search "read a file"                     # the default list
+git -C ~/.berm/index/github.com/crabtalk/berm-index pull    # refresh it
+```
+
+The default is `https://github.com/crabtalk/berm-index.git`. `--index` or
+`BERM_INDEX` names another, and takes three shapes: a directory to read as-is, a
+`.git` URL to keep a copy of, or the URL of a service. Publishing needs the
+service, because appending to the list means holding a credential for the
+repository; reading never does.
+
+`BERM_TOKEN` carries a credential when the service in front of you wants one.
+Never a GitHub token: an index has no business holding something that could act
+as you elsewhere.
+
+[`berm-indexd`](https://github.com/crabtalk/berm/tree/main/apps/index) serves
+those two routes over a directory, so the loop can be run without deploying
+anything. What it writes is what a clone holds, so the same directory reads back
+with no service at all.
+
+`berm push` talks to no index at all — publishing is a separate act, so an
+upload that succeeded is never undone by a listing that failed.
