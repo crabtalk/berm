@@ -82,4 +82,50 @@ mod tools {
         out.write(b"boom, as requested");
         Err(Failed)
     }
+
+    /// Calls `echo` on whatever is deployed as `inner`, to prove a harness can
+    /// reach a harness. Says which kind of failure came back, because telling
+    /// "it ran and said no" from "it was never there" is the point of the
+    /// second bit on the wire.
+    pub fn nest(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let args = core::str::from_utf8(args).unwrap_or("{}");
+        match berm_lang::call("inner", "echo", args) {
+            Ok(result) => {
+                out.write(b"nested:");
+                out.write(result.as_bytes());
+                Ok(())
+            }
+            Err(error) if error.refused() => {
+                out.write(b"refused: ");
+                out.write(error.message().as_bytes());
+                Err(Failed)
+            }
+            Err(error) => berm_lang::tool::system(Err(error), out).map(|_: ()| ()),
+        }
+    }
+
+    /// Calls itself on `inner`, which is this same harness when deployed under
+    /// that name — the runaway a depth limit exists to stop. Reports how many
+    /// levels got through before the host refused.
+    pub fn recurse(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let args = core::str::from_utf8(args).unwrap_or("0");
+        let depth: u32 = args.trim().parse().unwrap_or(0);
+
+        let mut buffer = alloc::string::String::new();
+        let _ = core::fmt::Write::write_fmt(&mut buffer, format_args!("{}", depth + 1));
+
+        match berm_lang::call("inner", "recurse", &buffer) {
+            Ok(deeper) => {
+                out.write(deeper.as_bytes());
+                Ok(())
+            }
+            // The bottom of the chain: the host refused to go further, and the
+            // depth reached rides back up as the result.
+            Err(error) if error.refused() => {
+                out.write(buffer.as_bytes());
+                Ok(())
+            }
+            Err(error) => berm_lang::tool::system(Err(error), out).map(|_: ()| ()),
+        }
+    }
 }

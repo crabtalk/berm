@@ -15,6 +15,14 @@ struct Args {
     /// Where deployed images and the code cache live.
     #[arg(long)]
     root: Option<PathBuf>,
+
+    /// How deep a chain of harnesses calling harnesses may go. `0` refuses the
+    /// first one, which is composition off.
+    ///
+    /// The bound is on runaway composition, not on the stack: a level costs
+    /// ~720 bytes of it, and 64 MiB of guest address space.
+    #[arg(long, default_value_t = bermd::DEFAULT_CALL_DEPTH)]
+    max_call_depth: u32,
 }
 
 #[tokio::main]
@@ -32,7 +40,7 @@ async fn main() -> Result<()> {
         None => PathBuf::from(std::env::var("HOME").context("HOME is not set")?).join(".berm"),
     };
 
-    let service = Service::new(root).await?;
+    let service = Service::new(root, args.max_call_depth).await?;
     let listener = TcpListener::bind(args.addr)
         .await
         .with_context(|| format!("failed to bind {}", args.addr))?;

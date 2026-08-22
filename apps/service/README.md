@@ -49,8 +49,36 @@ turn.
 
 ## What a harness can reach
 
-bermd passes no system harnesses to `Berm::load`, so a deployed harness can log,
-read its arguments, and return — nothing else.
+Its arguments, the log, and any other harness deployed on the same daemon —
+nothing else. There is no wiring step: what is deployed is reachable by name,
+the way containers on one network reach each other.
+
+```sh
+berm deploy inner ./inner.elf
+berm deploy outer ./outer.elf
+```
+
+```rust
+let forecast = berm_lang::call("inner", "echo", r#"{"query":"hi"}"#)?;
+```
+
+The name is read at the call, so an image is not built against a particular
+deploy: the same one works wherever it lands, and deploying it twice under two
+names makes it reachable as both. A name nothing answers to gives
+`CallError::Refused`, which a harness can tell apart from `CallError::Failed` —
+the target ran and said no.
+
+`--max-call-depth` bounds how far a chain may nest, 4 by default; `0` refuses
+the first nested call.
+
+That reach stops at the daemon. Everything outside it — files, commands, the
+network — is a system harness the embedder registers, and bermd registers none.
+The bound worth minding is therefore what an image *is*, not which of your
+harnesses it can call: read what one claims before deploying it.
+
+```sh
+berm inspect ghcr.io/org/example:v1
+```
 
 The endpoint carries no authorization and binds loopback by default.
 

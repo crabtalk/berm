@@ -1,8 +1,8 @@
 //! Build a Crabtalk harness.
 //!
 //! A harness is code the daemon schedules: one RV64IMAC ELF, confined to its
-//! own address space, reaching the world only through host calls it was
-//! granted. This crate is what an author writes against — it owns the ABI so
+//! own address space, reaching the world only through the host calls it was
+//! given. This crate is what an author writes against — it owns the ABI so
 //! they never see a call number, a register, or a pointer pair.
 //!
 //! ```ignore
@@ -28,11 +28,14 @@
 //! neither of which is optional. `berm new` writes a crate whose
 //! `.cargo/config.toml` carries the flag.
 //!
-//! This crate declares no system harness of its own: what a harness can reach
-//! is whatever its host registered, and naming any of it here would be the SDK
-//! deciding what a host must serve. A harness running under the Crabtalk daemon
-//! adds [`berm-crabtalk`](https://crates.io/crates/berm-crabtalk), which
-//! declares that namespace — files, commands, HTTP, the runtime.
+//! This crate declares one system harness and no more: [`call`], for reaching
+//! another harness the same host is running. That one is about the harness
+//! model itself rather than about any host's world, which is why it is here.
+//! What a harness can reach *outside* is whatever its host registered, and
+//! naming any of that here would be the SDK deciding what a host must serve. A
+//! harness running under the Crabtalk daemon adds
+//! [`berm-crabtalk`](https://crates.io/crates/berm-crabtalk), which declares
+//! that namespace — files, commands, HTTP, the runtime.
 
 #![no_std]
 
@@ -46,6 +49,7 @@ extern crate std;
 extern crate alloc;
 
 pub mod abi;
+mod call;
 mod heap;
 mod out;
 pub mod test;
@@ -62,6 +66,9 @@ mod sys;
 pub use abi::{Buf, args_len, log};
 pub use berm_codegen::{harness, harnesses};
 pub use out::Out;
+
+#[cfg(feature = "alloc")]
+pub use call::{CallError, call};
 
 // Re-exported so a harness declares this SDK and nothing else. The `#[harness]`
 // macro writes `#[serde(crate = "::berm_lang::serde")]` onto argument structs,

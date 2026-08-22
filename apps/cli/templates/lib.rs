@@ -4,6 +4,10 @@
 // ordinary library, so `cargo test` runs the tools below natively.
 #![cfg_attr(target_arch = "riscv64", no_std, no_main)]
 
+// Needed the moment this harness declares one it calls: `berm_lang::harnesses!`
+// expands to owned types reached through `alloc`, which is not in the prelude.
+extern crate alloc;
+
 #[berm_lang::harness]
 mod tools {
     use berm_lang::{Failed, Out};

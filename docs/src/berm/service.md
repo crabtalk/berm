@@ -56,7 +56,35 @@ harness's tools, and pays nothing for the harnesses it is not considering.
 
 ## What a deployed harness can reach
 
-Nothing. `bermd` passes no system harnesses to `Berm::load`, so a guest can log,
-read its arguments, and return.
+Its arguments, the log, and any other harness on the same daemon.
+
+There is no wiring step and no per-pair permission. What is deployed is
+reachable by name, which is the reach containers on one network have of each
+other, bounded the same way: by what the operator chose to run.
+
+```rust
+let result = berm_lang::call("inner", "echo", r#"{"query":"hi"}"#)?;
+```
+
+`bermd` serves this as one system harness, `berm.call`, and the target is a
+field in the request rather than part of the call number. So an image is never
+built against a particular deploy — the same bytes work wherever they land, and
+deploying them twice under two names makes them reachable as both.
+
+A name nothing answers to is `CallError::Refused`: nothing ran. The target
+running and reporting failure is `CallError::Failed`. That is the same split the
+control API draws between a status and an `Output::Failed`, and a harness can
+act on it — falling back when something is not deployed, say.
+
+`--max-call-depth` bounds the chain, 4 by default, `0` refusing the first nested
+call. The bound is on runaway composition rather than on the stack, which a
+level costs around 720 bytes of; what a level does cost is 64 MiB of reserved
+guest address space.
+
+That reach stops at the daemon. A harness still touches the world outside only
+through system harnesses its host registered, and `bermd` registers none — so
+what matters before deploying an image is what the image *is*. `Manifest::from_elf`
+reads a harness's tools and usage without compiling or running it, which is what
+`berm inspect` shows you.
 
 The endpoint carries no authorization and binds loopback by default.

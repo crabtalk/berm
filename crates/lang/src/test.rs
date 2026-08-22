@@ -15,7 +15,7 @@
 //! ```
 #![cfg(not(target_arch = "riscv64"))]
 
-use crate::{Buf, sys};
+use crate::{Buf, CallError, abi, sys};
 use std::{
     string::String,
     sync::{Mutex, PoisonError},
@@ -57,4 +57,32 @@ pub fn call(entry: extern "C" fn() -> Buf, args: &[u8]) -> Result<Vec<u8>, Strin
 /// What the harness logged during the last [`call`].
 pub fn logged() -> Vec<String> {
     sys::with(|host| host.logged.clone())
+}
+
+/// Arrange what another harness answers, so a tool that calls one can be run
+/// without a host running the other side.
+///
+/// Answers persist until [`forget`], so a test sets them up once and calls as
+/// often as it likes.
+///
+/// ```ignore
+/// test::answer("weather", "forecast", Ok(br#"{"c":7}"#));
+/// test::answer("gone", "any", Err(CallError::Refused("not deployed".into())));
+/// ```
+pub fn answer(harness: &str, tool: &str, result: Result<&[u8], CallError>) {
+    let (outcome, bytes) = match result {
+        Ok(bytes) => (0, bytes.to_vec()),
+        Err(CallError::Failed(message)) => (abi::ERROR, message.into_bytes()),
+        Err(CallError::Refused(message)) => (abi::ERROR | abi::REFUSED, message.into_bytes()),
+    };
+    sys::with(|host| {
+        host.answers.retain(|(a, b, ..)| a != harness || b != tool);
+        host.answers
+            .push((harness.into(), tool.into(), outcome, bytes));
+    });
+}
+
+/// Drop every answer [`answer`] arranged.
+pub fn forget() {
+    sys::with(|host| host.answers.clear());
 }

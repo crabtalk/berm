@@ -364,7 +364,8 @@ impl Render for Workbench {
 /// port is known before anything claims to be serving.
 async fn start() -> Result<(Arc<Service>, SocketAddr)> {
     let home = std::env::var("HOME").context("HOME is not set")?;
-    let service = Service::new(PathBuf::from(home).join(".berm")).await?;
+    let service =
+        Service::new(PathBuf::from(home).join(".berm"), bermd::DEFAULT_CALL_DEPTH).await?;
     let listener = TcpListener::bind(ADDR)
         .await
         .with_context(|| format!("failed to bind {ADDR}"))?;

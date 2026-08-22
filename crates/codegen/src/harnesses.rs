@@ -300,9 +300,9 @@ impl Ty {
                 ::core::str::from_utf8(#bytes)
                     .ok()
                     .and_then(|text| text.parse().ok())
-                    .ok_or(::alloc::string::String::from(
+                    .ok_or(::berm_lang::CallError::Failed(::alloc::string::String::from(
                         "the host sent a number this harness cannot read",
-                    ))?
+                    )))?
             },
             Ty::Pairs => unreachable!("a reply is never pairs"),
         }
@@ -408,14 +408,18 @@ impl Declaration {
                         let ::core::option::Option::Some(parts) =
                             ::berm_lang::abi::wire::fields(&reply)
                         else {
-                            return ::core::result::Result::Err(::alloc::string::String::from(
-                                "the host framed a reply this harness cannot read",
-                            ));
+                            return ::core::result::Result::Err(
+                                ::berm_lang::CallError::Failed(::alloc::string::String::from(
+                                    "the host framed a reply this harness cannot read",
+                                )),
+                            );
                         };
                         if parts.len() != #count {
-                            return ::core::result::Result::Err(::alloc::string::String::from(
-                                "the host's reply has the wrong number of fields",
-                            ));
+                            return ::core::result::Result::Err(
+                                ::berm_lang::CallError::Failed(::alloc::string::String::from(
+                                    "the host's reply has the wrong number of fields",
+                                )),
+                            );
                         }
                         ::core::result::Result::Ok(#ty { #(#reads),* })
                     },
@@ -431,7 +435,7 @@ impl Declaration {
 
             #docs
             pub fn #ident(#(#args),*)
-                -> ::core::result::Result<#ret, ::alloc::string::String>
+                -> ::core::result::Result<#ret, ::berm_lang::CallError>
             {
                 #build
                 #body

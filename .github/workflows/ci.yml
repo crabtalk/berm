@@ -107,3 +107,8 @@ jobs:
 
       - name: run it under berm
         run: cargo run --release --example measure -p berm
+
+      # A harness calling a harness, which only a real guest can show: the
+      # call, a refusal, and a target that ran and said no.
+      - name: nest one harness inside another
+        run: cargo run --release --example nesting -p berm

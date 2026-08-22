@@ -11,7 +11,11 @@
 
 use anyhow::{Context, Result};
 use berm::{Config, Engine};
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::{Arc, Weak},
+};
 use tokio::{
     net::TcpListener,
     sync::{RwLock, broadcast},
@@ -22,10 +26,21 @@ pub use harness::Deployed;
 mod api;
 mod harness;
 mod mcp;
+mod system;
 
 /// How many deploys may go unread by a session before it misses one. A missed
 /// notification costs a stale tool list until the next change, not a wrong one.
 const CHANGE_BACKLOG: usize = 16;
+
+/// How deep a chain of harnesses calling harnesses may go before the next call
+/// is refused. Zero turns composition off, which is the posture bermd had
+/// before it served any system harness at all.
+///
+/// Not a bound on the native stack, which a nesting level costs ~720 bytes of
+/// and would allow thousands: it bounds how far a mechanical composition can
+/// run away from the turn that asked for it, and how much guest address space
+/// one chain reserves — 64 MiB a level.
+pub const DEFAULT_CALL_DEPTH: u32 = 4;
 
 pub struct Service {
     root: PathBuf,
@@ -35,19 +50,31 @@ pub struct Service {
     /// into `notifications/tools/list_changed`, because the tool set mutates
     /// under clients that are already holding a list.
     changed: broadcast::Sender<()>,
+    /// See [`DEFAULT_CALL_DEPTH`].
+    depth: u32,
+    /// This service, as the system harnesses hold it.
+    ///
+    /// Weak because they are reachable *from* it — a deployed harness owns the
+    /// linker that owns them — and an `Arc` here would be a cycle that never
+    /// drops.
+    me: Weak<Self>,
 }
 
 impl Service {
     /// Open `root`, restoring whatever was deployed before this process.
-    pub async fn new(root: PathBuf) -> Result<Arc<Self>> {
+    pub async fn new(root: PathBuf, depth: u32) -> Result<Arc<Self>> {
         let mut config = Config::new();
         config.cache_dir(root.join("cache"));
+        // Built before the closure below, which has no way to report a failure.
+        let engine = Engine::new(&config).context("failed to start the compiler")?;
 
-        let service = Arc::new(Self {
-            engine: Engine::new(&config).context("failed to start the compiler")?,
+        let service = Arc::new_cyclic(|me| Self {
+            engine,
             deployed: RwLock::new(BTreeMap::new()),
             changed: broadcast::channel(CHANGE_BACKLOG).0,
+            me: me.clone(),
             root,
+            depth,
         });
         service.restore().await?;
         Ok(service)

@@ -13,7 +13,8 @@ pub struct Deployed {
     /// sha256 of the ELF. Redeploying different bytes under the same name is a
     /// different harness, and this is what says so.
     pub digest: String,
-    berm: Berm,
+    /// Entering this blocks the calling thread until the guest returns.
+    pub(crate) berm: Berm,
 }
 
 impl Deployed {
@@ -124,7 +125,8 @@ impl Service {
     async fn compile(&self, name: String, elf: Arc<Vec<u8>>) -> Result<Arc<Deployed>> {
         let digest = format!("{:x}", Sha256::digest(elf.as_slice()));
         let engine = self.engine.clone();
-        let berm = tokio::task::spawn_blocking(move || Berm::load(&engine, &elf, &[]))
+        let system = self.system();
+        let berm = tokio::task::spawn_blocking(move || Berm::load(&engine, &elf, &system))
             .await
             .context("compilation panicked")??;
         Ok(Arc::new(Deployed { name, digest, berm }))

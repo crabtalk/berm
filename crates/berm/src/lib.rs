@@ -53,7 +53,7 @@ pub struct Berm {
 }
 
 impl Berm {
-    /// Compile `elf` and resolve its exports, granting `system`. The engine's
+    /// Compile `elf` and resolve its exports, giving it `system`. The engine's
     /// code cache makes a second load of the same bytes cheap across processes
     /// as well as within one.
     pub fn load(engine: &Engine, elf: &[u8], system: &[Harness]) -> Result<Self> {
@@ -253,6 +253,10 @@ impl Invocation {
     /// staged bytes are a message. One that fails therefore costs the
     /// guest nothing extra to find out about, and an empty result cannot be
     /// mistaken for one.
+    ///
+    /// A system harness that answers with [`Refused`] additionally sets
+    /// [`abi::REFUSED`], which is how a guest tells "it ran and said no" from
+    /// "it never ran".
     pub fn stage(
         mut caller: Caller<'_, Self>,
         ptr: u64,
@@ -262,13 +266,39 @@ impl Invocation {
         let request = caller.read(ptr, len)?.to_vec();
         let (staged, outcome) = match harness(&request) {
             Ok(result) => (result, 0),
-            Err(error) => (error.to_string().into_bytes(), abi::ERROR),
+            Err(error) => {
+                let refused = error
+                    .chain()
+                    .any(|cause| cause.downcast_ref::<Refused>().is_some());
+                let outcome = if refused {
+                    abi::ERROR | abi::REFUSED
+                } else {
+                    abi::ERROR
+                };
+                (error.to_string().into_bytes(), outcome)
+            }
         };
         let length = staged.len() as u64;
         caller.data_mut().result = staged;
         Ok(length | outcome)
     }
 }
+
+/// A system harness's answer when it refused the call and nothing ran.
+///
+/// Returned in an `Err` — on its own or as the source of a richer one — it
+/// reaches the guest with [`abi::REFUSED`] set. Anything else is the other
+/// kind of failure: whatever the system harness reached did run, and said no.
+#[derive(Debug)]
+pub struct Refused(pub String);
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Refused {}
 
 /// One thing a harness may reach.
 ///
