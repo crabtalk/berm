@@ -13,7 +13,7 @@ fn main() {
     if !family.split(',').any(|f| f == "unix") {
         panic!(
             "rvtime supports Linux and macOS. Windows is not supported; see \
-             https://crabtalk.github.io/rvtime/limitations.html"
+             https://crabtalk.github.io/berm/book/rvtime/limitations.html"
         );
     }
 

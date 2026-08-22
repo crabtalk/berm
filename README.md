@@ -59,12 +59,12 @@ berm search "read a file"
 `deploy` takes a file or a reference. Finding one is a separate question, since
 no registry will tell you who published a harness: the list is a git repository,
 so `search` reads a clone of it with no service and no credential. See
-[Publishing a Harness](https://crabtalk.github.io/berm/berm/publishing.html).
+[Publishing a Harness](https://crabtalk.github.io/berm/book/berm/publishing.html).
 
 ## Documentation
 
-- **[Guide and design notes](https://crabtalk.github.io/berm/)** — how it works
-  and why, with worked examples.
+- **[Guide and design notes](https://crabtalk.github.io/berm/book/)** — how it
+  works and why, with worked examples.
 - **[API reference](https://crabtalk.github.io/berm/api/)** — generated from the
   source.
 
