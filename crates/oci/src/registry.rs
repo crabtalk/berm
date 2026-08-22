@@ -1,11 +1,8 @@
 //! Talking to an OCI registry.
-//!
-//! A harness is one layer and no tarball, so the layer's digest is sha256 of
-//! the ELF — the same hash `berm ls` prints, carrying the registry's `sha256:`
-//! prefix. What the harness *is* rides in the config blob: the `.berm.abi`
-//! section verbatim, so a registry can be listed without pulling the image.
 
+use crate::Reference;
 use anyhow::{Context, Result, bail};
+use berm_api::Manifest;
 use reqwest::{
     Method, StatusCode,
     blocking::{Client, RequestBuilder, Response},
@@ -13,7 +10,7 @@ use reqwest::{
 };
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use std::{env, fmt, str::FromStr};
+use std::env;
 
 /// The layer, and what the whole artifact is typed as.
 pub const HARNESS: &str = "application/vnd.berm.harness.v1";
@@ -24,58 +21,9 @@ const OCI_MANIFEST: &str = "application/vnd.oci.image.manifest.v1+json";
 /// its own error otherwise, which read as a berm bug.
 const OCI_INDEX: &str = "application/vnd.oci.image.index.v1+json";
 
-/// Where an image lives: `ghcr.io/org/name:tag`, or `…@sha256:…`.
-pub struct Reference {
-    pub registry: String,
-    pub repository: String,
-    /// A tag, or a `sha256:…` digest.
-    pub reference: String,
-}
-
-impl FromStr for Reference {
-    type Err = anyhow::Error;
-
-    /// Docker's rule: the first segment is a registry when it looks like a
-    /// host. Unlike Docker, an unqualified name is refused rather than sent to
-    /// a default registry — berm has no reason to pick one.
-    fn from_str(text: &str) -> Result<Self> {
-        let (registry, rest) = text
-            .split_once('/')
-            .with_context(|| format!("{text:?} names no registry"))?;
-        if !registry.contains('.') && !registry.contains(':') && registry != "localhost" {
-            bail!("{text:?} names no registry: {registry:?} is not a host");
-        }
-
-        let (repository, reference) = match rest.split_once('@') {
-            Some(split) => split,
-            None => rest.rsplit_once(':').unwrap_or((rest, "latest")),
-        };
-        if repository.is_empty() {
-            bail!("{text:?} names no repository");
-        }
-
-        Ok(Self {
-            registry: registry.to_owned(),
-            repository: repository.to_owned(),
-            reference: reference.to_owned(),
-        })
-    }
-}
-
-impl fmt::Display for Reference {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let held = if self.reference.starts_with("sha256:") {
-            '@'
-        } else {
-            ':'
-        };
-        write!(
-            f,
-            "{}/{}{held}{}",
-            self.registry, self.repository, self.reference
-        )
-    }
-}
+/// Where a credential comes from. CI has this already; a laptop can export
+/// `gh auth token`. Reading `~/.docker/config.json` is not done here.
+const TOKEN: &str = "GITHUB_TOKEN";
 
 /// What a token is asked for. A read token is issued anonymously for a public
 /// repository; a write token never is.
@@ -120,38 +68,55 @@ impl Registry {
 
     /// The image, verified against the digest the registry advertised for it.
     pub fn pull(&self, reference: &str) -> Result<Vec<u8>> {
-        let request = self
-            .request(Method::GET, self.url("manifests", reference))
-            .header(ACCEPT, format!("{OCI_MANIFEST},{OCI_INDEX}"));
-        let manifest: Value = send(request)?
-            .json()
-            .context("registry returned a manifest that is not JSON")?;
-
-        let layer = layer(&manifest)?;
-        let want = layer
+        let artifact = self.artifact(reference)?;
+        let layer = layer(&artifact)?;
+        let digest = layer
             .get("digest")
             .and_then(Value::as_str)
             .context("the artifact's layer has no digest")?;
+        self.blob(digest)
+    }
 
-        let elf = send(self.request(Method::GET, self.url("blobs", want)))?
-            .bytes()
-            .context("cannot read the image")?
-            .to_vec();
+    /// The image's digest and what it says it is, without downloading it.
+    ///
+    /// The config blob is the `.berm.abi` section, so this costs one small GET
+    /// and never touches the image — which is the whole reason it is carried
+    /// there rather than left in the ELF alone. An index is built out of
+    /// exactly these two.
+    pub fn describe(&self, reference: &str) -> Result<(String, Manifest)> {
+        let artifact = self.artifact(reference)?;
+        let image = layer(&artifact)?
+            .get("digest")
+            .and_then(Value::as_str)
+            .context("the artifact's layer has no digest")?
+            .to_owned();
 
-        // Before the bytes go anywhere. A registry that served the wrong image
-        // is the case this exists for, and it is cheap to rule out.
-        let got = digest(&elf);
-        if got != want {
-            bail!("image does not match its digest: {want} advertised, {got} received");
+        let config = artifact
+            .get("config")
+            .context("not a harness: the artifact has no config")?;
+
+        let kind = config
+            .get("mediaType")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if kind != MANIFEST {
+            bail!("not a harness: its config is {kind:?}");
         }
-        Ok(elf)
+        let digest = config
+            .get("digest")
+            .and_then(Value::as_str)
+            .context("the artifact's config has no digest")?;
+
+        let bytes = self.blob(digest)?;
+        let json = str::from_utf8(&bytes).context("harness manifest is not UTF-8")?;
+        Ok((image, Manifest::parse(json)?))
     }
 
     /// Upload the manifest blob, the image, and the artifact manifest naming
     /// both. Returns the image's digest, which is the layer's.
     pub fn push(&self, reference: &str, elf: &[u8], manifest: &[u8]) -> Result<String> {
-        let image = self.blob(elf)?;
-        let config = self.blob(manifest)?;
+        let image = self.upload(elf)?;
+        let config = self.upload(manifest)?;
 
         let artifact = json!({
             "schemaVersion": 2,
@@ -170,8 +135,34 @@ impl Registry {
         Ok(image)
     }
 
+    /// The OCI manifest naming the parts, whatever they turn out to be.
+    fn artifact(&self, reference: &str) -> Result<Value> {
+        let request = self
+            .request(Method::GET, self.url("manifests", reference))
+            .header(ACCEPT, format!("{OCI_MANIFEST},{OCI_INDEX}"));
+        send(request)?
+            .json()
+            .context("registry returned a manifest that is not JSON")
+    }
+
+    /// One blob, checked against the digest it is addressed by — before the
+    /// bytes go anywhere. A registry serving the wrong thing is the case this
+    /// exists for, and it is cheap to rule out.
+    fn blob(&self, want: &str) -> Result<Vec<u8>> {
+        let bytes = send(self.request(Method::GET, self.url("blobs", want)))?
+            .bytes()
+            .context("cannot read the blob")?
+            .to_vec();
+
+        let got = digest(&bytes);
+        if got != want {
+            bail!("blob does not match its digest: {want} advertised, {got} received");
+        }
+        Ok(bytes)
+    }
+
     /// One blob, uploaded monolithically: ask where to put it, then put it.
-    fn blob(&self, bytes: &[u8]) -> Result<String> {
+    fn upload(&self, bytes: &[u8]) -> Result<String> {
         let digest = digest(bytes);
         let uploads = format!("{}/v2/{}/blobs/uploads/", self.base, self.repository);
         let opened = send(self.request(Method::POST, uploads))?;
@@ -253,10 +244,6 @@ impl Registry {
         format!("{}/v2/{}/{kind}/{reference}", self.base, self.repository)
     }
 }
-
-/// Where a credential comes from. CI has this already; a laptop can export
-/// `gh auth token`. Reading `~/.docker/config.json` is not done here.
-const TOKEN: &str = "GITHUB_TOKEN";
 
 /// Turn a refusal into what the registry said, rather than a status code the
 /// operator then has to go and look up.

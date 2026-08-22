@@ -1,11 +1,9 @@
 //! `berm push` — publish an image to a registry.
 
-use crate::{
-    cmd::inspect,
-    oci::{Access, Reference, Registry},
-};
+use crate::cmd::inspect;
 use anyhow::{Context, Result};
 use berm_api::{Harness, Manifest};
+use berm_oci::{Access, Reference, Registry};
 use std::{fs, path::Path, str::FromStr};
 
 pub fn run(reference: &str, image: &Path) -> Result<()> {

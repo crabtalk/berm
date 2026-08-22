@@ -1,11 +1,8 @@
 //! `berm deploy` — hand bermd an image.
 
-use crate::{
-    Client,
-    cmd::inspect,
-    oci::{Access, Reference, Registry},
-};
+use crate::{Client, cmd::inspect};
 use anyhow::{Context, Result};
+use berm_oci::{Access, Reference, Registry};
 use std::{fs, path::Path, str::FromStr};
 
 pub fn run(client: &Client, name: &str, image: &str) -> Result<()> {

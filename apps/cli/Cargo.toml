@@ -17,8 +17,8 @@ doc = false
 [dependencies]
 anyhow.workspace = true
 berm-api.workspace = true
+berm-oci.workspace = true
 clap.workspace = true
-# TLS, because a registry is the first thing this talks to that is not loopback.
-reqwest = { workspace = true, features = ["blocking", "json", "rustls"] }
+reqwest = { workspace = true, features = ["blocking", "json"] }
+serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true

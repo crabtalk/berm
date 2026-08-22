@@ -78,3 +78,31 @@ steps:
 
 Locally, `GITHUB_TOKEN=$(gh auth token)` does the same. `~/.docker/config.json`
 is not read.
+
+## Being found
+
+Pushing makes a harness fetchable, not findable. Nothing can enumerate the
+harnesses on a registry — GitHub's Packages API refuses to list even public
+packages without a token — so an index has to be told a harness exists.
+
+```sh
+berm publish ghcr.io/org/example:v1
+berm search "read a file"
+```
+
+`--index <url>`, or `BERM_INDEX`. There is no default: a built-in one would
+make berm ship an opinion about whose list you read.
+
+`publish` records a reference and nothing else. The index pulls the artifact
+itself, anonymously, and fills in the digest, tools and usage from the config
+blob — so a listing describes what a registry will actually serve rather than
+what a publisher claimed, and a harness nobody can pull cannot be listed.
+
+Entries are keyed by digest, which is what makes them safe to keep: the bytes at
+a digest never change, so a recorded description of them cannot go stale.
+Re-pushing a tag adds an entry rather than rewriting one.
+
+[`berm-registry`](https://github.com/crabtalk/berm/tree/main/apps/registry) is
+an index you can run. `berm push` does not talk to one — publishing is a
+separate act, so an upload that succeeded is never undone by a listing that
+failed.

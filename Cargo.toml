@@ -17,6 +17,7 @@ berm = { path = "crates/berm", version = "0.0.4" }
 berm-api = { path = "crates/api", version = "0.0.4" }
 berm-codegen = { path = "crates/codegen", version = "0.0.4" }
 berm-lang = { path = "crates/lang", version = "0.0.4" }
+berm-oci = { path = "crates/oci", version = "0.0.4" }
 rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.4" }
 translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.4" }
 compiler = { path = "rvtime/compiler", package = "rvtime-compiler", version = "0.0.4" }
@@ -28,6 +29,7 @@ guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.4", de
 # crates-io
 anyhow = "1.0"
 axum = "0.8"
+base64 = "0.22"
 cc = "1.4"
 clap = { version = "4", features = ["derive"] }
 cranelift = { version = "0.134.3", features = [
