@@ -1,0 +1,13 @@
+[package]
+name = "__NAME__"
+version = "0.1.0"
+edition = "2024"
+
+# Named, because autodiscovery would call the image `main` after the file it is
+# built from, and `berm deploy` takes a path.
+[[bin]]
+name = "__NAME__"
+path = "src/bin/main.rs"
+
+[dependencies]
+berm-lang = "__VERSION__"

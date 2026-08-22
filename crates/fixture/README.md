@@ -2,7 +2,7 @@
 
 The reference guest: the smallest real harness, and what berm is measured and
 tested against. Its four tools each price or prove one thing — see the module
-doc in `src/bin/main.rs`.
+doc in `src/lib.rs`.
 
 ```sh
 cargo test -p berm-fixture

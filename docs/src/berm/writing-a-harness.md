@@ -61,14 +61,22 @@ host sees a tool that ran and failed, and hands the message back as a result.
 
 ## Building
 
-The guest target, and `--emit-relocs` — which is not optional, because the
-relocations are what identify indirect-call targets:
+`berm new` writes the crate, so none of the ceremony below has to be typed:
 
 ```sh
 rustup target add riscv64imac-unknown-none-elf
-cargo build --release --target riscv64imac-unknown-none-elf \
-  --config 'target.riscv64imac-unknown-none-elf.rustflags=["-Clink-arg=--emit-relocs"]'
+berm new my-harness
+cd my-harness
+cargo build --release --target riscv64imac-unknown-none-elf
 ```
+
+Two things it sets up are worth knowing, because a reader who does not will
+delete one of them. `.cargo/config.toml` carries `--emit-relocs`, which is not
+optional: the relocations are what identify indirect-call targets. And the tools
+live in `src/lib.rs` under a three-line `src/bin/main.rs` that does nothing but
+`extern crate` them, because cargo emits an image for a bin target and an
+archive for a lib — the library alone never gets linked, and the binary alone
+cannot be reached from `tests/`.
 
 Off that target the crate is an ordinary library, so tools can be unit tested
 natively instead of cross-compiling to run anything at all. `berm_lang::test`

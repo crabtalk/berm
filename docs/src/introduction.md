@@ -17,9 +17,9 @@ rvtime usable for a guest that is not one.
 
 ## How to read this
 
-Start with berm to write or run a harness. Its four chapters cover what the
+Start with berm to write or run a harness. Its five chapters cover what the
 sandbox guarantees, how to write a guest against it, what an image declares
-about itself, and how the service serves it.
+about itself, how one travels between machines, and how the service serves it.
 
 Read rvtime to change the compiler, or when something surprises you and the
 question is whether it was deliberate. Its

@@ -4,10 +4,10 @@ A sandbox for harnesses. Loads a hash-pinned RV64 ELF, compiles it once, and
 instantiates it per invocation under [rvtime](https://crates.io/crates/rvtime);
 nothing survives the call.
 
-A harness reaches the world only through system harnesses it was granted, and the
-grant *is* the `Linker` it is instantiated with — an ungranted call traps
-because nothing is registered for it. berm ships none: every `Harness` a guest
-can reach is one the embedder passed to `Berm::load`.
+A harness reaches the world only through the system harnesses it was given, and
+that list is the `Linker` it is instantiated with — a call to anything else
+traps because nothing is registered for it. berm ships none: every `Harness` a
+guest can reach is one the embedder passed to `Berm::load`.
 
 `Manifest::from_elf(elf)` reads what an image claims to be without compiling or
 running it.

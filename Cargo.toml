@@ -4,7 +4,7 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-version = "0.0.3"
+version = "0.0.5"
 repository = "https://github.com/crabtalk/berm"
 license = "Apache-2.0"
 authors = ["clearloop <tianyi.gc@gmail.com>"]
@@ -13,17 +13,19 @@ keywords = ["riscv", "jit", "compiler", "cranelift", "sandbox"]
 categories = ["compilers", "virtualization"]
 
 [workspace.dependencies]
-berm = { path = "crates/berm", version = "0.0.3" }
-berm-api = { path = "crates/api", version = "0.0.3" }
-berm-codegen = { path = "crates/codegen", version = "0.0.3" }
-berm-lang = { path = "crates/lang", version = "0.0.3" }
-rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.3" }
-translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.3" }
-compiler = { path = "rvtime/compiler", package = "rvtime-compiler", version = "0.0.3" }
-rvtime = { path = "rvtime/rvtime", package = "rvtime", version = "0.0.3" }
+berm = { path = "crates/berm", version = "0.0.5" }
+berm-api = { path = "crates/api", version = "0.0.5" }
+berm-codegen = { path = "crates/codegen", version = "0.0.5" }
+berm-index = { path = "crates/index", version = "0.0.5" }
+berm-lang = { path = "crates/lang", version = "0.0.5" }
+berm-oci = { path = "crates/oci", version = "0.0.5" }
+rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.5" }
+translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.5" }
+compiler = { path = "rvtime/compiler", package = "rvtime-compiler", version = "0.0.5" }
+rvtime = { path = "rvtime/rvtime", package = "rvtime", version = "0.0.5" }
 # Off by default: berm-lang installs its own global allocator, and a guest can
 # only have one.
-guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.3", default-features = false }
+guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.5", default-features = false }
 
 # crates-io
 anyhow = "1.0"

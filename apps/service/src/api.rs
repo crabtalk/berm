@@ -13,7 +13,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use berm_api::{Failed, Harness, ToolSpec};
+use berm_api::{Failed, Harness};
 use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
 };
@@ -49,15 +49,7 @@ fn describe(deployed: &Arc<Deployed>) -> Harness {
         name: deployed.name.clone(),
         digest: deployed.digest.clone(),
         usage: manifest.usage.clone(),
-        tools: manifest
-            .tools
-            .iter()
-            .map(|tool| ToolSpec {
-                name: tool.name.clone(),
-                description: tool.description.clone(),
-                parameters: tool.parameters.clone(),
-            })
-            .collect(),
+        tools: manifest.tools.clone(),
     }
 }
 

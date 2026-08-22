@@ -24,9 +24,9 @@
 //! Every `pub fn` in the module is a tool; its doc comment is what the model
 //! reads when deciding whether to call it.
 //!
-//! Build with the `riscv64imac-unknown-none-elf` target and
-//! `-Clink-arg=--emit-relocs`; the template's `.cargo/config.toml` carries
-//! both, and neither is optional.
+//! Build for `riscv64imac-unknown-none-elf` with `-Clink-arg=--emit-relocs`,
+//! neither of which is optional. `berm new` writes a crate whose
+//! `.cargo/config.toml` carries the flag.
 //!
 //! This crate declares no system harness of its own: what a harness can reach
 //! is whatever its host registered, and naming any of it here would be the SDK

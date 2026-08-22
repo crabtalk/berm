@@ -4,9 +4,10 @@
 //! invocation under rvtime: arguments are pulled in through host calls, the
 //! result is read back out of guest memory, and nothing survives the call.
 //!
-//! A harness reaches the world only through *system harnesses* it was given,
-//! and the grant is the [`Linker`] it is instantiated with — an ungranted call
-//! traps because nothing is registered for it, not because a check said no.
+//! A harness reaches the world only through the *system harnesses* it was
+//! given, and that list is the [`Linker`] it is instantiated with — a call to
+//! anything else traps because nothing is registered for it, not because a
+//! check said no.
 //!
 //! A system harness is native host code behind a name, the way a precompile is
 //! native code behind an address. berm ships none: what a filesystem is bounded
@@ -16,13 +17,12 @@
 //! reach.
 
 use anyhow::{Context, Result, bail};
-pub use manifest::{Manifest, ToolSpec};
+pub use berm_api::{Manifest, ToolSpec};
 use rvtime::{Caller, Linker, Module, Store, TypedFunc};
 pub use rvtime::{Config, Engine};
 use std::{collections::BTreeMap, sync::Arc};
 
 pub mod abi;
-mod manifest;
 mod watchdog;
 pub mod wire;
 
@@ -104,9 +104,9 @@ impl Berm {
             },
         )?;
 
-        // The other half of every system harness call. Plumbing rather than a
-        // grant: a harness given none never stages anything, so this
-        // is registered unconditionally and has nothing to hand over.
+        // The other half of every system harness call. A harness given no
+        // system harnesses never stages anything, so this is registered
+        // unconditionally and has nothing to hand over.
         linker.func_wrap(
             abi::HOST_RESULT_READ,
             |mut caller: Caller<'_, Invocation>, ptr, capacity| {

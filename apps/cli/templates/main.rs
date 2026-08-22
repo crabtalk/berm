@@ -3,7 +3,7 @@
 // in for `_start` to anchor.
 #![cfg_attr(target_arch = "riscv64", no_std, no_main)]
 
-extern crate berm_fixture as _;
+extern crate __CRATE__ as _;
 
 #[cfg(not(target_arch = "riscv64"))]
 fn main() {}

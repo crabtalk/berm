@@ -1,14 +1,16 @@
 [package]
-name = "berm-api"
-description = "What a harness says it is, and what bermd's control API speaks"
+name = "berm-index"
+description = "A list of published harnesses, and how to search one"
 edition.workspace = true
 version.workspace = true
 repository.workspace = true
 license.workspace = true
 authors.workspace = true
+keywords = ["index", "registry", "harness", "sandbox"]
+categories = ["virtualization"]
 
 [dependencies]
 anyhow.workspace = true
-object.workspace = true
+berm-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
