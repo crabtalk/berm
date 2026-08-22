@@ -14,6 +14,7 @@ categories = ["compilers", "virtualization"]
 
 [workspace.dependencies]
 berm = { path = "crates/berm", version = "0.0.3" }
+berm-api = { path = "crates/api", version = "0.0.3" }
 berm-codegen = { path = "crates/codegen", version = "0.0.3" }
 berm-lang = { path = "crates/lang", version = "0.0.3" }
 rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.3" }
@@ -42,6 +43,7 @@ linked_list_allocator = "0.10"
 object = "0.40"
 proc-macro2 = "1"
 quote = "1"
+reqwest = { version = "0.13", default-features = false }
 rmcp = { version = "2.2", default-features = false, features = [
     "server",
     "transport-streamable-http-server",

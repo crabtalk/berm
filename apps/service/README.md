@@ -17,17 +17,24 @@ The control API is resource-shaped, for the reason dockerd's is: the clients are
 a UI, a CLI, and `curl`.
 
 ```sh
-cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
-curl -X PUT --data-binary @target/riscv64imac-unknown-none-elf/release/fixture \
-  http://127.0.0.1:7777/harnesses/fixture
-
+curl -X PUT --data-binary @harness.elf http://127.0.0.1:7777/harnesses/example
 curl http://127.0.0.1:7777/harnesses
-curl -X DELETE http://127.0.0.1:7777/harnesses/fixture
+curl -X DELETE http://127.0.0.1:7777/harnesses/example
 ```
 
 An image is compiled before it is stored, so a broken one is refused by the
 deploy that introduced it rather than on a model's turn. What is stored is
 restored on the next start.
+
+To check a running service rather than serve anything, `berm-fixture` is the
+guest berm's own tests use — its tools price things rather than do them, so it
+proves the path works and is not something to leave deployed.
+
+```sh
+cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
+curl -X PUT --data-binary @target/riscv64imac-unknown-none-elf/release/fixture \
+  http://127.0.0.1:7777/harnesses/fixture
+```
 
 ## MCP
 

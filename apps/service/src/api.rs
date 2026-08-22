@@ -13,10 +13,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use berm_api::{Failed, Harness, ToolSpec};
 use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
 };
-use serde::Serialize;
 use std::sync::Arc;
 
 pub fn router(service: Arc<Service>) -> Router {
@@ -42,56 +42,36 @@ pub fn router(service: Arc<Service>) -> Router {
         .with_state(service)
 }
 
-/// What a harness looks like from outside: what it is, and what it offers.
-#[derive(Serialize)]
-struct Harness {
-    name: String,
-    digest: String,
-    usage: String,
-    tools: Vec<ToolSpec>,
-}
-
-#[derive(Serialize)]
-struct ToolSpec {
-    name: String,
-    description: String,
-    parameters: serde_json::Value,
-}
-
-impl From<&Arc<Deployed>> for Harness {
-    fn from(deployed: &Arc<Deployed>) -> Self {
-        let manifest = deployed.manifest();
-        Self {
-            name: deployed.name.clone(),
-            digest: deployed.digest.clone(),
-            usage: manifest.usage.clone(),
-            tools: manifest
-                .tools
-                .iter()
-                .map(|tool| ToolSpec {
-                    name: tool.name.clone(),
-                    description: tool.description.clone(),
-                    parameters: tool.parameters.clone(),
-                })
-                .collect(),
-        }
+/// What berm read out of the ELF, on the wire.
+fn describe(deployed: &Arc<Deployed>) -> Harness {
+    let manifest = deployed.manifest();
+    Harness {
+        name: deployed.name.clone(),
+        digest: deployed.digest.clone(),
+        usage: manifest.usage.clone(),
+        tools: manifest
+            .tools
+            .iter()
+            .map(|tool| ToolSpec {
+                name: tool.name.clone(),
+                description: tool.description.clone(),
+                parameters: tool.parameters.clone(),
+            })
+            .collect(),
     }
 }
 
 async fn list(State(service): State<Arc<Service>>) -> Json<Vec<Harness>> {
-    Json(service.list().await.iter().map(Harness::from).collect())
+    Json(service.list().await.iter().map(describe).collect())
 }
 
 async fn inspect(
     State(service): State<Arc<Service>>,
     Path(name): Path<String>,
-) -> Result<Json<Harness>, Failed> {
+) -> Result<Json<Harness>, Refused> {
     match service.get(&name).await {
-        Some(deployed) => Ok(Json(Harness::from(&deployed))),
-        None => Err(Failed(
-            StatusCode::NOT_FOUND,
-            format!("no harness named {name:?} is deployed"),
-        )),
+        Some(deployed) => Ok(Json(describe(&deployed))),
+        None => Err(Refused::missing(&name)),
     }
 }
 
@@ -101,37 +81,43 @@ async fn deploy(
     State(service): State<Arc<Service>>,
     Path(name): Path<String>,
     elf: Bytes,
-) -> Result<Json<Harness>, Failed> {
+) -> Result<Json<Harness>, Refused> {
     let deployed = service
         .deploy(&name, elf.to_vec())
         .await
         // A rejected image is the client's ELF, not the service's fault: a bad
         // name, an unreadable ELF, a manifest that disagrees with its exports.
-        .map_err(|error| Failed(StatusCode::BAD_REQUEST, format!("{error:#}")))?;
-    Ok(Json(Harness::from(&deployed)))
+        .map_err(|error| Refused(StatusCode::BAD_REQUEST, format!("{error:#}")))?;
+    Ok(Json(describe(&deployed)))
 }
 
 async fn undeploy(
     State(service): State<Arc<Service>>,
     Path(name): Path<String>,
-) -> Result<StatusCode, Failed> {
+) -> Result<StatusCode, Refused> {
     match service.undeploy(&name).await {
         Ok(true) => Ok(StatusCode::NO_CONTENT),
-        Ok(false) => Err(Failed(
-            StatusCode::NOT_FOUND,
-            format!("no harness named {name:?} is deployed"),
-        )),
-        Err(error) => Err(Failed(
+        Ok(false) => Err(Refused::missing(&name)),
+        Err(error) => Err(Refused(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("{error:#}"),
         )),
     }
 }
 
-struct Failed(StatusCode, String);
+struct Refused(StatusCode, String);
 
-impl IntoResponse for Failed {
+impl Refused {
+    fn missing(name: &str) -> Self {
+        Self(
+            StatusCode::NOT_FOUND,
+            format!("no harness named {name:?} is deployed"),
+        )
+    }
+}
+
+impl IntoResponse for Refused {
     fn into_response(self) -> Response {
-        (self.0, Json(serde_json::json!({ "error": self.1 }))).into_response()
+        (self.0, Json(Failed { error: self.1 })).into_response()
     }
 }
