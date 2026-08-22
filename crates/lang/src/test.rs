@@ -16,7 +16,16 @@
 #![cfg(not(target_arch = "riscv64"))]
 
 use crate::{Buf, sys};
-use std::{string::String, vec::Vec};
+use std::{
+    string::String,
+    sync::{Mutex, PoisonError},
+    vec::Vec,
+};
+
+/// A harness writes into buffers the macro puts in `.bss`, which on the guest
+/// is safe because one invocation runs at a time. A test binary runs its tests
+/// in parallel, so they take turns here or they write over each other.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
 /// Invoke a tool export with `args`, as the host does.
 ///
@@ -24,6 +33,10 @@ use std::{string::String, vec::Vec};
 /// distinction the host draws between a tool that failed and one that returned
 /// the word "error".
 pub fn call(entry: extern "C" fn() -> Buf, args: &[u8]) -> Result<Vec<u8>, String> {
+    // A failing assertion is a test doing its job, so a panic while holding
+    // this must not poison it into failing every other test.
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+
     sys::with(|host| {
         host.args = args.to_vec();
         host.logged.clear();

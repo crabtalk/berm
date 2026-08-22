@@ -9,7 +9,7 @@ grant *is* the `Linker` it is instantiated with — an ungranted call traps
 because nothing is registered for it. berm ships none: every `Harness` a guest
 can reach is one the embedder passed to `Berm::load`.
 
-`berm::manifest(elf)` reads what an image claims to be without compiling or
+`Manifest::from_elf(elf)` reads what an image claims to be without compiling or
 running it.
 
 ```sh

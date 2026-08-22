@@ -7,7 +7,7 @@ cargo run --example host_functions
 ```
 
 ```rust,ignore
-{{#include ../../../rvtime/rvtime/examples/host_functions.rs:example}}
+{{#include ../../../../rvtime/rvtime/examples/host_functions.rs:example}}
 ```
 
 ## Numbers, not names

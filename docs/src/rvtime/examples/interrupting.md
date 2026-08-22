@@ -7,7 +7,7 @@ cargo run --example interrupting
 ```
 
 ```rust,ignore
-{{#include ../../../rvtime/rvtime/examples/interrupting.rs:example}}
+{{#include ../../../../rvtime/rvtime/examples/interrupting.rs:example}}
 ```
 
 ## Why this exists

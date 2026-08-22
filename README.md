@@ -1,56 +1,62 @@
-# rvtime
+# berm
 
 [![CI](https://github.com/crabtalk/berm/actions/workflows/ci.yml/badge.svg)](https://github.com/crabtalk/berm/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-crabtalk.github.io-blue)](https://crabtalk.github.io/berm/)
 
-A RISC-V compiler with a wasmtime-like interface.
+A sandbox for harnesses.
 
-Load a statically linked RV64IMAC ELF, compile it to native code with Cranelift,
-call its exported functions from Rust, and let it call back into the host.
+A harness is one statically linked RV64 ELF. berm pins it by hash, compiles it
+once, and instantiates it per invocation — arguments go in through host calls,
+the result comes back out of guest memory, and nothing survives the call.
 
 ```rust
-let engine = Engine::new(&Config::default())?;
-let module = Module::from_file(&engine, "guest.elf")?;
+let berm = Berm::load(&engine, &elf, &[])?;
 
-let mut store = Store::new(&engine, 0u64);
-let mut linker = Linker::new(&engine);
-
-// The guest reaches this with `ecall` and `a7 == 1`.
-linker.func_wrap(1, |mut caller: Caller<'_, u64>, a: u64, b: u64| {
-    *caller.data_mut() += 1;
-    Ok(a + b)
-})?;
-
-let instance = linker.instantiate(&mut store, &module)?;
-let add = instance.get_typed_func::<(u64, u64), u64>("op_add")?;
-assert_eq!(add.call(&mut store, (10, 3))?, 13);
+// The outer result is the host's — a missing tool, a trap. The inner one is
+// the harness reporting failure, which is a result the model should see.
+match berm.call("echo", br#"{"query":"hello"}"#.to_vec())? {
+    Ok(result) => println!("{result}"),
+    Err(failure) => eprintln!("{failure}"),
+}
 ```
+
+A harness reaches the world only through *system harnesses* it was given, and
+the grant is the `Linker` it is instantiated with — an ungranted call traps
+because nothing is registered for it, not because a check said no. berm ships
+none: what a filesystem is bounded by, and where bytes persist, are decisions
+about a host, and berm has no host.
+
+`Manifest::from_elf(elf)` reads what an image claims to be — its tools, their
+schemas, when to reach for them — without compiling or running it.
+
+## rvtime
+
+[rvtime](rvtime/README.md) is what compiles and confines the guest, and it ships
+from this repository too. It has no idea what a harness is: it loads an ELF,
+generates native code for it, and calls it. Every convention that makes a guest
+a *harness* — tools, a manifest, an argument blob — lives on the berm side,
+which is what leaves rvtime usable for a guest that is not one.
+
+## Running harnesses
+
+`bermd` is a long-running service that deploys harnesses and serves every one of
+them on a single MCP endpoint, with tools named `{harness}.{tool}`.
+
+```sh
+bermd &
+berm deploy example ./harness.elf
+berm ls
+```
+
+See [`apps/service`](apps/service) for the control API and what a deployed
+harness can reach.
 
 ## Documentation
 
-- **[Guide and design notes](https://crabtalk.github.io/berm/)** — how it works
-  and why, with worked examples.
+- **[Guide and design notes](https://crabtalk.github.io/berm/)** — berm first,
+  then rvtime.
 - **[API reference](https://crabtalk.github.io/berm/api/)** — generated from the
   source.
-
-The design chapters cover the parts most likely to surprise: why a *direct* call
-on RISC-V is encoded as an indirect jump, why registers cross calls by ABI, and
-why guest memory is confined rather than bounds-checked.
-
-## Status
-
-Working end to end: ELF loading, RV64IMAC decoding, control-flow analysis,
-Cranelift codegen, guest memory with a committed heap and guard pages, host
-calls, traps, interruption, a compiled-code cache, and a guest-side SDK.
-
-CI runs the suite on Linux/x86_64 and macOS/arm64, in debug and release. Windows
-is not supported — memory and traps are POSIX.
-
-Guests must be linked with **`--emit-relocs`**; that is the first thing to check
-when one fails to load. See
-[Getting Started](https://crabtalk.github.io/berm/getting-started.html), and
-[Limitations](https://crabtalk.github.io/berm/limitations.html) for what is not
-done yet.
 
 ## Building
 
@@ -58,24 +64,15 @@ done yet.
 cargo test --workspace
 ```
 
-Rust 2024 edition. No RISC-V toolchain needed — the fixtures are committed as
-prebuilt ELFs alongside their disassembly, which is also why CI can run the whole
-suite without one. To regenerate them:
+Rust 2024 edition, POSIX only. Building a harness additionally needs the guest
+target:
 
 ```sh
 rustup target add riscv64imac-unknown-none-elf
-rustup component add llvm-tools-preview
-./fixtures/build.sh
 ```
 
-## Contributing
-
-Every test lives in `tests/`; there are no in-file test modules. The decoder is
-checked differentially against `llvm-objdump` over whole `.text` sections, and
-the fixtures together cover 122 distinct mnemonics.
-
-Examples under `rvtime/rvtime/examples/` are documentation: the book includes
-them by reference and CI runs them, so they cannot drift from the API.
+Guests must be linked with **`--emit-relocs`**; that is the first thing to check
+when one fails to load.
 
 ## License
 

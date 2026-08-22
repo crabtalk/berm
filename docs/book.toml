@@ -1,6 +1,6 @@
 [book]
-title = "rvtime"
-description = "A RISC-V compiler with a wasmtime-like interface"
+title = "berm"
+description = "A sandbox for harnesses, and the RISC-V compiler underneath it"
 authors = ["clearloop"]
 language = "en"
 src = "src"

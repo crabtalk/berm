@@ -9,6 +9,7 @@ on:
       - "docs/**"
       # The book includes the examples by reference, and rustdoc comes from the
       # sources, so both invalidate the published site.
+      - "apps/*/src/**"
       - "crates/*/src/**"
       - "rvtime/*/src/**"
       - "rvtime/rvtime/examples/**"
@@ -43,7 +44,7 @@ jobs:
         run: |
           mv target/doc docs/book/api
           # rustdoc emits no root index, so send /api to the main crate.
-          echo '<meta http-equiv="refresh" content="0;url=rvtime/index.html">' \
+          echo '<meta http-equiv="refresh" content="0;url=berm/index.html">' \
             > docs/book/api/index.html
 
       - uses: peaceiris/actions-gh-pages@v4
