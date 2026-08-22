@@ -11,9 +11,9 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
-use berm_api::{Failed, Harness};
+use berm_api::{Failed, Harness, Output};
 use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
 };
@@ -38,6 +38,7 @@ pub fn router(service: Arc<Service>) -> Router {
             "/harnesses/{name}",
             get(inspect).put(deploy).delete(undeploy),
         )
+        .route("/harnesses/{name}/tools/{tool}", post(call))
         .route_service("/mcp", mcp)
         .with_state(service)
 }
@@ -81,6 +82,42 @@ async fn deploy(
         // name, an unreadable ELF, a manifest that disagrees with its exports.
         .map_err(|error| Refused(StatusCode::BAD_REQUEST, format!("{error:#}")))?;
     Ok(Json(describe(&deployed)))
+}
+
+/// Run one tool. `POST` because an invocation is not idempotent, and the body
+/// is the argument object byte for byte as the harness will read it.
+async fn call(
+    State(service): State<Arc<Service>>,
+    Path((name, tool)): Path<(String, String)>,
+    arguments: Bytes,
+) -> Result<Json<Output>, Refused> {
+    let Some(deployed) = service.get(&name).await else {
+        return Err(Refused::missing(&name));
+    };
+    // Asked here rather than left to the invocation, which reports a missing
+    // tool through the same error as a trap — and the two are not the same
+    // status.
+    if !deployed
+        .manifest()
+        .tools
+        .iter()
+        .any(|spec| spec.name == tool)
+    {
+        return Err(Refused(
+            StatusCode::NOT_FOUND,
+            format!("harness {name:?} exports no tool named {tool:?}"),
+        ));
+    }
+
+    match service.call(&name, &tool, arguments.to_vec()).await {
+        Ok(outcome) => Ok(Json(outcome.into())),
+        // The harness is there and so is the tool, so what is left is the
+        // invocation: a trap, or a guest that came back unreadable.
+        Err(error) => Err(Refused(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{error:#}"),
+        )),
+    }
 }
 
 async fn undeploy(
