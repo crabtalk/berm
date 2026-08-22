@@ -28,11 +28,11 @@ This is the opposite of a container, and it is why there is no lifecycle to
 manage — nothing to start, stop, or restart. What is expensive is compilation,
 not instantiation, and compilation is paid once per image.
 
-## The grant is the linker
+## The linker is the boundary
 
-A harness reaches the world only through *system harnesses* it was given, and
-the grant is the `Linker` it is instantiated with. An ungranted call traps
-because nothing is registered for the number the guest put in `a7` — not
+A harness reaches the world only through the *system harnesses* it was given,
+and that list is the `Linker` it is instantiated with. A call to anything else
+traps because nothing is registered for the number the guest put in `a7` — not
 because a check ran and said no. There is no check to write, and none to forget.
 
 berm ships none. What a filesystem is bounded by, what shape a command's result

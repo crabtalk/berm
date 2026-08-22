@@ -1,6 +1,7 @@
 # berm
 
 [![CI](https://github.com/crabtalk/berm/actions/workflows/ci.yml/badge.svg)](https://github.com/crabtalk/berm/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/berm.svg)](https://crates.io/crates/berm)
 [![Docs](https://img.shields.io/badge/docs-crabtalk.github.io-blue)](https://crabtalk.github.io/berm/)
 
 A sandbox for harnesses.
@@ -20,22 +21,14 @@ match berm.call("echo", br#"{"query":"hello"}"#.to_vec())? {
 }
 ```
 
-A harness reaches the world only through *system harnesses* it was given, and
-the grant is the `Linker` it is instantiated with — an ungranted call traps
-because nothing is registered for it, not because a check said no. berm ships
-none: what a filesystem is bounded by, and where bytes persist, are decisions
-about a host, and berm has no host.
+A harness reaches the world only through the *system harnesses* it was given,
+and that list is the `Linker` it is instantiated with — a call to anything else
+traps because nothing is registered for it, not because a check said no. berm
+ships none: what a filesystem is bounded by, and where bytes persist, are
+decisions about a host, and berm has no host.
 
 `Manifest::from_elf(elf)` reads what an image claims to be — its tools, their
 schemas, when to reach for them — without compiling or running it.
-
-## rvtime
-
-[rvtime](rvtime/README.md) is what compiles and confines the guest, and it ships
-from this repository too. It has no idea what a harness is: it loads an ELF,
-generates native code for it, and calls it. Every convention that makes a guest
-a *harness* — tools, a manifest, an argument blob — lives on the berm side,
-which is what leaves rvtime usable for a guest that is not one.
 
 ## Running harnesses
 
@@ -53,8 +46,8 @@ harness can reach.
 
 ## Documentation
 
-- **[Guide and design notes](https://crabtalk.github.io/berm/)** — berm first,
-  then rvtime.
+- **[Guide and design notes](https://crabtalk.github.io/berm/)** — how it works
+  and why, with worked examples.
 - **[API reference](https://crabtalk.github.io/berm/api/)** — generated from the
   source.
 
