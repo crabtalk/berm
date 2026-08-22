@@ -7,7 +7,7 @@ cargo run --example guest_heap
 ```
 
 ```rust,ignore
-{{#include ../../../crates/rvtime/examples/guest_heap.rs:example}}
+{{#include ../../../rvtime/rvtime/examples/guest_heap.rs:example}}
 ```
 
 ## Why the host has to hand it over

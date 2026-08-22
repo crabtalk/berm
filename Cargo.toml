@@ -1,17 +1,11 @@
 [workspace]
-members = [
-    "crates/core",
-    "crates/cranelift",
-    "crates/compiler",
-    "crates/rvtime",
-    "crates/guest",
-]
+members = ["crates/*", "rvtime/*"]
 resolver = "3"
 
 [workspace.package]
 edition = "2024"
-version = "0.0.2"
-repository = "https://github.com/crabtalk/rvtime"
+version = "0.0.3"
+repository = "https://github.com/crabtalk/berm"
 license = "Apache-2.0"
 authors = ["clearloop <tianyi.gc@gmail.com>"]
 readme = "README.md"
@@ -19,11 +13,16 @@ keywords = ["riscv", "jit", "compiler", "cranelift", "sandbox"]
 categories = ["compilers", "virtualization"]
 
 [workspace.dependencies]
-rv = { path = "crates/core", package = "rvtime-core", version = "0.0.2" }
-translator = { path = "crates/cranelift", package = "rvtime-cranelift", version = "0.0.2" }
-compiler = { path = "crates/compiler", package = "rvtime-compiler", version = "0.0.2" }
-rvtime = { path = "crates/rvtime", package = "rvtime", version = "0.0.2" }
-guest = { path = "crates/guest", package = "rvtime-guest", version = "0.0.2" }
+berm = { path = "crates/berm", version = "0.0.3" }
+berm-codegen = { path = "crates/codegen", version = "0.0.3" }
+berm-lang = { path = "crates/lang", version = "0.0.3" }
+rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.3" }
+translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.3" }
+compiler = { path = "rvtime/compiler", package = "rvtime-compiler", version = "0.0.3" }
+rvtime = { path = "rvtime/rvtime", package = "rvtime", version = "0.0.3" }
+# Off by default: berm-lang installs its own global allocator, and a guest can
+# only have one.
+guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.3", default-features = false }
 
 # crates-io
 anyhow = "1.0"
@@ -37,5 +36,22 @@ cranelift = { version = "0.134.3", features = [
 ] }
 cranelift-codegen = { version = "0.134.3", features = ["incremental-cache"] }
 libc = "0.2"
+linked_list_allocator = "0.10"
 object = "0.40"
+proc-macro2 = "1"
+quote = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same crates for guests, which are `no_std` with an allocator. Second
+# entries rather than features on the first because a member cannot turn off
+# default features it inherits.
+serde_guest = { package = "serde", version = "1", default-features = false, features = [
+    "derive",
+    "alloc",
+] }
+serde_json_guest = { package = "serde_json", version = "1", default-features = false, features = [
+    "alloc",
+] }
+syn = { version = "2", features = ["full"] }
 tracing = "0.1"
+tracing-subscriber = "0.3"

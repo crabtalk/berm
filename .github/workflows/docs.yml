@@ -10,7 +10,8 @@ on:
       # The book includes the examples by reference, and rustdoc comes from the
       # sources, so both invalidate the published site.
       - "crates/*/src/**"
-      - "crates/rvtime/examples/**"
+      - "rvtime/*/src/**"
+      - "rvtime/rvtime/examples/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 

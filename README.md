@@ -1,7 +1,7 @@
 # rvtime
 
-[![CI](https://github.com/crabtalk/rvtime/actions/workflows/ci.yml/badge.svg)](https://github.com/crabtalk/rvtime/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-crabtalk.github.io-blue)](https://crabtalk.github.io/rvtime/)
+[![CI](https://github.com/crabtalk/berm/actions/workflows/ci.yml/badge.svg)](https://github.com/crabtalk/berm/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-crabtalk.github.io-blue)](https://crabtalk.github.io/berm/)
 
 A RISC-V compiler with a wasmtime-like interface.
 
@@ -28,9 +28,9 @@ assert_eq!(add.call(&mut store, (10, 3))?, 13);
 
 ## Documentation
 
-- **[Guide and design notes](https://crabtalk.github.io/rvtime/)** — how it works
+- **[Guide and design notes](https://crabtalk.github.io/berm/)** — how it works
   and why, with worked examples.
-- **[API reference](https://crabtalk.github.io/rvtime/api/)** — generated from the
+- **[API reference](https://crabtalk.github.io/berm/api/)** — generated from the
   source.
 
 The design chapters cover the parts most likely to surprise: why a *direct* call
@@ -48,8 +48,8 @@ is not supported — memory and traps are POSIX.
 
 Guests must be linked with **`--emit-relocs`**; that is the first thing to check
 when one fails to load. See
-[Getting Started](https://crabtalk.github.io/rvtime/getting-started.html), and
-[Limitations](https://crabtalk.github.io/rvtime/limitations.html) for what is not
+[Getting Started](https://crabtalk.github.io/berm/getting-started.html), and
+[Limitations](https://crabtalk.github.io/berm/limitations.html) for what is not
 done yet.
 
 ## Building
@@ -74,7 +74,7 @@ Every test lives in `tests/`; there are no in-file test modules. The decoder is
 checked differentially against `llvm-objdump` over whole `.text` sections, and
 the fixtures together cover 122 distinct mnemonics.
 
-Examples under `crates/rvtime/examples/` are documentation: the book includes
+Examples under `rvtime/rvtime/examples/` are documentation: the book includes
 them by reference and CI runs them, so they cannot drift from the API.
 
 ## License

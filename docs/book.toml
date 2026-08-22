@@ -7,8 +7,8 @@ src = "src"
 
 [output.html]
 default-theme = "rust"
-git-repository-url = "https://github.com/crabtalk/rvtime"
-edit-url-template = "https://github.com/crabtalk/rvtime/edit/main/docs/{path}"
+git-repository-url = "https://github.com/crabtalk/berm"
+edit-url-template = "https://github.com/crabtalk/berm/edit/main/docs/{path}"
 
 [output.html.playground]
 runnable = false

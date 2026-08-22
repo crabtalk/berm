@@ -7,7 +7,7 @@ cargo run --example calling_a_guest
 ```
 
 ```rust,ignore
-{{#include ../../../crates/rvtime/examples/calling_a_guest.rs:example}}
+{{#include ../../../rvtime/rvtime/examples/calling_a_guest.rs:example}}
 ```
 
 ## What is happening
