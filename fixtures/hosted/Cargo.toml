@@ -11,4 +11,4 @@ panic = "abort"
 opt-level = 2
 
 [dependencies]
-rvtime-guest = { path = "../../crates/guest" }
+rvtime-guest = { path = "../../rvtime/guest" }

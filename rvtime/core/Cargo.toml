@@ -1,0 +1,19 @@
+[package]
+name = "rvtime-core"
+description = "Shared vocabulary for rvtime: registers, instructions, ELF programs"
+edition.workspace = true
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+authors.workspace = true
+readme = "../README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+object.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+object.workspace = true

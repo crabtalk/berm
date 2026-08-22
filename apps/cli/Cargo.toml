@@ -1,0 +1,22 @@
+[package]
+name = "berm-cli"
+description = "Command-line client for bermd"
+edition.workspace = true
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "berm"
+path = "bin/main.rs"
+# The name is the sandbox library's, so documenting both writes one over the
+# other in `target/doc`. A binary has no API to publish.
+doc = false
+
+[dependencies]
+anyhow.workspace = true
+berm-api.workspace = true
+clap.workspace = true
+reqwest = { workspace = true, features = ["blocking", "json"] }
+serde_json.workspace = true

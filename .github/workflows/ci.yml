@@ -82,7 +82,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: build the guest SDK
-        working-directory: crates/guest
+        working-directory: rvtime/guest
         run: |
           cargo build --release --target riscv64imac-unknown-none-elf
           # Lib only: --all-targets would pull in the test harness, which a
@@ -99,3 +99,12 @@ jobs:
               --config 'target.riscv64imac-unknown-none-elf.rustflags=["-Clink-arg=--emit-relocs"]')
             echo "::endgroup::"
           done
+
+      # Proves what only a real build can: that the macro's exports survive
+      # --gc-sections, that --emit-relocs reached the linker, and that the
+      # manifest section is where the host looks for it.
+      - name: build the reference guest
+        run: cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
+
+      - name: run it under berm
+        run: cargo run --release --example measure -p berm

@@ -2,26 +2,36 @@
 
 [Introduction](./introduction.md)
 
-- [Getting Started](./getting-started.md)
+# berm
 
-# Examples
+- [Overview](./berm/overview.md)
+- [Writing a Harness](./berm/writing-a-harness.md)
+- [The Manifest](./berm/manifest.md)
+- [Running the Service](./berm/service.md)
 
-- [Calling a Guest](./examples/calling-a-guest.md)
-- [Host Functions](./examples/host-functions.md)
-- [The Guest Heap](./examples/guest-heap.md)
-- [Interrupting a Guest](./examples/interrupting.md)
+# rvtime
 
-# Design
+- [Overview](./rvtime/introduction.md)
+- [Getting Started](./rvtime/getting-started.md)
 
-- [Overview](./design/overview.md)
-- [Calls](./design/calls.md)
-- [Registers](./design/registers.md)
-- [Memory](./design/memory.md)
-- [Host Calls](./design/host-calls.md)
-- [Interruption](./design/interruption.md)
-- [Caching](./design/caching.md)
+# rvtime — Examples
 
-# Reference
+- [Calling a Guest](./rvtime/examples/calling-a-guest.md)
+- [Host Functions](./rvtime/examples/host-functions.md)
+- [The Guest Heap](./rvtime/examples/guest-heap.md)
+- [Interrupting a Guest](./rvtime/examples/interrupting.md)
 
-- [Performance](./performance.md)
-- [Limitations](./limitations.md)
+# rvtime — Design
+
+- [Overview](./rvtime/design/overview.md)
+- [Calls](./rvtime/design/calls.md)
+- [Registers](./rvtime/design/registers.md)
+- [Memory](./rvtime/design/memory.md)
+- [Host Calls](./rvtime/design/host-calls.md)
+- [Interruption](./rvtime/design/interruption.md)
+- [Caching](./rvtime/design/caching.md)
+
+# rvtime — Reference
+
+- [Performance](./rvtime/performance.md)
+- [Limitations](./rvtime/limitations.md)

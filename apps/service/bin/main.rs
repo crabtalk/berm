@@ -1,0 +1,35 @@
+use anyhow::{Context, Result};
+use bermd::Service;
+use clap::Parser;
+use std::{net::SocketAddr, path::PathBuf};
+
+#[derive(Parser)]
+#[command(version, about = "Deploys harnesses and serves their tools over MCP")]
+struct Args {
+    /// Address to listen on. Loopback by default: the MCP endpoint carries no
+    /// authorization yet, so anything wider would be an open one.
+    #[arg(long, default_value = "127.0.0.1:7777")]
+    addr: SocketAddr,
+
+    /// Where deployed images and the code cache live.
+    #[arg(long)]
+    root: Option<PathBuf>,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("bermd=info".parse().expect("the default directive parses")),
+        )
+        .init();
+
+    let args = Args::parse();
+    let root = match args.root {
+        Some(root) => root,
+        None => PathBuf::from(std::env::var("HOME").context("HOME is not set")?).join(".berm"),
+    };
+
+    Service::new(root).await?.serve(args.addr).await
+}
