@@ -19,6 +19,7 @@ berm-codegen = { path = "crates/codegen", version = "0.0.5" }
 berm-index = { path = "crates/index", version = "0.0.5" }
 berm-lang = { path = "crates/lang", version = "0.0.5" }
 berm-oci = { path = "crates/oci", version = "0.0.5" }
+bermd = { path = "apps/service", version = "0.0.5" }
 rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.5" }
 translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.5" }
 compiler = { path = "rvtime/compiler", package = "rvtime-compiler", version = "0.0.5" }
@@ -67,3 +68,12 @@ syn = { version = "2", features = ["full"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "signal", "sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# git
+bezel = { git = "https://github.com/crabtalk/bezel", rev = "f86dbbf" }
+# Pinned at bezel's own gpui rev. A different one is a second type universe,
+# whose failure is a window that paints shapes but no text.
+gpui = { git = "https://github.com/crabtalk/zed", rev = "cf1b90ec8cfda974a50b0c9eaebfdab28d7f0423" }
+gpui_platform = { git = "https://github.com/crabtalk/zed", rev = "cf1b90ec8cfda974a50b0c9eaebfdab28d7f0423", features = [
+    "font-kit",
+] }
