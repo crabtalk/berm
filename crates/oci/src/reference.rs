@@ -21,37 +21,47 @@ impl FromStr for Reference {
         let (registry, rest) = text
             .split_once('/')
             .with_context(|| format!("{text:?} names no registry"))?;
-        if !registry.contains('.') && !registry.contains(':') && registry != "localhost" {
-            bail!("{text:?} names no registry: {registry:?} is not a host");
-        }
-        if !host(registry) {
-            bail!("{text:?} names no registry: {registry:?} is not a hostname");
-        }
 
         let (repository, reference) = match rest.split_once('@') {
             Some(split) => split,
             None => rest.rsplit_once(':').unwrap_or((rest, "latest")),
         };
+
+        // A host is case-insensitive and a repository has to be lowercase, so
+        // both are folded rather than refused: a GitHub org spelled with
+        // capitals names the same package either way, and asking someone to
+        // retype it would buy nothing. The tag is left alone — its grammar
+        // admits uppercase, and `:V1` is a different tag from `:v1`.
+        let registry = registry.to_ascii_lowercase();
+        let repository = repository.to_ascii_lowercase();
+
+        if !registry.contains('.') && !registry.contains(':') && registry != "localhost" {
+            bail!("{text:?} names no registry: {registry:?} is not a host");
+        }
+        if !host(&registry) {
+            bail!("{text:?} names no registry: {registry:?} is not a hostname");
+        }
         if repository.is_empty() {
             bail!("{text:?} names no repository");
         }
         if !repository.split('/').all(component) {
             bail!(
-                "{text:?} names no repository: {repository:?} is not lowercase alphanumeric \
-                 separated by `.`, `_`, `__`, `-` or `/`"
+                "{text:?} names no repository: {repository:?} is not alphanumeric separated by \
+                 `.`, `_`, `__`, `-` or `/`"
             );
         }
 
         Ok(Self {
-            registry: registry.to_owned(),
-            repository: repository.to_owned(),
+            registry,
+            repository,
             reference: reference.to_owned(),
         })
     }
 }
 
 /// One `/`-separated piece of a repository, against the OCI name grammar:
-/// lowercase alphanumeric runs joined by `.`, `_`, `__`, or a run of `-`.
+/// alphanumeric runs joined by `.`, `_`, `__`, or a run of `-`. Case is already
+/// folded by the time this sees it.
 ///
 /// Checked rather than assumed because a repository becomes a path. An index
 /// holds one file per harness at `{registry}/{repository}.json`, and `..` in a

@@ -77,10 +77,39 @@ fn what_is_parsed_prints_back_unchanged() {
     ] {
         assert_eq!(parse(text).to_string(), text);
     }
-    // The one rewrite: an absent tag is filled in rather than left off.
+    // The rewrites: an absent tag is filled in rather than left off, and a
+    // name is folded rather than refused.
     assert_eq!(
         parse("ghcr.io/crabtalk/crabtalk/pkg").to_string(),
         "ghcr.io/crabtalk/crabtalk/pkg:latest"
+    );
+    assert_eq!(
+        parse("GHCR.io/Crabtalk/Berm:v1").to_string(),
+        "ghcr.io/crabtalk/berm:v1"
+    );
+}
+
+/// A GitHub org keeps its capitals; a registry will only serve the lowercase
+/// form, so folding it is what makes the reference someone typed work.
+#[test]
+fn a_registry_and_repository_are_folded_to_lowercase() {
+    let reference = parse("GHCR.IO/Crabtalk/Crabtalk/Pkg:abc");
+    assert_eq!(reference.registry, "ghcr.io");
+    assert_eq!(reference.repository, "crabtalk/crabtalk/pkg");
+}
+
+/// But not the tag. Its grammar admits uppercase and a registry tells the two
+/// apart, so folding one would fetch a different image than was asked for.
+#[test]
+fn a_tag_keeps_its_case() {
+    assert_eq!(parse("ghcr.io/org/example:V1").reference, "V1");
+    assert_eq!(
+        parse("ghcr.io/Org/Example:ReleaseCandidate").reference,
+        "ReleaseCandidate"
+    );
+    assert_eq!(
+        parse("ghcr.io/org/example@sha256:DEADBEEF").reference,
+        "sha256:DEADBEEF"
     );
 }
 
@@ -107,8 +136,6 @@ fn a_repository_outside_the_oci_grammar_is_refused() {
     refuse("ghcr.io//example:v1");
     refuse("ghcr.io/org//x:v1");
     refuse("ghcr.io/org/:v1");
-    // Uppercase is not a style question: a registry will not serve it either.
-    refuse("ghcr.io/Org/Example:v1");
     refuse("ghcr.io/-lead/x:v1");
     refuse("ghcr.io/trail-/x:v1");
     refuse("ghcr.io/a___b/x:v1");
