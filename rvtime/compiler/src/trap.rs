@@ -50,6 +50,25 @@ pub fn set_guest_region(base: usize, size: u64) {
     GUEST_REGION.with(|region| region.set((base, size)));
 }
 
+/// Run `body` under fault protection, with faults reported against this
+/// guest's region.
+///
+/// The region is restored on the way out, which is what makes a guest entered
+/// from inside another guest's host call work: the inner entry would otherwise
+/// leave its own region behind, and the outer guest's next fault would be
+/// translated against memory it does not own. `rvtime_protect` already saves
+/// and restores the landing pad for the same reason.
+pub fn protect_guest<F, T>(base: usize, size: u64, body: F) -> Result<T, Fault>
+where
+    F: FnOnce() -> T,
+{
+    let saved = GUEST_REGION.with(|region| region.get());
+    set_guest_region(base, size);
+    let outcome = protect(body);
+    GUEST_REGION.with(|region| region.set(saved));
+    outcome
+}
+
 /// Run `body`, catching any guest memory fault it raises.
 pub fn protect<F, T>(body: F) -> Result<T, Fault>
 where

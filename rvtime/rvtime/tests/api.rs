@@ -1,6 +1,7 @@
 //! The embedder-facing API, exercised the way a user would.
 
 use rvtime::{Caller, Config, Engine, Linker, Module, OptLevel, Reg, Store, Trap};
+use std::sync::Mutex;
 
 const BASIC: &[u8] = include_bytes!("../../../fixtures/basic.elf");
 const HOSTED: &[u8] = include_bytes!("../../../fixtures/hosted.elf");
@@ -264,6 +265,47 @@ fn an_unregistered_call_number_traps() {
     let error = unknown.call(&mut store, ()).expect_err("should trap");
     let trap = error.downcast_ref::<Trap>().expect("a Trap");
     assert!(matches!(trap, Trap::UnknownHostCall(99)), "{trap}");
+}
+
+/// A guest entered from inside another guest's host call.
+///
+/// The inner store runs to completion on the outer's thread while the outer is
+/// suspended mid-`ecall`. Nothing is shared between them but the module and the
+/// engine, so the only state that has to nest correctly is the thread's — the
+/// landing pad and the guest region.
+#[test]
+fn entering_a_guest_from_inside_a_host_call() {
+    let engine = Engine::default();
+    let module = Module::new(&engine, HOSTED).expect("compiles");
+
+    let mut inner = Store::new(&engine, Host::default());
+    let instance = Linker::new(&engine)
+        .instantiate(&mut inner, &module)
+        .expect("instantiates");
+    let count_to = instance
+        .get_typed_func::<(u64,), u64>("count_to")
+        .expect("count_to");
+    let inner = Mutex::new(inner);
+
+    let mut linker = Linker::new(&engine);
+    linker
+        .func_wrap(1, move |_: Caller<'_, Host>, n: u64, _: u64| {
+            let mut inner = inner.lock().expect("inner store");
+            count_to.call(&mut inner, (n,))
+        })
+        .expect("registers");
+
+    let mut outer = Store::new(&engine, Host::default());
+    let instance = linker
+        .instantiate(&mut outer, &module)
+        .expect("instantiates");
+    let add = instance
+        .get_typed_func::<(u64, u64), u64>("call_add")
+        .expect("call_add");
+
+    // The outer guest asks the host to add. The host runs the inner guest
+    // instead, and hands back 0 + 1 + .. + 9.
+    assert_eq!(add.call(&mut outer, (10, 0)).expect("nested call"), 45);
 }
 
 #[test]

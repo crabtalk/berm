@@ -6,9 +6,10 @@
 //! from the SDK.
 //!
 //! Each tool prices or proves one thing, which is why they are not useful on
-//! their own: `echo` carries typed arguments across the boundary, `chatty`
-//! makes a hundred host calls to price one, `probe` allocates to show the heap
-//! arrives without a second entry into the guest, and `boom` fails on purpose.
+//! their own: `echo` carries typed arguments across the boundary, `typed`
+//! deserializes the same payload to price a parse, `chatty` makes a hundred
+//! host calls to price one, `probe` allocates to show the heap arrives without
+//! a second entry into the guest, and `boom` fails on purpose.
 //! `crates/berm/examples/measure.rs` reads the numbers off them, and
 //! `tests/tools.rs` is the only exercise the SDK's host-side `test::call` gets.
 
@@ -50,6 +51,23 @@ mod tools {
         }
         out.write(b"ok");
         Ok(())
+    }
+
+    /// Deserializes its arguments, to price a JSON parse against `echo`, which
+    /// carries the same payload without reading it.
+    #[args(Typed)]
+    pub fn typed(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let parsed: Typed = berm_lang::tool::parse(args, out)?;
+        out.write(parsed.query.as_bytes());
+        Ok(())
+    }
+
+    /// Arguments for `typed`.
+    pub struct Typed {
+        /// The text to read back.
+        pub query: alloc::string::String,
+        /// Page number, zero-indexed.
+        pub page: Option<u32>,
     }
 
     /// Allocates, to prove the heap arrives without a second entry.

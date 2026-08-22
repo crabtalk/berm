@@ -84,6 +84,45 @@ fn main() -> Result<()> {
     }
     samples.sort();
 
+    // The same payload, deserialized instead of copied. Composition passes a
+    // tool's arguments from one guest to the next, so the difference is what
+    // JSON costs per nesting level — and whether it tracks the payload says
+    // which half is the parse and which is the allocation behind it.
+    let p50 = |tool: &str, args: &[u8]| -> Result<Duration> {
+        let mut samples = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            let start = Instant::now();
+            let _ = harness.call(tool, args.to_vec())?;
+            samples.push(start.elapsed());
+        }
+        samples.sort();
+        Ok(samples[ROUNDS / 2])
+    };
+
+    println!("json parse, over the same payload echoed:");
+    for size in [16usize, 256, 4096] {
+        let args = format!(r#"{{"query":"{}"}}"#, "x".repeat(size));
+        let (raw, parsed) = (
+            p50("echo", args.as_bytes())?,
+            p50("typed", args.as_bytes())?,
+        );
+        println!(
+            "  {size:>5} B:            {:>10.3?}  ({:.3?} over {:.3?})",
+            parsed.saturating_sub(raw),
+            parsed,
+            raw
+        );
+    }
+
+    // `echo` never allocates and `typed` does, so the flat delta above would be
+    // the heap's first use rather than the parse. `probe` allocates without
+    // parsing, which tells the two apart — and it costs the same for one byte
+    // as for four thousand, so what is priced is the first use, not the bytes.
+    println!(
+        "  alloc, no parse:     {:>10.3?}",
+        p50("probe", b"")?.saturating_sub(p50("echo", b"{}")?)
+    );
+
     println!("invocations:           {ROUNDS}");
     println!("  min:                 {:>10.3?}", samples[0]);
     println!("  p50:                 {:>10.3?}", samples[ROUNDS / 2]);
