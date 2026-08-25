@@ -35,6 +35,7 @@ guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.5", de
 # crates-io
 anyhow = "1.0"
 axum = "0.8"
+bezel = "0.1"
 cc = "1.4"
 clap = { version = "4", features = ["derive"] }
 cranelift = { version = "0.134.3", features = [
@@ -45,6 +46,12 @@ cranelift = { version = "0.134.3", features = [
 ] }
 cranelift-codegen = { version = "0.134.3", features = ["incremental-cache"] }
 cranelift-object = "0.134.3"
+# bezel's own gpui, republished. A second copy is a second type universe,
+# whose failure is a window that paints shapes but no text.
+gpui = { package = "bezel-gpui", version = "0.3.3" }
+gpui_platform = { package = "bezel-gpui-platform", version = "0.3.3", features = [
+    "font-kit",
+] }
 libc = "0.2"
 linked_list_allocator = "0.10"
 object = "0.40"
@@ -73,12 +80,3 @@ syn = { version = "2", features = ["full"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "signal", "sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# git
-bezel = { git = "https://github.com/crabtalk/bezel", rev = "f86dbbf" }
-# Pinned at bezel's own gpui rev. A different one is a second type universe,
-# whose failure is a window that paints shapes but no text.
-gpui = { git = "https://github.com/crabtalk/zed", rev = "cf1b90ec8cfda974a50b0c9eaebfdab28d7f0423" }
-gpui_platform = { git = "https://github.com/crabtalk/zed", rev = "cf1b90ec8cfda974a50b0c9eaebfdab28d7f0423", features = [
-    "font-kit",
-] }
