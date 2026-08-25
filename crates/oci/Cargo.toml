@@ -15,4 +15,5 @@ berm-api.workspace = true
 # TLS, because a registry is the one thing here that is not loopback.
 reqwest = { workspace = true, features = ["blocking", "json", "rustls"] }
 serde_json.workspace = true
+hex.workspace = true
 sha2.workspace = true

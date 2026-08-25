@@ -123,7 +123,7 @@ impl Service {
     /// refused by the deploy that introduced it, not on a model's turn — and
     /// `Berm::load` checks the manifest against the symbol table on the way.
     async fn compile(&self, name: String, elf: Arc<Vec<u8>>) -> Result<Arc<Deployed>> {
-        let digest = format!("{:x}", Sha256::digest(elf.as_slice()));
+        let digest = hex::encode(Sha256::digest(elf.as_slice()));
         let engine = self.engine.clone();
         let system = self.system();
         let berm = tokio::task::spawn_blocking(move || Berm::load(&engine, &elf, &system))
