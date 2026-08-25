@@ -42,11 +42,17 @@ fn main() -> Result<()> {
     let cache = std::env::temp_dir().join("berm-measure");
     let _ = fs::remove_dir_all(&cache);
 
+    let kept = if cfg!(feature = "aot") {
+        "artifact"
+    } else {
+        "cache"
+    };
+
     let cold = time(|| compile(&cache, &elf))?;
-    println!("compile (cold cache):  {cold:>10.3?}");
+    println!("compile (cold {kept}):{cold:>12.3?}");
 
     let warm = time(|| compile(&cache, &elf))?;
-    println!("compile (warm cache):  {warm:>10.3?}");
+    println!("compile (warm {kept}):{warm:>12.3?}");
 
     let harness = compile(&cache, &elf)?;
     println!("manifest:              {:?}", harness.manifest());
@@ -142,7 +148,11 @@ fn main() -> Result<()> {
     println!("p50 by guest memory size:");
     for mib in [16u64, 64, 256, 1024] {
         let mut config = Config::new();
-        config.cache_dir(&cache).memory_size(mib * 1024 * 1024);
+        config.memory_size(mib * 1024 * 1024);
+        #[cfg(feature = "aot")]
+        config.aot_dir(&cache);
+        #[cfg(not(feature = "aot"))]
+        config.cache_dir(&cache);
         let engine = Engine::new(&config)?;
         let harness = Berm::load(&engine, &elf, &[])?;
 
@@ -159,9 +169,20 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn compile(cache: &std::path::Path, elf: &[u8]) -> Result<Berm> {
+/// Compiling a guest, reusing whatever the previous run left behind.
+///
+/// Which "whatever" that is depends on how this was built: the incremental
+/// cache holds generated code per function, an artifact holds the whole
+/// compiled object. Only one is in play at a time, since enabling `aot` is
+/// what selects it.
+fn compile(dir: &std::path::Path, elf: &[u8]) -> Result<Berm> {
     let mut config = Config::new();
-    config.cache_dir(cache);
+
+    #[cfg(feature = "aot")]
+    config.aot_dir(dir);
+    #[cfg(not(feature = "aot"))]
+    config.cache_dir(dir);
+
     let engine = Engine::new(&config)?;
     Berm::load(&engine, elf, &[])
 }

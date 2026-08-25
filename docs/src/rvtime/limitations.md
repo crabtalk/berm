@@ -93,7 +93,17 @@ cannot be stopped part-way. See [Interruption](./design/interruption.md).
 
 **Compilation is eager.** `Config::strategy` exists with a single `Eager`
 variant; nothing is compiled lazily, so a module pays for functions that are
-never called.
+never called. This is true of both backends: an artifact holds every function in
+the guest, whether or not anything calls it.
+
+**A backend is chosen when rvtime is built, not when a guest is loaded.** The
+`jit` and `aot` features are additive, as Cargo features have to be, so a build
+with both runs every guest ahead of time. There is no per-module choice.
+
+**An artifact only runs where it was built.** Emitting one is target-generic —
+the relocations were measured across three triples — but nothing in `Engine` can
+build for a target other than the host, so cross-compiling an artifact is not
+possible yet.
 
 **Memory confinement is not a precise bounds check.** An address past the end of
 the address space wraps rather than faulting, so a wild pointer can corrupt the

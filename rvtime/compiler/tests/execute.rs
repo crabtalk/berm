@@ -1,11 +1,31 @@
 //! End-to-end: compile the fixture and run guest functions.
+//!
+//! Whichever backend was built runs these, so the instruction semantics below
+//! are checked through the object loader as well as through the JIT.
 
-use rv::Reg;
+use rv::{Program, Reg};
 use rvtime_compiler::{Engine, Memory, Module, trap};
 use translator::VmCtx;
 
+const ELF: &[u8] = include_bytes!("../../../fixtures/basic.elf");
+const WIDE: &[u8] = include_bytes!("../../../fixtures/wide.elf");
 const MEMORY: u64 = 16 << 20;
 const STACK: u64 = 1 << 20;
+
+/// Compile `program`, decoded from `elf`, with whichever backend this build has.
+fn compile(engine: &Engine, elf: &[u8], program: Program) -> Module {
+    #[cfg(feature = "jit")]
+    {
+        let _ = elf;
+        Module::new(engine, program, MEMORY, false).expect("compiles")
+    }
+
+    #[cfg(not(feature = "jit"))]
+    {
+        let artifact = Module::object(engine, &program, elf, MEMORY, false).expect("compiles");
+        Module::load(engine, &artifact, MEMORY, false).expect("loads")
+    }
+}
 
 /// A compiled fixture with its memory, ready to call into.
 struct Guest {
@@ -16,9 +36,9 @@ struct Guest {
 
 impl Guest {
     fn new() -> Guest {
-        let program = rv::elf::load(include_bytes!("../../../fixtures/basic.elf")).expect("loads");
+        let program = rv::elf::load(ELF).expect("loads");
         let memory = Memory::new(&program, MEMORY, STACK).expect("maps");
-        let module = Module::new(&Engine::default(), program, MEMORY, false).expect("compiles");
+        let module = compile(&Engine::default(), ELF, program);
 
         let ctx = VmCtx {
             regs: [0; 32],
@@ -221,9 +241,9 @@ fn indirect_calls_reach_the_right_function() {
 
 #[test]
 fn every_function_compiles() {
-    let program = rv::elf::load(include_bytes!("../../../fixtures/basic.elf")).expect("loads");
+    let program = rv::elf::load(ELF).expect("loads");
     let expected = program.functions.len();
-    let module = Module::new(&Engine::default(), program, MEMORY, false).expect("compiles");
+    let module = compile(&Engine::default(), ELF, program);
 
     for addr in module.program().functions.keys() {
         assert!(
@@ -245,7 +265,7 @@ fn optimised_and_unoptimised_agree() {
         let program = load();
         let memory = Memory::new(&program, MEMORY, STACK).expect("maps");
         let engine = Engine::new(opt).expect("engine");
-        let module = Module::new(&engine, program, MEMORY, false).expect("compiles");
+        let module = compile(&engine, ELF, program);
 
         let mut ctx = VmCtx {
             regs: [0; 32],
@@ -278,9 +298,9 @@ fn the_whole_instruction_set_compiles() {
     // The `wide` fixture spells out every RV64IMAC encoding, including ones
     // LLVM never emits. Compiling it exercises every `Inst` variant through
     // the translator; the code is nonsense as a program and is never run.
-    let program = rv::elf::load(include_bytes!("../../../fixtures/wide.elf")).expect("loads");
+    let program = rv::elf::load(WIDE).expect("loads");
     let functions = program.functions.len();
-    let module = Module::new(&Engine::default(), program, MEMORY, false).expect("compiles");
+    let module = compile(&Engine::default(), WIDE, program);
 
     assert!(
         module

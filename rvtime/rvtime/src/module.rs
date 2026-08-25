@@ -25,13 +25,20 @@ impl std::fmt::Debug for Module {
 impl Module {
     /// Compile a statically linked RV64 ELF image.
     pub fn new(engine: &Engine, bytes: &[u8]) -> Result<Module> {
-        let program = rv::elf::load(bytes).context("failed to load the guest image")?;
-        let inner = compiler::Module::new(
-            engine.compiler(),
-            program,
-            engine.config().memory_size,
-            engine.config().interruptible,
-        )?;
+        #[cfg(feature = "aot")]
+        let inner = crate::aot::compile(engine, bytes)?;
+
+        #[cfg(not(feature = "aot"))]
+        let inner = {
+            let program = rv::elf::load(bytes).context("failed to load the guest image")?;
+            compiler::Module::new(
+                engine.compiler(),
+                program,
+                engine.config().memory_size,
+                engine.config().interruptible,
+            )?
+        };
+
         Ok(Module {
             inner: Arc::new(inner),
         })

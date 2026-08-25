@@ -13,7 +13,9 @@ keywords = ["riscv", "jit", "compiler", "cranelift", "sandbox"]
 categories = ["compilers", "virtualization"]
 
 [workspace.dependencies]
-berm = { path = "crates/berm", version = "0.0.5" }
+# Off by default down the chain from `compiler`, so that a build of bermd can
+# pick a backend.
+berm = { path = "crates/berm", version = "0.0.5", default-features = false }
 berm-api = { path = "crates/api", version = "0.0.5" }
 berm-codegen = { path = "crates/codegen", version = "0.0.5" }
 berm-index = { path = "crates/index", version = "0.0.5" }
@@ -22,8 +24,10 @@ berm-oci = { path = "crates/oci", version = "0.0.5" }
 bermd = { path = "apps/service", version = "0.0.5" }
 rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.5" }
 translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.5" }
-compiler = { path = "rvtime/compiler", package = "rvtime-compiler", version = "0.0.5" }
-rvtime = { path = "rvtime/rvtime", package = "rvtime", version = "0.0.5" }
+# Off by default: rvtime's own `jit` and `aot` features pick the backend, and a
+# member cannot turn off default features it inherits.
+compiler = { path = "rvtime/compiler", package = "rvtime-compiler", version = "0.0.5", default-features = false }
+rvtime = { path = "rvtime/rvtime", package = "rvtime", version = "0.0.5", default-features = false }
 # Off by default: berm-lang installs its own global allocator, and a guest can
 # only have one.
 guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.5", default-features = false }
@@ -36,11 +40,11 @@ clap = { version = "4", features = ["derive"] }
 cranelift = { version = "0.134.3", features = [
     "jit",
     "module",
-    "object",
     "native",
     "frontend",
 ] }
 cranelift-codegen = { version = "0.134.3", features = ["incremental-cache"] }
+cranelift-object = "0.134.3"
 libc = "0.2"
 linked_list_allocator = "0.10"
 object = "0.40"
@@ -63,7 +67,7 @@ serde_guest = { package = "serde", version = "1", default-features = false, feat
 serde_json_guest = { package = "serde_json", version = "1", default-features = false, features = [
     "alloc",
 ] }
-sha2 = "0.10"
+sha2 = { version = "0.10", features = ["asm"] }
 syn = { version = "2", features = ["full"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "signal", "sync"] }
 tracing = "0.1"

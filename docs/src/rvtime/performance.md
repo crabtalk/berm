@@ -29,6 +29,27 @@ when the module is created, whether or not it is ever called.
 A warm cache is **2.6× faster than none**; a cold one is **2× slower**. See
 [Caching](./design/caching.md).
 
+## Compiling ahead of time
+
+Compiling once into an object file and mapping it back, against caching
+generated code per function. Two guests, both compiled through `rvtime::Module`:
+
+| guest | | cold | warm |
+|---|---|---|---|
+| `hosted.elf`, 113 KiB, 55 fns | incremental cache | 48 ms | 7.2 ms |
+| | object artifact | 25 ms | **0.4 ms** |
+| fixture, 359 KiB, 183 fns | incremental cache | 247 ms | 43 ms |
+| | object artifact | 159 ms | **1.5 ms** |
+
+**A warm artifact is 18–26× faster than a warm cache**, because a cache hit
+still translates every function to CLIF to compute its key, and an artifact
+skips straight to mapping the code. Cold is no worse: the cache writes one entry
+per function, the artifact writes one file.
+
+Loading a 575 KiB artifact is 1.5 ms — 0.8 ms of digest, 0.7 ms of ELF decode,
+map and relocate. The digest is the largest part, which is why `sha2` is built
+with its assembly backend: the portable implementation costs 5 ms.
+
 ## Interruption
 
 **0.2%** on a 50-million-iteration tight loop — the worst case, since the check

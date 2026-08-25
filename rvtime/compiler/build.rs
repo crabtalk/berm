@@ -1,5 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-changed=csrc/trap.c");
+    println!("cargo:rerun-if-changed=csrc/icache.c");
 
     // Guest memory and trap recovery are POSIX. Without this the build fails
     // inside the C compiler complaining about `sigaction`, which reads like a
@@ -21,6 +22,11 @@ fn main() {
     build
         .file("csrc/trap.c")
         .define("_POSIX_C_SOURCE", "200809L");
+
+    // Only the object loader writes instructions the caches have not seen.
+    if std::env::var_os("CARGO_FEATURE_AOT").is_some() {
+        build.file("csrc/icache.c");
+    }
 
     // `SA_ONSTACK` and `_setjmp`/`_longjmp` are XSI extensions, which strict
     // POSIX.1-2008 hides. Each libc has its own switch for exposing them, and

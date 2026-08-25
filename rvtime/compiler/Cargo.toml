@@ -10,6 +10,15 @@ readme = "../README.md"
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = ["jit"]
+
+# Compile into memory and run from there.
+jit = []
+
+# Compile into an object file, then map that back in to run it.
+aot = ["dep:cranelift-object", "dep:object", "dep:sha2"]
+
 [build-dependencies]
 cc.workspace = true
 
@@ -18,6 +27,11 @@ anyhow.workspace = true
 rv.workspace = true
 cranelift.workspace = true
 cranelift-codegen.workspace = true
+cranelift-object = { workspace = true, optional = true }
 libc.workspace = true
+# Reading the artifact back. cranelift-object pins its own older `object` for
+# the write side, so the two never meet: no type crosses between them.
+object = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 translator.workspace = true
 tracing.workspace = true
