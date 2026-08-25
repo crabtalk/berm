@@ -148,11 +148,7 @@ fn main() -> Result<()> {
     println!("p50 by guest memory size:");
     for mib in [16u64, 64, 256, 1024] {
         let mut config = Config::new();
-        config.memory_size(mib * 1024 * 1024);
-        #[cfg(feature = "aot")]
-        config.aot_dir(&cache);
-        #[cfg(not(feature = "aot"))]
-        config.cache_dir(&cache);
+        config.cache_dir(&cache).memory_size(mib * 1024 * 1024);
         let engine = Engine::new(&config)?;
         let harness = Berm::load(&engine, &elf, &[])?;
 
@@ -178,9 +174,6 @@ fn main() -> Result<()> {
 fn compile(dir: &std::path::Path, elf: &[u8]) -> Result<Berm> {
     let mut config = Config::new();
 
-    #[cfg(feature = "aot")]
-    config.aot_dir(dir);
-    #[cfg(not(feature = "aot"))]
     config.cache_dir(dir);
 
     let engine = Engine::new(&config)?;

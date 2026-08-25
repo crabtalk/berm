@@ -1,4 +1,9 @@
-//! A disk-backed cache for compiled functions
+//! A disk-backed cache for compiled code
+//!
+//! One directory, whatever the backend has to keep in it: generated code per
+//! function for the JIT, whole object artifacts for the loader. Both want the
+//! same three things -- a content-addressed name, an atomic write, and a count
+//! of what was reused -- so both get them from here.
 //!
 //! Compilation is dominated by code generation — for a 99 KiB guest, decoding
 //! and analysing the ELF is under 1% of the work and Cranelift is the rest. So
@@ -54,17 +59,18 @@ impl Cache {
         &self.dir
     }
 
-    /// Functions served from the cache since it was opened.
+    /// Entries served from the cache since it was opened.
     pub fn hits(&self) -> usize {
         self.hits.load(Ordering::Relaxed)
     }
 
-    /// Functions that had to be generated.
+    /// Entries that had to be compiled.
     pub fn misses(&self) -> usize {
         self.misses.load(Ordering::Relaxed)
     }
 
-    fn load(&self, key: &[u8]) -> Option<Vec<u8>> {
+    /// Read the entry `key` names, counting the hit or the miss.
+    pub fn load(&self, key: &[u8]) -> Option<Vec<u8>> {
         match fs::read(self.path(key)) {
             Ok(blob) => {
                 self.hits.fetch_add(1, Ordering::Relaxed);
@@ -77,7 +83,10 @@ impl Cache {
         }
     }
 
-    fn store(&self, key: &[u8], value: Vec<u8>) {
+    /// Write the entry `key` names. Failure is silent: the caller has the
+    /// value in hand either way, and a cache that cannot be written is slow
+    /// rather than broken.
+    pub fn store(&self, key: &[u8], value: &[u8]) {
         // Write to a unique temporary and rename over the target. A partially
         // written entry would otherwise be indistinguishable from a complete
         // one, and rename is atomic on every filesystem we care about.
@@ -110,6 +119,6 @@ impl CacheKvStore for Handle {
     }
 
     fn insert(&mut self, key: &[u8], value: Vec<u8>) {
-        self.0.store(key, value);
+        self.0.store(key, &value);
     }
 }

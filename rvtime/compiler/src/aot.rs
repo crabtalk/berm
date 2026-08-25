@@ -43,7 +43,14 @@ impl Module {
         )?;
         let mut backend = ObjectModule::new(builder);
 
-        let ids = module::compile(&mut backend, engine, program, memory_size, interruptible)?;
+        let ids = module::compile(
+            &mut backend,
+            engine,
+            program,
+            memory_size,
+            interruptible,
+            None,
+        )?;
         let product = backend.finish();
 
         // Every function landed in one `.text`, so a symbol's address is its

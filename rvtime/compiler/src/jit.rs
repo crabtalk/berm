@@ -26,7 +26,14 @@ impl Module {
         let builder = JITBuilder::with_isa(engine.isa().clone(), default_libcall_names());
         let mut jit = JITModule::new(builder);
 
-        let ids = module::compile(&mut jit, engine, &program, memory_size, interruptible)?;
+        let ids = module::compile(
+            &mut jit,
+            engine,
+            &program,
+            memory_size,
+            interruptible,
+            engine.cache(),
+        )?;
         jit.finalize_definitions()?;
 
         let entries = ids

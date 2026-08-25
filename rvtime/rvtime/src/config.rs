@@ -44,23 +44,16 @@ pub struct Config {
     /// Turn it off only for a guest you trust and have profiled.
     pub interruptible: bool,
 
-    /// Where to keep compiled artifacts, if anywhere.
-    ///
-    /// Without one, a guest is still compiled ahead of time but the object is
-    /// discarded with it. With one, compiling the same ELF again is a read and
-    /// a map. Artifacts are named for everything their code depends on, so a
-    /// directory shared between differently configured engines yields separate
-    /// files rather than stale ones.
-    #[cfg(feature = "aot")]
-    pub aot_dir: Option<std::path::PathBuf>,
-
-    /// Where to cache generated code, if anywhere.
+    /// Where to cache compiled code, if anywhere.
     ///
     /// Code generation is almost all of compile time, so a warm cache turns
-    /// loading a previously seen guest into deserialisation. Entries are keyed
-    /// on function contents and target settings, so a stale directory yields
-    /// misses rather than wrong code, and it is safe to share between
-    /// processes.
+    /// loading a previously seen guest into deserialisation — or, with the
+    /// object backend, into a read and a map. What lands here is whatever that
+    /// backend caches: generated code per function, or whole artifacts.
+    ///
+    /// Entries are keyed on contents and target settings either way, so a stale
+    /// directory yields misses rather than wrong code, and it is safe to share
+    /// between processes.
     pub cache_dir: Option<std::path::PathBuf>,
 }
 
@@ -72,8 +65,6 @@ impl Default for Config {
             memory_size: rv::DEFAULT_MEMORY_SIZE,
             stack_size: 1 << 20,
             interruptible: true,
-            #[cfg(feature = "aot")]
-            aot_dir: None,
             cache_dir: None,
         }
     }
@@ -118,14 +109,7 @@ impl Config {
         self
     }
 
-    /// Keep compiled artifacts under `dir`, reusing them across runs.
-    #[cfg(feature = "aot")]
-    pub fn aot_dir(&mut self, dir: impl Into<std::path::PathBuf>) -> &mut Self {
-        self.aot_dir = Some(dir.into());
-        self
-    }
-
-    /// Cache generated code under `dir`, reusing it across runs.
+    /// Cache compiled code under `dir`, reusing it across runs.
     pub fn cache_dir(&mut self, dir: impl Into<std::path::PathBuf>) -> &mut Self {
         self.cache_dir = Some(dir.into());
         self
@@ -159,8 +143,8 @@ impl Engine {
         &self.config
     }
 
-    /// Functions served from the code cache, and functions generated, since
-    /// this engine was created. Both zero when no cache is configured.
+    /// Entries served from the code cache, and entries compiled, since this
+    /// engine was created. Both zero when no cache is configured.
     pub fn cache_stats(&self) -> (usize, usize) {
         self.inner
             .cache()

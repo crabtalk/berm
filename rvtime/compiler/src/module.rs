@@ -18,7 +18,10 @@ use cranelift::{
     prelude::*,
 };
 use rv::Program;
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 use translator::{Imports, offsets, params};
 
 /// The name the host→guest trampoline is declared under.
@@ -166,12 +169,17 @@ pub(crate) struct Compiled {
 ///
 /// Both backends go through here, so the code they produce is identical and
 /// there is no second translation path to keep correct.
+///
+/// `incremental` is the per-function cache, which only the JIT wants: the
+/// object backend caches the whole artifact, and entries for the functions
+/// inside it would be a second copy of the same code that nothing reads back.
 pub(crate) fn compile(
     backend: &mut dyn Backend,
     engine: &Engine,
     program: &Program,
     memory_size: u64,
     interruptible: bool,
+    incremental: Option<&Arc<crate::Cache>>,
 ) -> Result<Compiled> {
     rv::check_memory_size(memory_size)?;
 
@@ -183,12 +191,12 @@ pub(crate) fn compile(
         backend,
         engine,
         program,
-        &signature,
         &functions,
         memory_size,
         interruptible,
+        incremental,
     )?;
-    relocations += define_trampoline(backend, engine, trampoline, &signature)?;
+    relocations += define_trampoline(backend, engine, trampoline, &signature, incremental)?;
 
     Ok(Compiled {
         functions,
@@ -219,11 +227,12 @@ fn define(
     backend: &mut dyn Backend,
     engine: &Engine,
     program: &Program,
-    signature: &Signature,
     ids: &BTreeMap<u64, FuncId>,
     memory_size: u64,
     interruptible: bool,
+    incremental: Option<&Arc<crate::Cache>>,
 ) -> Result<u32> {
+    let signature = translator::signature();
     let frontend = engine.isa().frontend_config();
     let host = host_signature(engine.isa().as_ref());
     let mut fctx = FunctionBuilderContext::new();
@@ -263,7 +272,7 @@ fn define(
         translator::translate(function, &analysis, &imports, builder, frontend)
             .with_context(|| format!("failed to translate {}", function.name))?;
 
-        relocations += emit(backend, engine, &mut ctx, ids[addr])
+        relocations += emit(backend, engine, &mut ctx, ids[addr], incremental)
             .with_context(|| format!("failed to compile {}", function.name))?;
     }
 
@@ -283,6 +292,7 @@ fn emit(
     engine: &Engine,
     ctx: &mut CodegenContext,
     id: FuncId,
+    incremental: Option<&Arc<crate::Cache>>,
 ) -> Result<u32> {
     let isa = engine.isa().as_ref();
     let mut control = ControlPlane::default();
@@ -290,7 +300,7 @@ fn emit(
     // Take owned copies while the compilation result borrows `ctx`, so the
     // relocations can be resolved against `ctx.func` afterwards.
     let (code, mach_relocs) = {
-        let compiled = match engine.cache() {
+        let compiled = match incremental {
             // `compile_with_cache` needs a `&mut dyn CacheKvStore`, but the
             // cache is shared behind an `Arc` so several modules compiled from
             // one engine accumulate into it. Its interior state is atomic and
@@ -356,6 +366,7 @@ fn define_trampoline(
     engine: &Engine,
     id: FuncId,
     guest: &Signature,
+    incremental: Option<&Arc<crate::Cache>>,
 ) -> Result<u32> {
     let isa = engine.isa().as_ref();
     let mut ctx = CodegenContext::new();
@@ -408,7 +419,8 @@ fn define_trampoline(
     builder.seal_all_blocks();
     builder.finalize(isa.frontend_config());
 
-    emit(backend, engine, &mut ctx, id).context("failed to compile the guest entry trampoline")
+    emit(backend, engine, &mut ctx, id, incremental)
+        .context("failed to compile the guest entry trampoline")
 }
 
 /// Build the indirect-call table.

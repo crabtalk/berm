@@ -57,7 +57,7 @@ fn runs_without_a_directory() {
 fn keeps_an_artifact_and_reuses_it() {
     let dir = Dir::new("reuse");
     let mut config = Config::new();
-    config.aot_dir(&dir.0);
+    config.cache_dir(&dir.0);
     let engine = Engine::new(&config).expect("builds");
 
     let first = Module::new(&engine, BASIC).expect("compiles");
@@ -81,7 +81,7 @@ fn a_different_address_space_is_a_different_artifact() {
 
     for size in [16u64 << 20, 32 << 20] {
         let mut config = Config::new();
-        config.aot_dir(&dir.0).memory_size(size);
+        config.cache_dir(&dir.0).memory_size(size);
         let engine = Engine::new(&config).expect("builds");
         let module = Module::new(&engine, BASIC).expect("compiles");
         assert_eq!(add(&engine, &module, (10, 3)), 13);
@@ -96,7 +96,7 @@ fn a_different_address_space_is_a_different_artifact() {
 fn a_damaged_artifact_is_recompiled() {
     let dir = Dir::new("damaged");
     let mut config = Config::new();
-    config.aot_dir(&dir.0);
+    config.cache_dir(&dir.0);
     let engine = Engine::new(&config).expect("builds");
 
     Module::new(&engine, BASIC).expect("compiles");

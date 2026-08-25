@@ -4,6 +4,13 @@ A guest arrives as one ELF, and there are two ways to avoid compiling the same
 one twice. Which is in play is a build-time choice: the `jit` feature caches
 generated code per function, the `aot` feature keeps the whole compiled object.
 
+Both use one cache, under one `Config::cache_dir`. What differs is the unit —
+a function or an artifact — so `Cache` supplies what neither wants to invent
+twice: a content-addressed name, an atomic write, and a count of what was
+reused. A backend caches only the unit it reads back: the object backend does
+not also store per-function entries, which would be a second copy of the same
+code that nothing ever loads.
+
 ## What is worth caching
 
 Measured before deciding: for a 99 KiB guest, loading and decoding the ELF is
@@ -102,18 +109,24 @@ recompiled rather than as an error.
 
 ## What it costs
 
-For the 359 KiB fixture, 183 functions:
+The fastest of forty compiles, since a loaded machine moves the median around
+far more than it moves the floor:
 
-| | cold | warm |
-|---|---|---|
-| incremental cache | 247 ms | 43 ms |
-| object artifact | 159 ms | **1.5 ms** |
+| guest | | cold | warm |
+|---|---|---|---|
+| `hosted.elf`, 113 KiB, 55 fns | incremental cache | 120 ms | 14 ms |
+| | object artifact | 59 ms | **0.5 ms** |
+| fixture, 359 KiB, 183 fns | incremental cache | 425 ms | 69 ms |
+| | object artifact | 355 ms | **2.2 ms** |
 
-**A warm artifact is ~26× faster than a warm cache**, and cold is no worse: the
-incremental cache serialises and writes 183 separate entries where the artifact
-writes one file.
+**A warm artifact is 26–32× faster than a warm cache**, and cold is no worse:
+the incremental cache serialises and writes one entry per function where the
+artifact writes one file.
 
-Loading breaks down as ELF decode, the digest, and the map-and-relocate. The
-digest is over half of it, which is why `sha2` is built with its assembly
-backend — the portable implementation costs 5 ms where the hardware instruction
-costs 0.8 ms, on a load that is otherwise 0.7 ms.
+The gap is not the disk. A cache hit still builds the CLIF for every function
+just to compute its key; an artifact skips to mapping the code.
+
+Loading breaks down as ELF decode, the digest, and the map-and-relocate, in
+that order of cost. The digest is the largest single part, so it is worth
+knowing that `sha2` reaches for the SHA extensions the CPU already has —
+hashing 575 KiB costs 0.8 ms that way and 5 ms without.
