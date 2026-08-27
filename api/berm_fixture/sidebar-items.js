@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["berm_tool_boom","berm_tool_chatty","berm_tool_echo","berm_tool_probe"]};

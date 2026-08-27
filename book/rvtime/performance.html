@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-51aeafdd.js";
+            window.path_to_searchindex_js = "../searchindex-d2c996eb.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-4d41d46a.js"></script>
@@ -215,6 +215,31 @@ when the module is created, whether or not it is ever called.</p>
 </div>
 <p>A warm cache is <strong>2.6× faster than none</strong>; a cold one is <strong>2× slower</strong>. See
 <a href="./design/caching.html">Caching</a>.</p>
+<h2 id="compiling-ahead-of-time"><a class="header" href="#compiling-ahead-of-time">Compiling ahead of time</a></h2>
+<p>Compiling once into an object file and mapping it back, against caching
+generated code per function. Two guests, both compiled through <code>rvtime::Module</code>:</p>
+<p>The fastest of forty compiles, since a loaded machine moves the median around
+far more than it moves the floor:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>guest</th><th></th><th>cold</th><th>warm</th></tr>
+</thead>
+<tbody>
+<tr><td><code>hosted.elf</code>, 113 KiB, 55 fns</td><td>incremental cache</td><td>120 ms</td><td>14 ms</td></tr>
+<tr><td></td><td>object artifact</td><td>59 ms</td><td><strong>0.5 ms</strong></td></tr>
+<tr><td>fixture, 359 KiB, 183 fns</td><td>incremental cache</td><td>425 ms</td><td>69 ms</td></tr>
+<tr><td></td><td>object artifact</td><td>355 ms</td><td><strong>2.2 ms</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>A warm artifact is 26–32× faster than a warm cache</strong>, because a cache hit
+still translates every function to CLIF to compute its key, and an artifact
+skips straight to mapping the code. Cold is no worse: the cache writes one entry
+per function, the artifact writes one file.</p>
+<p>Loading a 575 KiB artifact is ELF decode, digest, then map-and-relocate. The
+digest is the largest single part at 0.8 ms, and costs 5 ms on a build whose
+<code>sha2</code> cannot reach the CPU’s SHA extensions.</p>
 <h2 id="interruption"><a class="header" href="#interruption">Interruption</a></h2>
 <p><strong>0.2%</strong> on a 50-million-iteration tight loop — the worst case, since the check
 is proportionally largest where the loop body is smallest. Straight-line code

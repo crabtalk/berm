@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-51aeafdd.js";
+            window.path_to_searchindex_js = "../searchindex-d2c996eb.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-4d41d46a.js"></script>
@@ -184,9 +184,10 @@
 <p>A harness is one statically linked RV64 ELF. berm pins it by hash, compiles it
 once, and instantiates it per invocation: arguments go in through host calls,
 the result comes back out of guest memory, and nothing survives the call.</p>
-<pre><code class="language-rust ignore">let berm = Berm::load(&amp;engine, &amp;elf, &amp;[])?;
+<pre><code class="language-rust ignore">let berm = Berm::new(&amp;engine, call::DEFAULT_CALL_DEPTH, vec![]);
+berm.deploy("example", &amp;elf)?;
 
-match berm.call("echo", br#"{"query":"hello"}"#.to_vec())? {
+match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
     Ok(result) =&gt; println!("{result}"),
     Err(failure) =&gt; eprintln!("{failure}"),
 }</code></pre>
@@ -208,7 +209,7 @@ traps because nothing is registered for the number the guest put in <code>a7</co
 because a check ran and said no. There is no check to write, and none to forget.</p>
 <p>berm ships none. What a filesystem is bounded by, what shape a command’s result
 takes, where bytes persist — each is a decision about a host, and berm has no
-host. An embedder passes <code>Harness</code> values to <code>Berm::load</code>, and that list is the
+host. An embedder passes <code>System</code> values to <code>Berm::new</code>, and that list is the
 whole of what a guest can reach.</p>
 <p>The same argument appears one layer down in
 <a href="../rvtime/design/host-calls.html">Host Calls</a>: rvtime ships no standard function

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["deploy","inspect","ls","new","publish","push","rm","run","search"]};

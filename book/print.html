@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-51aeafdd.js";
+            window.path_to_searchindex_js = "searchindex-d2c996eb.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-4d41d46a.js"></script>
@@ -199,16 +199,17 @@ question is whether it was deliberate. Its
 <a href="#calling-a-guest">examples</a> are real programs in the
 repository, compiled by CI and included here by reference rather than pasted, so
 what you read is what runs.</p>
-<p>API documentation is generated from the source and lives at
-<a href="https://crabtalk.github.io/berm/api/">/api</a>; it is not duplicated here.</p>
+<p>API documentation is not published; <code>cargo doc --open</code> builds it from the
+source.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
 <p>A harness is one statically linked RV64 ELF. berm pins it by hash, compiles it
 once, and instantiates it per invocation: arguments go in through host calls,
 the result comes back out of guest memory, and nothing survives the call.</p>
-<pre><code class="language-rust ignore">let berm = Berm::load(&amp;engine, &amp;elf, &amp;[])?;
+<pre><code class="language-rust ignore">let berm = Berm::new(&amp;engine, call::DEFAULT_CALL_DEPTH, vec![]);
+berm.deploy("example", &amp;elf)?;
 
-match berm.call("echo", br#"{"query":"hello"}"#.to_vec())? {
+match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
     Ok(result) =&gt; println!("{result}"),
     Err(failure) =&gt; eprintln!("{failure}"),
 }</code></pre>
@@ -230,7 +231,7 @@ traps because nothing is registered for the number the guest put in <code>a7</co
 because a check ran and said no. There is no check to write, and none to forget.</p>
 <p>berm ships none. What a filesystem is bounded by, what shape a command’s result
 takes, where bytes persist — each is a decision about a host, and berm has no
-host. An embedder passes <code>Harness</code> values to <code>Berm::load</code>, and that list is the
+host. An embedder passes <code>System</code> values to <code>Berm::new</code>, and that list is the
 whole of what a guest can reach.</p>
 <p>The same argument appears one layer down in
 <a href="#host-calls">Host Calls</a>: rvtime ships no standard function
@@ -339,7 +340,7 @@ it in front of a model <em>before</em> it chooses between them, so it is paid on
 turn — a few lines, not a manual. <code>#[harness(usage_file = "…")]</code> reads it from a
 file at compile time when it outgrows an attribute.</p>
 <h2 id="two-checks-at-load"><a class="header" href="#two-checks-at-load">Two checks at load</a></h2>
-<p><code>Berm::load</code> refuses an image on two grounds before it can ever be offered to a
+<p><code>Berm::deploy</code> refuses an image on two grounds before it can ever be offered to a
 model.</p>
 <p>A manifest built against a different <code>abi_version</code> is refused outright, rather
 than dispatched into a system harness its author did not mean.</p>
@@ -489,8 +490,28 @@ front of the model on every turn — which is the one thing
 <code>berm://{harness}/usage</code> resource. A model reads it when choosing among one
 harness’s tools, and pays nothing for the harnesses it is not considering.</p>
 <h2 id="what-a-deployed-harness-can-reach"><a class="header" href="#what-a-deployed-harness-can-reach">What a deployed harness can reach</a></h2>
-<p>Nothing. <code>bermd</code> passes no system harnesses to <code>Berm::load</code>, so a guest can log,
-read its arguments, and return.</p>
+<p>Its arguments, the log, and any other harness on the same daemon.</p>
+<p>There is no wiring step and no per-pair permission. What is deployed is
+reachable by name, which is the reach containers on one network have of each
+other, bounded the same way: by what the operator chose to run.</p>
+<pre><code class="language-rust">let result = berm_lang::call("inner", "echo", r#"{"query":"hi"}"#)?;</code></pre>
+<p><code>bermd</code> serves this as one system harness, <code>berm.call</code>, and the target is a
+field in the request rather than part of the call number. So an image is never
+built against a particular deploy — the same bytes work wherever they land, and
+deploying them twice under two names makes them reachable as both.</p>
+<p>A name nothing answers to is <code>CallError::Refused</code>: nothing ran. The target
+running and reporting failure is <code>CallError::Failed</code>. That is the same split the
+control API draws between a status and an <code>Output::Failed</code>, and a harness can
+act on it — falling back when something is not deployed, say.</p>
+<p><code>--max-call-depth</code> bounds the chain, 4 by default, <code>0</code> refusing the first nested
+call. The bound is on runaway composition rather than on the stack, which a
+level costs around 720 bytes of; what a level does cost is 64 MiB of reserved
+guest address space.</p>
+<p>That reach stops at the daemon. A harness still touches the world outside only
+through system harnesses its host registered, and <code>bermd</code> registers none — so
+what matters before deploying an image is what the image <em>is</em>. <code>Manifest::from_elf</code>
+reads a harness’s tools and usage without compiling or running it, which is what
+<code>berm inspect</code> shows you.</p>
 <p>The endpoint carries no authorization and binds loopback by default.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rvtime"><a class="header" href="#rvtime">rvtime</a></h1>
@@ -1189,19 +1210,21 @@ always terminates, so nothing is lost — but it means “this function loops in
 source” does not imply “this function is interruptible”.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="caching"><a class="header" href="#caching">Caching</a></h1>
+<p>A guest arrives as one ELF, and there are two ways to avoid compiling the same
+one twice. Which is in play is a build-time choice: the <code>jit</code> feature caches
+generated code per function, the <code>aot</code> feature keeps the whole compiled object.</p>
+<p>Both use one cache, under one <code>Config::cache_dir</code>. What differs is the unit —
+a function or an artifact — so <code>Cache</code> supplies what neither wants to invent
+twice: a content-addressed name, an atomic write, and a count of what was
+reused. A backend caches only the unit it reads back: the object backend does
+not also store per-function entries, which would be a second copy of the same
+code that nothing ever loads.</p>
 <h2 id="what-is-worth-caching"><a class="header" href="#what-is-worth-caching">What is worth caching</a></h2>
 <p>Measured before deciding: for a 99 KiB guest, loading and decoding the ELF is
 <strong>78 µs of 10.6 ms</strong> — under 1%. Code generation is essentially all of it.</p>
 <p>So caching anything short of generated code would have been pointless, and that
 ruled out the obvious cheap options.</p>
-<h2 id="what-was-not-chosen"><a class="header" href="#what-was-not-chosen">What was not chosen</a></h2>
-<p>Serialising the finished module — emitting an object file and relocating it back
-in on load — would skip everything, not just codegen. It also means writing a
-relocating loader, and relocations are architecture-specific: absolute and
-relative 64-bit entries cover x86_64, while arm64 needs <code>ADRP</code>/<code>ADD</code> pairs and
-<code>CALL26</code>. That is a platform-specific component to write and maintain.</p>
-<p>Cranelift’s incremental cache captures most of the win without any of it.</p>
-<h2 id="how-it-works"><a class="header" href="#how-it-works">How it works</a></h2>
+<h2 id="per-function-the-incremental-cache"><a class="header" href="#per-function-the-incremental-cache">Per function: the incremental cache</a></h2>
 <p><code>Context::compile_with_cache</code> hashes the CLIF function together with the ISA
 settings and looks the result up before generating anything. On a hit it
 deserialises the compiled code; on a miss it compiles and stores.</p>
@@ -1212,29 +1235,102 @@ misses rather than code built for different flags.</p>
 <p>Entries are written to a temporary file and renamed, because a daemon may
 compile the same guest from several processes at once and a partially written
 entry would be indistinguishable from a complete one.</p>
-<h2 id="what-it-costs-1"><a class="header" href="#what-it-costs-1">What it costs</a></h2>
+<p>What remains on a hit is CLIF construction and key hashing, which is why a warm
+cache still costs milliseconds rather than microseconds: every function is
+translated again just to discover it need not be compiled.</p>
+<h2 id="whole-program-the-object-artifact"><a class="header" href="#whole-program-the-object-artifact">Whole program: the object artifact</a></h2>
+<p>The <code>aot</code> feature skips that residue by keeping the finished module. Compiling
+writes an object file, and loading maps it — no CLIF, no hashing, no codegen.</p>
+<p>This was once rejected here on the grounds that a relocating loader would be a
+platform-specific component to write and maintain, needing <code>ADRP</code>/<code>ADD</code> pairs on
+arm64 and absolute and relative 64-bit entries on x86_64. Measuring the emitted
+code showed otherwise. Across all three fixtures, both optimisation levels and
+three target triples, every relocation is a call from one guest function to
+another:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th></th><th>time</th></tr>
+<tr><th>triple</th><th>relocations</th><th>external</th><th>kinds</th></tr>
 </thead>
 <tbody>
-<tr><td>no cache</td><td>13.7 ms</td></tr>
-<tr><td>cold, writing entries</td><td>27.4 ms</td></tr>
-<tr><td>warm</td><td>5.3 ms</td></tr>
+<tr><td>aarch64-apple-darwin</td><td>65</td><td>0</td><td><code>Arm64Call</code></td></tr>
+<tr><td>aarch64-unknown-linux-gnu</td><td>65</td><td>0</td><td><code>Arm64Call</code></td></tr>
+<tr><td>x86_64-unknown-linux-gnu</td><td>65</td><td>0</td><td><code>X86CallPCRel4</code></td></tr>
 </tbody>
 </table>
 </div>
-<p><strong>A warm cache is 2.6× faster; a cold one is 2× slower</strong>, because it serialises
-and writes every function. This pays off when a guest is compiled once and
-loaded many times, and loses for a compile-and-discard workload.</p>
-<p>The residual 5.3 ms is CLIF construction, key hashing and deserialisation —
-which also means actual code generation was about 8.4 ms of the original 13.7.</p>
+<p>One kind per architecture and nothing external, because the design already
+routes everything address-shaped through <code>VmCtx</code> at run time: <code>host_call</code> and
+the dispatch table are indirect calls on loaded pointers, and the memory base is
+a register rather than a baked constant. The generated code is self-contained
+and position-independent as a unit, so the loader is one <code>match</code> with two arms.</p>
+<h2 id="what-is-in-an-artifact"><a class="header" href="#what-is-in-an-artifact">What is in an artifact</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>section</th><th>contents</th></tr>
+</thead>
+<tbody>
+<tr><td><code>.text</code></td><td>every guest function and the trampoline, one contiguous section</td></tr>
+<tr><td><code>.rvtime.elf</code></td><td>the guest ELF, verbatim</td></tr>
+<tr><td><code>.rvtime.meta</code></td><td>digest, fingerprint, and the offset of each function in <code>.text</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The guest ELF travels <em>inside</em> the artifact. Re-decoding it on load costs that
+same 78 µs, and in exchange a <code>Program</code> is still built the one way it has always
+been built — so there is no second description of what a guest is, and nothing
+that can disagree.</p>
+<p>It is an ordinary ELF or Mach-O object, so <code>objdump -d</code> disassembles the code
+Cranelift generated.</p>
+<h2 id="why-an-artifact-is-refused"><a class="header" href="#why-an-artifact-is-refused">Why an artifact is refused</a></h2>
+<p>The address mask and the interrupt checks are compiled <em>into</em> the code. An
+artifact loaded against a different address space would confine guest addresses
+to a range other than the one actually reserved — which is a hole in the
+sandbox, arrived at silently. So <code>.rvtime.meta</code> records the target triple, the
+full ISA settings, the address space size and whether interrupt checks were
+emitted, and a mismatch in any of them is a refusal rather than an adaptation.
+They are stored verbatim rather than hashed: a mismatch is then a mismatch, with
+no collision to reason about.</p>
 <h2 id="damage"><a class="header" href="#damage">Damage</a></h2>
-<p>A cache is disk state that other things can corrupt or truncate. A damaged entry
-must cause a recompile, never a miscompile, so that is tested directly: every
-entry is overwritten with garbage and the module must still compile <em>and compute
-the right answer</em>.</p>
+<p>An artifact is a file, so it can be truncated or overwritten, and unlike a
+damaged cache entry it is <em>executable</em>. Code whose calls were never patched
+still runs — into whatever those calls happen to reach. Nothing else in the file
+would notice.</p>
+<p>So the header carries a digest over the code, the guest image and the rest of
+the header, and the number of call sites the code was emitted with. Both are
+checked before anything is mapped. The guarantee tested is not that every
+damaged file is rejected — lopping the last byte off a string table changes
+nothing the loader reads — but that a damaged file never becomes code that runs
+and answers wrongly.</p>
+<p>Artifacts are written to a temporary file and renamed, for the same reason cache
+entries are, and a stored artifact that fails to load is treated as a miss and
+recompiled rather than as an error.</p>
+<h2 id="what-it-costs-1"><a class="header" href="#what-it-costs-1">What it costs</a></h2>
+<p>The fastest of forty compiles, since a loaded machine moves the median around
+far more than it moves the floor:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>guest</th><th></th><th>cold</th><th>warm</th></tr>
+</thead>
+<tbody>
+<tr><td><code>hosted.elf</code>, 113 KiB, 55 fns</td><td>incremental cache</td><td>120 ms</td><td>14 ms</td></tr>
+<tr><td></td><td>object artifact</td><td>59 ms</td><td><strong>0.5 ms</strong></td></tr>
+<tr><td>fixture, 359 KiB, 183 fns</td><td>incremental cache</td><td>425 ms</td><td>69 ms</td></tr>
+<tr><td></td><td>object artifact</td><td>355 ms</td><td><strong>2.2 ms</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>A warm artifact is 26–32× faster than a warm cache</strong>, and cold is no worse:
+the incremental cache serialises and writes one entry per function where the
+artifact writes one file.</p>
+<p>The gap is not the disk. A cache hit still builds the CLIF for every function
+just to compute its key; an artifact skips to mapping the code.</p>
+<p>Loading breaks down as ELF decode, the digest, and the map-and-relocate, in
+that order of cost. The digest is the largest single part, so it is worth
+knowing that <code>sha2</code> reaches for the SHA extensions the CPU already has —
+hashing 575 KiB costs 0.8 ms that way and 5 ms without.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="performance"><a class="header" href="#performance">Performance</a></h1>
 <p>Every figure here was measured on the repository’s own fixtures, on an Apple M
@@ -1271,6 +1367,31 @@ when the module is created, whether or not it is ever called.</p>
 </div>
 <p>A warm cache is <strong>2.6× faster than none</strong>; a cold one is <strong>2× slower</strong>. See
 <a href="#caching">Caching</a>.</p>
+<h2 id="compiling-ahead-of-time"><a class="header" href="#compiling-ahead-of-time">Compiling ahead of time</a></h2>
+<p>Compiling once into an object file and mapping it back, against caching
+generated code per function. Two guests, both compiled through <code>rvtime::Module</code>:</p>
+<p>The fastest of forty compiles, since a loaded machine moves the median around
+far more than it moves the floor:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>guest</th><th></th><th>cold</th><th>warm</th></tr>
+</thead>
+<tbody>
+<tr><td><code>hosted.elf</code>, 113 KiB, 55 fns</td><td>incremental cache</td><td>120 ms</td><td>14 ms</td></tr>
+<tr><td></td><td>object artifact</td><td>59 ms</td><td><strong>0.5 ms</strong></td></tr>
+<tr><td>fixture, 359 KiB, 183 fns</td><td>incremental cache</td><td>425 ms</td><td>69 ms</td></tr>
+<tr><td></td><td>object artifact</td><td>355 ms</td><td><strong>2.2 ms</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>A warm artifact is 26–32× faster than a warm cache</strong>, because a cache hit
+still translates every function to CLIF to compute its key, and an artifact
+skips straight to mapping the code. Cold is no worse: the cache writes one entry
+per function, the artifact writes one file.</p>
+<p>Loading a 575 KiB artifact is ELF decode, digest, then map-and-relocate. The
+digest is the largest single part at 0.8 ms, and costs 5 ms on a build whose
+<code>sha2</code> cannot reach the CPU’s SHA extensions.</p>
 <h2 id="interruption-1"><a class="header" href="#interruption-1">Interruption</a></h2>
 <p><strong>0.2%</strong> on a 50-million-iteration tight loop — the worst case, since the check
 is proportionally largest where the loop body is smallest. Straight-line code
@@ -1354,7 +1475,15 @@ convention to <code>CallConv::Tail</code> fixes it.</p>
 cannot be stopped part-way. See <a href="#interruption">Interruption</a>.</p>
 <p><strong>Compilation is eager.</strong> <code>Config::strategy</code> exists with a single <code>Eager</code>
 variant; nothing is compiled lazily, so a module pays for functions that are
-never called.</p>
+never called. This is true of both backends: an artifact holds every function in
+the guest, whether or not anything calls it.</p>
+<p><strong>A backend is chosen when rvtime is built, not when a guest is loaded.</strong> The
+<code>jit</code> and <code>aot</code> features are additive, as Cargo features have to be, so a build
+with both runs every guest ahead of time. There is no per-module choice.</p>
+<p><strong>An artifact only runs where it was built.</strong> Emitting one is target-generic —
+the relocations were measured across three triples — but nothing in <code>Engine</code> can
+build for a target other than the host, so cross-compiling an artifact is not
+possible yet.</p>
 <p><strong>Memory confinement is not a precise bounds check.</strong> An address past the end of
 the address space wraps rather than faulting, so a wild pointer can corrupt the
 guest’s own memory. It cannot escape it. See <a href="#memory">Memory</a>.</p>

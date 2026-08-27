@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["DEFAULT_MEMORY_SIZE","MAX_MEMORY_SIZE","MIN_MEMORY_SIZE","PAGE_SIZE","REGISTER_ARGS","REGISTER_COUNT"],"enum":["AluOp","AmoOp","Cond","Inst","LoadOp","MulOp","StoreOp","Width"],"fn":["check_memory_size","decode"],"mod":["elf"],"struct":["Function","Ordering","Perms","Program","Reg","Segment"]};

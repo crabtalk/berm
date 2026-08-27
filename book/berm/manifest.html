@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-51aeafdd.js";
+            window.path_to_searchindex_js = "../searchindex-d2c996eb.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-4d41d46a.js"></script>
@@ -202,7 +202,7 @@ it in front of a model <em>before</em> it chooses between them, so it is paid on
 turn — a few lines, not a manual. <code>#[harness(usage_file = "…")]</code> reads it from a
 file at compile time when it outgrows an attribute.</p>
 <h2 id="two-checks-at-load"><a class="header" href="#two-checks-at-load">Two checks at load</a></h2>
-<p><code>Berm::load</code> refuses an image on two grounds before it can ever be offered to a
+<p><code>Berm::deploy</code> refuses an image on two grounds before it can ever be offered to a
 model.</p>
 <p>A manifest built against a different <code>abi_version</code> is refused outright, rather
 than dispatched into a system harness its author did not mean.</p>

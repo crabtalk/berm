@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["GUEST_CALL_CONV","RESULT_REGS"],"enum":["Target","Trap"],"fn":["analyze","signature","translate"],"mod":["offsets","params"],"struct":["Analysis","Imports","VmCtx"]};

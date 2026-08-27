@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"macro":["hosts"],"mod":["abi","wire"],"struct":["Berm","Config","Engine","Harness","Invocation","Manifest","ToolSpec"],"type":["Call"]};

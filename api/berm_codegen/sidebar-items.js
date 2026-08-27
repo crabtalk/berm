@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"attr":["harness"],"macro":["harnesses","hosts"]};

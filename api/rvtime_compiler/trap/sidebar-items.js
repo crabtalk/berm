@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["protect","set_guest_region"],"struct":["Fault"]};

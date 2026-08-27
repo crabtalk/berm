@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["abort","call0","call1","call2","call3","call4","call5","call6"],"mod":["heap"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["HARNESS","MANIFEST"],"enum":["Access"],"struct":["Reference","Registry"]};
