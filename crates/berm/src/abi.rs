@@ -48,7 +48,7 @@ pub const fn hash(name: &str) -> u64 {
     result
 }
 
-/// What a host registers to serve [`HOST_CALL`], as [`crate::Harness::name`]
+/// What a host registers to serve [`HOST_CALL`], as [`crate::System::name`]
 /// wants it: the name, not the number it hashes to.
 pub const CALL: &str = "berm.call";
 
@@ -57,10 +57,28 @@ pub const CALL: &str = "berm.call";
 /// Request fields are the harness, the tool, and the argument blob; the reply
 /// is the tool's result, staged like any other.
 ///
-/// berm does not serve this one. A [`crate::Berm`] is a single harness and has
-/// nothing to dispatch to — the name is here because both ends of the wire are,
-/// and a host that runs more than one harness is what registers it.
+/// berm serves this one itself: resolving a name needs only the set of
+/// deployed harnesses, which is what a [`crate::Berm`] already is.
 pub const HOST_CALL: u64 = hash(CALL);
+
+/// What a host registers to serve [`HOST_GET`] and [`HOST_SET`].
+pub const GET: &str = "berm.get";
+pub const SET: &str = "berm.set";
+
+/// Read one of this harness's own keys. `(ptr, len) -> staged length`
+///
+/// The request is the key; the reply is one field when the key is set and no
+/// fields when it is not, so an empty value and an absent one are told apart.
+///
+/// Neither this nor [`HOST_SET`] carries a harness: the keyspace is whichever
+/// harness is asking, which the host reads off the [`crate::Callsite`]. Another
+/// harness's keys are not refused, they are unaddressable.
+pub const HOST_GET: u64 = hash(GET);
+
+/// Write one. `(ptr, len) -> staged length`
+///
+/// Request fields are the key and the value; the reply is empty.
+pub const HOST_SET: u64 = hash(SET);
 
 /// Where this guest's heap starts. `() -> address`
 pub const HOST_HEAP_START: u64 = hash("berm.heap.start");

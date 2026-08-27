@@ -15,6 +15,7 @@ path = "bin/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+berm.workspace = true
 berm-api.workspace = true
 berm-index.workspace = true
 berm-oci.workspace = true

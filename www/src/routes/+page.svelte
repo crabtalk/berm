@@ -116,7 +116,6 @@
 		<Disasm />
 		<div class="cta">
 			<a class="button primary" href="{base}/book/">Read the docs</a>
-			<a class="button" href="{base}/api/">API reference</a>
 		</div>
 	</div>
 </section>

@@ -1,11 +1,14 @@
 //! The rail of harnesses — what is deployed, or what the index lists.
 
 use crate::{Found, Sheet, Showing, TITLEBAR, Workbench, utils};
-use bermd::Deployed;
+use berm::Harness;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
     theme::Theme,
-    ui::widgets::{self, ButtonStyle, Buttons, Scaffolding},
+    ui::{
+        scroll,
+        widgets::{self, ButtonStyle, Buttons, Scaffolding},
+    },
 };
 use std::sync::Arc;
 
@@ -66,18 +69,11 @@ impl Workbench {
     }
 
     fn list(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let rail = div().id("harnesses").flex_1().min_h_0().overflow_y_scroll();
-        if self.term.is_empty() {
-            return rail
-                .children(
-                    self.harnesses
-                        .iter()
-                        .enumerate()
-                        .map(|(index, deployed)| self.row(deployed, index == 0, theme, cx))
-                        .collect::<Vec<_>>(),
-                )
-                .into_any_element();
-        }
+        let rail = div()
+            .id("harnesses")
+            .size_full()
+            .overflow_y_scroll()
+            .track_scroll(&self.rail);
 
         let note = |copy: String| {
             div()
@@ -87,34 +83,59 @@ impl Workbench {
                 .text_color(theme.text_muted)
                 .child(copy)
         };
-        match &self.found {
-            Found::Idle => rail.child(note("searching…".to_owned())),
-            Found::Unreachable(error) => {
-                rail.child(note(error.clone()).text_color(theme.danger_muted))
-            }
-            Found::Listed(entries) if entries.is_empty() => {
-                rail.child(note(format!("nothing published matches {:?}", self.term)))
-            }
-            Found::Listed(entries) => rail.children(
-                entries
+        let rail = if self.term.is_empty() {
+            rail.children(
+                self.harnesses
                     .iter()
                     .enumerate()
-                    .map(|(index, entry)| self.result(entry, index == 0, theme, cx))
+                    .map(|(index, deployed)| self.row(deployed, index == 0, theme, cx))
                     .collect::<Vec<_>>(),
-            ),
-        }
-        .into_any_element()
+            )
+        } else {
+            match &self.found {
+                Found::Idle => rail.child(note("searching…".to_owned())),
+                Found::Unreachable(error) => {
+                    rail.child(note(error.clone()).text_color(theme.danger_muted))
+                }
+                Found::Listed(entries) if entries.is_empty() => {
+                    rail.child(note(format!("nothing published matches {:?}", self.term)))
+                }
+                Found::Listed(entries) => rail.children(
+                    entries
+                        .iter()
+                        .enumerate()
+                        .map(|(index, entry)| self.result(entry, index == 0, theme, cx))
+                        .collect::<Vec<_>>(),
+                ),
+            }
+        };
+
+        // Relative, because the bar is absolute in here and overlays the list
+        // rather than taking a gutter out of it.
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .child(rail)
+            .child(scroll::transient(
+                "harnesses-bar",
+                &self.rail,
+                &self.rail_bar,
+                cx.reduce_motion(),
+            ))
+            .into_any_element()
     }
 
     fn row(
         &self,
-        deployed: &Arc<Deployed>,
+        deployed: &Arc<Harness>,
         first: bool,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let name = deployed.name.clone();
-        let selected = matches!(&self.selection, Some(Showing::Deployed(at)) if *at == name);
+        let name = deployed.name.to_string();
+        let selected =
+            matches!(&self.selection, Some(Showing::Deployed(at)) if at.as_str() == &*name);
         let tools = deployed.manifest().tools.len();
 
         theme

@@ -37,7 +37,7 @@ pub fn harnesses(input: TokenStream) -> TokenStream {
 }
 
 /// The other side of [`harnesses!`]: one constructor per name, taking the
-/// implementation and returning the `Harness` that serves it.
+/// implementation and returning the `System` that serves it.
 #[proc_macro]
 pub fn hosts(input: TokenStream) -> TokenStream {
     parse_macro_input!(input as harnesses::Declaration)

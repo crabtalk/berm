@@ -11,11 +11,12 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::Berm;
+use berm::{Berm, Harness};
 use rvtime::{Config, Engine};
 use std::{
     fs,
     path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -150,7 +151,8 @@ fn main() -> Result<()> {
         let mut config = Config::new();
         config.cache_dir(&cache).memory_size(mib * 1024 * 1024);
         let engine = Engine::new(&config)?;
-        let harness = Berm::load(&engine, &elf, &[])?;
+        let berm = Berm::new(&engine, 0, vec![]);
+        let harness = berm.deploy("fixture", &elf)?;
 
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
@@ -171,13 +173,13 @@ fn main() -> Result<()> {
 /// cache holds generated code per function, an artifact holds the whole
 /// compiled object. Only one is in play at a time, since enabling `aot` is
 /// what selects it.
-fn compile(dir: &std::path::Path, elf: &[u8]) -> Result<Berm> {
+fn compile(dir: &std::path::Path, elf: &[u8]) -> Result<Arc<Harness>> {
     let mut config = Config::new();
 
     config.cache_dir(dir);
 
     let engine = Engine::new(&config)?;
-    Berm::load(&engine, elf, &[])
+    Berm::new(&engine, 0, vec![]).deploy("fixture", elf)
 }
 
 fn time<T>(f: impl FnOnce() -> Result<T>) -> Result<Duration> {

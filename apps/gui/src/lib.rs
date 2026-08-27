@@ -6,17 +6,21 @@
 //! harnesses the window paints.
 
 use anyhow::{Context as _, Result};
+use berm::Harness;
+use berm::system::call;
 use berm_index::{Entry, Source};
-use bermd::{Deployed, Service};
+use bermd::Service;
 use bezel::{
     gpui::{
-        AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, Window, div, prelude::*, px,
+        AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, ScrollHandle, Window, div,
+        prelude::*, px,
     },
     motion,
     theme::Theme,
     ui::{
         focus,
         input::{self, Shape, TextField},
+        scroll::TransientState,
         widgets::{self, Status},
     },
 };
@@ -90,7 +94,7 @@ pub struct Workbench {
     rt: Runtime,
     engine: Engine,
     /// What the service was holding as of the last refresh.
-    harnesses: Vec<Arc<Deployed>>,
+    harnesses: Vec<Arc<Harness>>,
     /// By name, not index: a refresh renumbers the list, and a harness removed
     /// under the pane should empty it rather than hand the selection to a
     /// neighbour.
@@ -107,6 +111,8 @@ pub struct Workbench {
     /// Bumped per edit, so an answer that comes back under an old number is
     /// dropped rather than painted over a newer one.
     asked: usize,
+    rail: ScrollHandle,
+    rail_bar: TransientState,
     /// Which schemas are open, keyed the way MCP names a tool.
     expanded: HashSet<String>,
     tab: Tab,
@@ -188,6 +194,8 @@ impl Workbench {
             term: String::new(),
             found: Found::Idle,
             asked: 0,
+            rail: ScrollHandle::new(),
+            rail_bar: TransientState::new(),
             expanded: HashSet::new(),
             tab: Tab::Tools,
             tool: None,
@@ -206,13 +214,13 @@ impl Workbench {
     }
 
     /// The deployed harness the pane is on, if it is on one.
-    fn selected(&self) -> Option<&Arc<Deployed>> {
+    fn selected(&self) -> Option<&Arc<Harness>> {
         let Some(Showing::Deployed(name)) = &self.selection else {
             return None;
         };
         self.harnesses
             .iter()
-            .find(|deployed| deployed.name == *name)
+            .find(|deployed| *deployed.name == **name)
     }
 
     /// Show a harness, with the Run pane pointed at its first tool.
@@ -223,7 +231,7 @@ impl Workbench {
         let first = self
             .harnesses
             .iter()
-            .find(|deployed| deployed.name == name)
+            .find(|deployed| &*deployed.name == name)
             .and_then(|deployed| deployed.manifest().tools.first().cloned());
         if let Some(tool) = first {
             self.choose(&tool, cx);
@@ -236,7 +244,7 @@ impl Workbench {
             return;
         };
         let service = service.clone();
-        let listing = self.rt.spawn(async move { service.list().await });
+        let listing = self.rt.spawn(async move { service.list() });
         cx.spawn(async move |this, cx| {
             let Ok(harnesses) = listing.await else { return };
             let _ = this.update(cx, |this, cx| {
@@ -364,8 +372,7 @@ impl Render for Workbench {
 /// port is known before anything claims to be serving.
 async fn start() -> Result<(Arc<Service>, SocketAddr)> {
     let home = std::env::var("HOME").context("HOME is not set")?;
-    let service =
-        Service::new(PathBuf::from(home).join(".berm"), bermd::DEFAULT_CALL_DEPTH).await?;
+    let service = Service::new(PathBuf::from(home).join(".berm"), call::DEFAULT_CALL_DEPTH).await?;
     let listener = TcpListener::bind(ADDR)
         .await
         .with_context(|| format!("failed to bind {ADDR}"))?;

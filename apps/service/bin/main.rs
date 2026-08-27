@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use berm::system::call;
 use bermd::Service;
 use clap::Parser;
 use std::{net::SocketAddr, path::PathBuf};
@@ -21,7 +22,7 @@ struct Args {
     ///
     /// The bound is on runaway composition, not on the stack: a level costs
     /// ~720 bytes of it, and 64 MiB of guest address space.
-    #[arg(long, default_value_t = bermd::DEFAULT_CALL_DEPTH)]
+    #[arg(long, default_value_t = call::DEFAULT_CALL_DEPTH)]
     max_call_depth: u32,
 }
 

@@ -1,8 +1,8 @@
 //! What a harness says it is: its usage, its tools, their arguments.
 
 use crate::{Showing, TITLEBAR, Tab, Workbench, utils};
+use berm::Harness;
 use berm_api::ToolSpec;
-use bermd::Deployed;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
     theme::Theme,
@@ -48,12 +48,7 @@ impl Workbench {
             .into_any_element()
     }
 
-    fn header(
-        &self,
-        deployed: &Arc<Deployed>,
-        theme: &Theme,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn header(&self, deployed: &Arc<Harness>, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex_none()
             .px(px(28.0))

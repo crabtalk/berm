@@ -30,7 +30,7 @@ file at compile time when it outgrows an attribute.
 
 ## Two checks at load
 
-`Berm::load` refuses an image on two grounds before it can ever be offered to a
+`Berm::deploy` refuses an image on two grounds before it can ever be offered to a
 model.
 
 A manifest built against a different `abi_version` is refused outright, rather

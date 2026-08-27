@@ -4,7 +4,7 @@
 //! a UI, a CLI and `curl`, and a harness is a resource. The MCP endpoint that
 //! agents reach sits on the same server at `/mcp`.
 
-use crate::{Deployed, Service};
+use crate::Service;
 use axum::{
     Json, Router,
     body::Bytes,
@@ -13,7 +13,8 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use berm_api::{Failed, Harness, Output};
+use berm::Harness;
+use berm_api::{Failed, Harness as Wire, Output};
 use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
 };
@@ -44,25 +45,25 @@ pub fn router(service: Arc<Service>) -> Router {
 }
 
 /// What berm read out of the ELF, on the wire.
-fn describe(deployed: &Arc<Deployed>) -> Harness {
+fn describe(deployed: &Arc<Harness>) -> Wire {
     let manifest = deployed.manifest();
-    Harness {
-        name: deployed.name.clone(),
+    Wire {
+        name: deployed.name.to_string(),
         digest: deployed.digest.clone(),
         usage: manifest.usage.clone(),
         tools: manifest.tools.clone(),
     }
 }
 
-async fn list(State(service): State<Arc<Service>>) -> Json<Vec<Harness>> {
-    Json(service.list().await.iter().map(describe).collect())
+async fn list(State(service): State<Arc<Service>>) -> Json<Vec<Wire>> {
+    Json(service.list().iter().map(describe).collect())
 }
 
 async fn inspect(
     State(service): State<Arc<Service>>,
     Path(name): Path<String>,
-) -> Result<Json<Harness>, Refused> {
-    match service.get(&name).await {
+) -> Result<Json<Wire>, Refused> {
+    match service.get(&name) {
         Some(deployed) => Ok(Json(describe(&deployed))),
         None => Err(Refused::missing(&name)),
     }
@@ -74,7 +75,7 @@ async fn deploy(
     State(service): State<Arc<Service>>,
     Path(name): Path<String>,
     elf: Bytes,
-) -> Result<Json<Harness>, Refused> {
+) -> Result<Json<Wire>, Refused> {
     let deployed = service
         .deploy(&name, elf.to_vec())
         .await
@@ -91,7 +92,7 @@ async fn call(
     Path((name, tool)): Path<(String, String)>,
     arguments: Bytes,
 ) -> Result<Json<Output>, Refused> {
-    let Some(deployed) = service.get(&name).await else {
+    let Some(deployed) = service.get(&name) else {
         return Err(Refused::missing(&name));
     };
     // Asked here rather than left to the invocation, which reports a missing

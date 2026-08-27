@@ -1,8 +1,8 @@
 //! Running a tool, and what came back.
 
 use crate::{Engine, Workbench, utils};
+use berm::Harness;
 use berm_api::ToolSpec;
-use bermd::Deployed;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
     theme::Theme,
@@ -61,7 +61,7 @@ impl Workbench {
 
         let at = self.transcript.len();
         self.transcript.push(Invocation {
-            harness: harness.clone(),
+            harness: harness.to_string(),
             tool: tool.clone(),
             arguments: arguments.clone(),
             elapsed: Duration::ZERO,
@@ -94,7 +94,7 @@ impl Workbench {
 
     pub(crate) fn run_pane(
         &self,
-        deployed: &Arc<Deployed>,
+        deployed: &Arc<Harness>,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -145,7 +145,7 @@ impl Workbench {
                         self.transcript
                             .iter()
                             .enumerate()
-                            .filter(|(_, entry)| entry.harness == deployed.name)
+                            .filter(|(_, entry)| entry.harness == *deployed.name)
                             // Newest first: the result you just asked for is
                             // under the button you pressed, not below the scroll.
                             .rev()

@@ -11,7 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["jit"]
+default = ["aot"]
 
 # Compile into memory and run from there.
 jit = []

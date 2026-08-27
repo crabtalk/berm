@@ -4,10 +4,9 @@
 	"type": "module",
 	"scripts": {
 		"book": "cd .. && mdbook build docs --dest-dir www/static/book",
-		"api": "cd .. && cargo doc --no-deps --workspace && rm -rf www/static/api && cp -R target/doc www/static/api && echo '<meta http-equiv=\"refresh\" content=\"0;url=berm/index.html\">' > www/static/api/index.html",
 		"dev": "bun run ensure && vite dev",
-		"ensure": "test -d static/book || bun run book; test -d static/api || bun run api",
-		"build": "bun run book && bun run api && vite build",
+		"ensure": "test -d static/book || bun run book",
+		"build": "bun run book && vite build",
 		"preview": "vite preview",
 		"deploy": "bun run build && wrangler pages deploy build --project-name=berm --branch=main"
 	},

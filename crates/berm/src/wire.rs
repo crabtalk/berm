@@ -4,7 +4,7 @@
 //! `u32`-prefixed fields, one rule for every system harness. This is the only
 //! decoder, so a malformed request is rejected in one place rather than in
 //! each system harness's own hand-rolled parse — which is why it is public: an
-//! embedder supplying a [`crate::Harness`] frames it the same way rather
+//! embedder supplying a [`crate::System`] frames it the same way rather
 //! than inventing a second layout.
 
 use anyhow::{Result, bail};

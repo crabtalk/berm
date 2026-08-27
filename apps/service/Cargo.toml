@@ -14,7 +14,7 @@ name = "bermd"
 path = "bin/main.rs"
 
 [features]
-default = ["jit"]
+default = ["aot"]
 jit = ["berm/jit"]
 aot = ["berm/aot"]
 

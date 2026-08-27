@@ -1,13 +1,35 @@
 # berm
 
-A sandbox for harnesses. Loads a hash-pinned RV64 ELF, compiles it once, and
-instantiates it per invocation under [rvtime](https://crates.io/crates/rvtime);
-nothing survives the call.
+The runtime of harnesses. A harness is one hash-pinned RV64 ELF; berm compiles
+it once, holds it by the name it answers to, and instantiates it per invocation
+under [rvtime](https://crates.io/crates/rvtime) — nothing survives the call.
 
-A harness reaches the world only through the system harnesses it was given, and
-that list is the `Linker` it is instantiated with — a call to anything else
-traps because nothing is registered for it. berm ships none: every `Harness` a
-guest can reach is one the embedder passed to `Berm::load`.
+```rust
+let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
+berm.deploy("example", &elf)?;
+let result = berm.call("example", "echo", br#"{"query":"hi"}"#.to_vec())?;
+```
+
+## What a guest can reach
+
+berm serves the system harnesses whose whole behaviour is the harness model:
+`berm.call`, which resolves a name against the set berm already holds, and
+`berm.get` / `berm.set`, a harness's own bytes surviving its invocations.
+Neither storage door takes a harness — the keyspace is whoever is asking, read
+off the `Callsite` — so a guest has no way to name another's keys. Where those
+bytes land is still a host's, and arrives as two closures.
+
+Everything else is a `System` the embedder registers, and that list is the
+linker a harness is instantiated with: a call to anything else traps because
+nothing is registered for it, not because a check said no. berm ships no
+filesystem, no command runner and no network — each needs a policy invented to
+compile, and those are decisions about a host.
+
+## What an invocation runs under
+
+`bound/` holds what a guest cannot decline: how far a chain of harnesses may
+nest, and how long one may run. Unlike a system harness, these are conditions
+rather than something a guest reaches for.
 
 `Manifest::from_elf(elf)` reads what an image claims to be without compiling or
 running it.

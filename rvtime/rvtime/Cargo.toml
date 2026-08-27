@@ -11,14 +11,14 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["jit"]
+default = ["aot"]
 
 # Compile a guest into memory and run it from there.
 jit = ["compiler/jit"]
 
-# Compile a guest into an object file and run that instead. Enabling this
-# selects it: features are additive, so a build with both still runs every
-# guest ahead of time.
+# Compile a guest into an object file and run that. Enabling this selects it:
+# features are additive, so a build with both still runs every guest ahead of
+# time.
 aot = ["compiler/aot", "dep:sha2"]
 
 [dependencies]

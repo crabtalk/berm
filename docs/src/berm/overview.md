@@ -5,9 +5,10 @@ once, and instantiates it per invocation: arguments go in through host calls,
 the result comes back out of guest memory, and nothing survives the call.
 
 ```rust,ignore
-let berm = Berm::load(&engine, &elf, &[])?;
+let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
+berm.deploy("example", &elf)?;
 
-match berm.call("echo", br#"{"query":"hello"}"#.to_vec())? {
+match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
     Ok(result) => println!("{result}"),
     Err(failure) => eprintln!("{failure}"),
 }
@@ -37,7 +38,7 @@ because a check ran and said no. There is no check to write, and none to forget.
 
 berm ships none. What a filesystem is bounded by, what shape a command's result
 takes, where bytes persist — each is a decision about a host, and berm has no
-host. An embedder passes `Harness` values to `Berm::load`, and that list is the
+host. An embedder passes `System` values to `Berm::new`, and that list is the
 whole of what a guest can reach.
 
 The same argument appears one layer down in

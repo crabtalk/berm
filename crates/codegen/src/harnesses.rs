@@ -445,7 +445,7 @@ impl Declaration {
 
     /// The constructor a host serves a name with.
     ///
-    /// It takes the implementation and returns the registrable `Harness`, so
+    /// It takes the implementation and returns the registrable `System`, so
     /// the fields the guest built are read back by generated code rather than
     /// by an index written out per call — which is where a system harness
     /// actually goes wrong.
@@ -611,10 +611,10 @@ impl Declaration {
             pub fn #ident(
                 serve: impl Fn(#(#takes),*) -> ::berm::anyhow::Result<#returns>
                     + Send + Sync + 'static,
-            ) -> ::berm::Harness {
-                ::berm::Harness {
+            ) -> ::berm::System {
+                ::berm::System {
                     name: ::std::string::String::from(#konst),
-                    call: ::std::sync::Arc::new(move |request: &[u8]| {
+                    call: ::std::sync::Arc::new(move |_: &::berm::Callsite<'_>, request: &[u8]| {
                         let fields = ::berm::wire::fields(request)?;
                         #arity
                         #(#reads)*
