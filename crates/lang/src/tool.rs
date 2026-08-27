@@ -5,8 +5,7 @@
 //! error differently, and a model sees two conventions from one runtime.
 #![cfg(feature = "alloc")]
 
-use crate::{Failed, Out};
-use alloc::string::String;
+use crate::{CallError, Failed, Out};
 use core::fmt::Write;
 
 /// Deserialize a tool's arguments, reporting the error to the model rather
@@ -33,9 +32,14 @@ pub fn parse<T: for<'de> serde_guest::Deserialize<'de>>(
 /// Turn a system harness's failure into this tool's failure, unchanged. The host
 /// already said what went wrong, and in more detail than a rewording would
 /// keep.
-pub fn system<T>(result: Result<T, String>, out: &mut Out) -> Result<T, Failed> {
+///
+/// Both kinds collapse here, which is the right default: a tool that cannot do
+/// its work has failed either way, and the model reads a message. A harness
+/// that wants to act on the difference — falling back when a target is not
+/// deployed, say — matches on [`CallError`] instead of calling this.
+pub fn system<T>(result: Result<T, CallError>, out: &mut Out) -> Result<T, Failed> {
     result.map_err(|error| {
-        out.write(error.as_bytes());
+        out.write(error.message().as_bytes());
         Failed
     })
 }

@@ -13,6 +13,11 @@ categories = ["virtualization"]
 name = "bermd"
 path = "bin/main.rs"
 
+[features]
+default = ["jit"]
+jit = ["berm/jit"]
+aot = ["berm/aot"]
+
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
@@ -22,6 +27,7 @@ clap.workspace = true
 rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+hex.workspace = true
 sha2.workspace = true
 tokio.workspace = true
 tracing.workspace = true

@@ -1,5 +1,6 @@
 /target
-Cargo.lock
+.DS_Store
+.wrangler
 
 # RISC-V build trees. The fixtures are outside the workspace, so they each get
 # their own target dir. Their .elf and .objdump goldens are committed; the

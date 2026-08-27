@@ -251,13 +251,13 @@ pub(crate) fn enter<T, P: Regs, R: Regs>(
     state.ctx.regs[Reg::SP.index()] = state.memory.stack_pointer();
     params.write(&mut state.ctx.regs);
 
-    trap::set_guest_region(state.memory.base() as usize, state.memory.size());
-
     let trampoline: extern "C" fn(*mut VmCtx, *const u8) =
         unsafe { std::mem::transmute(state.module.trampoline()) };
     let ctx: *mut VmCtx = &raw mut state.ctx;
 
-    let outcome = trap::protect(|| trampoline(ctx, entry));
+    let outcome = trap::protect_guest(state.memory.base() as usize, state.memory.size(), || {
+        trampoline(ctx, entry)
+    });
 
     let state = store.state.as_mut().expect("instance is still present");
     if let Err(fault) = outcome {

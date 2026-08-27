@@ -1,7 +1,7 @@
 //! Registering host functions
 
 use crate::{Caller, Engine, Instance, Module, Store, abi::Regs};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use std::{collections::HashMap, sync::Arc};
 
 /// A host function, erased down to the register file it operates on.
@@ -69,10 +69,20 @@ impl<T> Linker<T> {
         Ok(Instance::new(module.inner().clone()))
     }
 
+    /// Register `func`, refusing a number that already has one.
+    ///
+    /// Refusing rather than replacing is what keeps a derived call number
+    /// safe: an embedder that hashes names into this space cannot check for a
+    /// collision itself without knowing every number already registered, and a
+    /// silent replacement would send a guest's calls somewhere its author never
+    /// named.
     fn insert(&mut self, number: u64, func: HostFn<T>) -> Result<&mut Self> {
-        Arc::get_mut(&mut self.hosts)
-            .context("host functions cannot be registered after instantiate")?
-            .insert(number, func);
+        let hosts = Arc::get_mut(&mut self.hosts)
+            .context("host functions cannot be registered after instantiate")?;
+        if hosts.contains_key(&number) {
+            bail!("host call {number} already has a function registered");
+        }
+        hosts.insert(number, func);
         Ok(self)
     }
 }

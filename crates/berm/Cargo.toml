@@ -7,6 +7,11 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["jit"]
+jit = ["rvtime/jit"]
+aot = ["rvtime/aot"]
+
 [dependencies]
 anyhow.workspace = true
 berm-api.workspace = true

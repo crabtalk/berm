@@ -3,7 +3,7 @@
 Build a harness for [Crabtalk](https://github.com/crabtalk/crabtalk).
 
 A harness is code the daemon schedules: one RV64IMAC ELF, confined to its own
-address space, reaching the world only through host calls it was granted. This
+address space, reaching the world only through the host calls it was given. This
 crate owns the ABI, so you never see a call number, a register, or a pointer
 pair.
 

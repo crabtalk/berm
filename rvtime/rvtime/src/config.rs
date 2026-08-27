@@ -44,13 +44,16 @@ pub struct Config {
     /// Turn it off only for a guest you trust and have profiled.
     pub interruptible: bool,
 
-    /// Where to cache generated code, if anywhere.
+    /// Where to cache compiled code, if anywhere.
     ///
     /// Code generation is almost all of compile time, so a warm cache turns
-    /// loading a previously seen guest into deserialisation. Entries are keyed
-    /// on function contents and target settings, so a stale directory yields
-    /// misses rather than wrong code, and it is safe to share between
-    /// processes.
+    /// loading a previously seen guest into deserialisation — or, with the
+    /// object backend, into a read and a map. What lands here is whatever that
+    /// backend caches: generated code per function, or whole artifacts.
+    ///
+    /// Entries are keyed on contents and target settings either way, so a stale
+    /// directory yields misses rather than wrong code, and it is safe to share
+    /// between processes.
     pub cache_dir: Option<std::path::PathBuf>,
 }
 
@@ -106,7 +109,7 @@ impl Config {
         self
     }
 
-    /// Cache generated code under `dir`, reusing it across runs.
+    /// Cache compiled code under `dir`, reusing it across runs.
     pub fn cache_dir(&mut self, dir: impl Into<std::path::PathBuf>) -> &mut Self {
         self.cache_dir = Some(dir.into());
         self
@@ -140,8 +143,8 @@ impl Engine {
         &self.config
     }
 
-    /// Functions served from the code cache, and functions generated, since
-    /// this engine was created. Both zero when no cache is configured.
+    /// Entries served from the code cache, and entries compiled, since this
+    /// engine was created. Both zero when no cache is configured.
     pub fn cache_stats(&self) -> (usize, usize) {
         self.inner
             .cache()

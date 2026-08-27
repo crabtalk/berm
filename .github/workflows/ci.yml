@@ -35,6 +35,16 @@ jobs:
       - run: cargo nextest run --workspace
       - run: cargo nextest run --workspace --release
 
+      # The object backend, which the default features leave out. Both runners
+      # matter more here than elsewhere: the relocation a call compiles to and
+      # the section names an artifact travels in are per-format, so Mach-O and
+      # ELF reach different arms of the loader.
+      #
+      # With both backends the artifact is checked against the JIT; with only
+      # the object backend the whole instruction-set suite runs through it.
+      - run: cargo nextest run -p rvtime-compiler -p rvtime --features rvtime-compiler/aot,rvtime/aot -E 'binary(aot)'
+      - run: cargo nextest run -p rvtime-compiler -p rvtime --no-default-features --features rvtime-compiler/aot,rvtime/aot
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -45,6 +55,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
+      - run: cargo clippy -p rvtime-compiler -p rvtime --no-default-features --features rvtime-compiler/aot,rvtime/aot --all-targets
 
   # The examples are documentation: the book includes them by reference rather
   # than pasting them, so running them here is what keeps the docs honest.
@@ -107,3 +118,8 @@ jobs:
 
       - name: run it under berm
         run: cargo run --release --example measure -p berm
+
+      # A harness calling a harness, which only a real guest can show: the
+      # call, a refusal, and a target that ran and said no.
+      - name: nest one harness inside another
+        run: cargo run --release --example nesting -p berm

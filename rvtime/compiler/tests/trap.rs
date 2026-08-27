@@ -58,3 +58,26 @@ fn recovers_well_enough_to_run_again() {
 
     release(base);
 }
+
+/// A guest entered from inside another guest's host call must not leave its
+/// region behind: the outer guest keeps running afterwards, and its next fault
+/// has to be reported against its own memory.
+#[test]
+fn a_nested_region_does_not_outlive_its_entry() {
+    let outer = reserve();
+    let inner = reserve();
+
+    let fault = trap::protect_guest(outer as usize, REGION, || {
+        // The inner guest, entered and returned from while the outer is still
+        // on the stack.
+        assert_eq!(trap::protect_guest(inner as usize, REGION, || 7u64), Ok(7));
+
+        unsafe { ptr::read_volatile((outer as *const u8).add(0x4000)) }
+    })
+    .expect_err("reading a guard page must fault");
+
+    assert_eq!(fault.guest, Some(0x4000));
+
+    release(outer);
+    release(inner);
+}

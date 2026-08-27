@@ -91,6 +91,8 @@ pub use crate::{
 pub use rv::Reg;
 
 mod abi;
+#[cfg(feature = "aot")]
+mod aot;
 mod config;
 mod instance;
 mod linker;

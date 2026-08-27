@@ -26,6 +26,15 @@ pub const HOST_RESULT_READ: u64 = hash("berm.result.read");
 /// carries the outcome and the size together.
 pub const ERROR: u64 = 1 << 63;
 
+/// Set beside [`ERROR`] when the host refused the call outright — nothing ran
+/// on the other side of it.
+///
+/// The same split the host's own API makes everywhere else: `Berm::call`'s
+/// outer `Result` against its inner one, `Output::Failed` against a status. A
+/// guest that called a harness which is not deployed learns something it can
+/// act on; one whose target ran and said no learns something else.
+pub const REFUSED: u64 = 1 << 62;
+
 /// FNV-1a over the system harness's name, evaluated at compile time.
 pub const fn hash(name: &str) -> u64 {
     let bytes = name.as_bytes();
@@ -38,6 +47,20 @@ pub const fn hash(name: &str) -> u64 {
     }
     result
 }
+
+/// What a host registers to serve [`HOST_CALL`], as [`crate::Harness::name`]
+/// wants it: the name, not the number it hashes to.
+pub const CALL: &str = "berm.call";
+
+/// Call a tool on another harness. `(ptr, len) -> staged length`
+///
+/// Request fields are the harness, the tool, and the argument blob; the reply
+/// is the tool's result, staged like any other.
+///
+/// berm does not serve this one. A [`crate::Berm`] is a single harness and has
+/// nothing to dispatch to — the name is here because both ends of the wire are,
+/// and a host that runs more than one harness is what registers it.
+pub const HOST_CALL: u64 = hash(CALL);
 
 /// Where this guest's heap starts. `() -> address`
 pub const HOST_HEAP_START: u64 = hash("berm.heap.start");
