@@ -11,7 +11,7 @@ once, and instantiates it per invocation — arguments go in through host calls,
 the result comes back out of guest memory, and nothing survives the call.
 
 ```rust
-let berm = Berm::load(&engine, &elf, &[])?;
+let berm = Berm::load(&engine, &elf, "example", &[])?;
 
 // The outer result is the host's — a missing tool, a trap. The inner one is
 // the harness reporting failure, which is a result the model should see.

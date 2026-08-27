@@ -5,7 +5,7 @@ once, and instantiates it per invocation: arguments go in through host calls,
 the result comes back out of guest memory, and nothing survives the call.
 
 ```rust,ignore
-let berm = Berm::load(&engine, &elf, &[])?;
+let berm = Berm::load(&engine, &elf, "example", &[])?;
 
 match berm.call("echo", br#"{"query":"hello"}"#.to_vec())? {
     Ok(result) => println!("{result}"),

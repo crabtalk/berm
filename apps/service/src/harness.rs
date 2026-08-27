@@ -126,7 +126,8 @@ impl Service {
         let digest = hex::encode(Sha256::digest(elf.as_slice()));
         let engine = self.engine.clone();
         let system = self.system();
-        let berm = tokio::task::spawn_blocking(move || Berm::load(&engine, &elf, &system))
+        let id: Arc<str> = Arc::from(name.as_str());
+        let berm = tokio::task::spawn_blocking(move || Berm::load(&engine, &elf, id, &system))
             .await
             .context("compilation panicked")??;
         Ok(Arc::new(Deployed { name, digest, berm }))

@@ -6,17 +6,8 @@
 //! against whatever it was deployed beside.
 
 use anyhow::{Result, bail};
-use berm::{Harness, Refused, abi, wire};
-use std::{cell::Cell, sync::Arc};
-
-thread_local! {
-    /// How many harnesses are already on this thread's stack.
-    ///
-    /// A nested call runs synchronously on the thread that entered the outer
-    /// guest, so the depth is the thread's rather than anything the closure
-    /// could be handed — `berm::Call` sees only the request bytes.
-    static DEPTH: Cell<u32> = const { Cell::new(0) };
-}
+use berm::{Callsite, Harness, Refused, abi, wire};
+use std::sync::Arc;
 
 /// How deep a chain of harnesses calling harnesses may go before the next call
 /// is refused. Zero turns composition off.
@@ -26,27 +17,6 @@ thread_local! {
 /// run away from the turn that asked for it, and how much guest address space
 /// one chain reserves — 64 MiB a level.
 pub const DEFAULT_CALL_DEPTH: u32 = 4;
-
-/// Counts one level for as long as it lives.
-struct Level;
-
-impl Level {
-    /// `None` when the chain is already as deep as it may go.
-    fn enter(limit: u32) -> Option<Self> {
-        let depth = DEPTH.get();
-        if depth >= limit {
-            return None;
-        }
-        DEPTH.set(depth + 1);
-        Some(Self)
-    }
-}
-
-impl Drop for Level {
-    fn drop(&mut self) {
-        DEPTH.set(DEPTH.get() - 1);
-    }
-}
 
 /// Serve `berm.call`, resolving every name through `dispatch`.
 ///
@@ -64,18 +34,18 @@ pub fn harness(
 ) -> Harness {
     Harness {
         name: abi::CALL.to_owned(),
-        call: Arc::new(move |request: &[u8]| {
+        call: Arc::new(move |at: &Callsite<'_>, request: &[u8]| {
             let fields = wire::fields(request)?;
             let harness = wire::text(&fields, 0, "harness")?;
             let tool = wire::text(&fields, 1, "tool")?;
             let args = wire::text(&fields, 2, "arguments")?;
 
-            let Some(_level) = Level::enter(limit) else {
+            if at.depth > limit {
                 return Err(Refused(format!(
                     "call depth {limit} reached before {harness}.{tool}; a harness cannot nest deeper"
                 ))
                 .into());
-            };
+            }
 
             match dispatch(harness, tool, args)? {
                 Ok(result) => Ok(result.into_bytes()),

@@ -150,7 +150,7 @@ fn main() -> Result<()> {
         let mut config = Config::new();
         config.cache_dir(&cache).memory_size(mib * 1024 * 1024);
         let engine = Engine::new(&config)?;
-        let harness = Berm::load(&engine, &elf, &[])?;
+        let harness = Berm::load(&engine, &elf, "fixture", &[])?;
 
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
@@ -177,7 +177,7 @@ fn compile(dir: &std::path::Path, elf: &[u8]) -> Result<Berm> {
     config.cache_dir(dir);
 
     let engine = Engine::new(&config)?;
-    Berm::load(&engine, elf, &[])
+    Berm::load(&engine, elf, "fixture", &[])
 }
 
 fn time<T>(f: impl FnOnce() -> Result<T>) -> Result<Duration> {

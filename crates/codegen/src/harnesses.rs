@@ -614,7 +614,7 @@ impl Declaration {
             ) -> ::berm::Harness {
                 ::berm::Harness {
                     name: ::std::string::String::from(#konst),
-                    call: ::std::sync::Arc::new(move |request: &[u8]| {
+                    call: ::std::sync::Arc::new(move |_: &::berm::Callsite<'_>, request: &[u8]| {
                         let fields = ::berm::wire::fields(request)?;
                         #arity
                         #(#reads)*

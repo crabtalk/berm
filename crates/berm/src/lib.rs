@@ -23,6 +23,7 @@ pub use rvtime::{Config, Engine};
 use std::{collections::BTreeMap, sync::Arc};
 
 pub mod abi;
+mod depth;
 mod watchdog;
 pub mod wire;
 
@@ -37,11 +38,27 @@ type Export = TypedFunc<(), (u64, u64)>;
 
 /// What a system harness does: request bytes in, result bytes out. An `Err`
 /// reaches the guest as a failure message on the same wire as a result.
-pub type Call = Arc<dyn Fn(&[u8]) -> Result<Vec<u8>> + Send + Sync>;
+pub type Call = Arc<dyn Fn(&Callsite<'_>, &[u8]) -> Result<Vec<u8>> + Send + Sync>;
+
+/// Which harness is asking, and how deep the chain that reached it already is.
+///
+/// The runtime knows both at the moment of the call, so a system harness is
+/// handed them rather than made to infer them: identity would otherwise be a
+/// closure built per deployed harness, and depth a thread-local read from
+/// inside the guest's own stack.
+pub struct Callsite<'a> {
+    /// What the host loaded this harness as.
+    pub harness: &'a str,
+    /// How many guests are already on this thread's stack, this one included.
+    pub depth: u32,
+}
 
 /// A compiled harness. Compilation is paid once per ELF; every invocation
 /// gets a fresh [`Store`] so no guest state crosses between calls.
 pub struct Berm {
+    /// What the host loaded this harness as, as every system harness call
+    /// reports it. An `Arc` because it is cloned into each invocation.
+    id: Arc<str>,
     engine: Engine,
     module: Module,
     linker: Linker<Invocation>,
@@ -56,7 +73,12 @@ impl Berm {
     /// Compile `elf` and resolve its exports, giving it `system`. The engine's
     /// code cache makes a second load of the same bytes cheap across processes
     /// as well as within one.
-    pub fn load(engine: &Engine, elf: &[u8], system: &[Harness]) -> Result<Self> {
+    pub fn load(
+        engine: &Engine,
+        elf: &[u8],
+        id: impl Into<Arc<str>>,
+        system: &[Harness],
+    ) -> Result<Self> {
         let module = Module::new(engine, elf).context("failed to compile harness")?;
         let mut linker = Linker::new(engine);
 
@@ -123,7 +145,16 @@ impl Berm {
                 abi::hash(&harness.name),
                 move |caller: Caller<'_, Invocation>, ptr, len| {
                     let call = call.clone();
-                    Invocation::stage(caller, ptr, len, move |request| call(request))
+                    let (id, depth) = (caller.data().id.clone(), caller.data().depth);
+                    Invocation::stage(caller, ptr, len, move |request| {
+                        call(
+                            &Callsite {
+                                harness: &id,
+                                depth,
+                            },
+                            request,
+                        )
+                    })
                 },
             )?;
         }
@@ -161,6 +192,7 @@ impl Berm {
         }
 
         Ok(Self {
+            id: id.into(),
             engine: engine.clone(),
             module,
             linker,
@@ -189,6 +221,9 @@ impl Berm {
             bail!("harness exports no tool named {tool:?}");
         };
 
+        // Counted before the store is built, so this guest's own depth is what
+        // its system harnesses are handed.
+        let _level = depth::Level::enter();
         let mut store = self.instantiate(args.into())?;
 
         // Entering the guest blocks this thread until the guest chooses to
@@ -218,6 +253,8 @@ impl Berm {
                 args,
                 result: Vec::new(),
                 failure: None,
+                id: self.id.clone(),
+                depth: depth::current(),
             },
         );
         self.linker.instantiate(&mut store, &self.module)?;
@@ -228,6 +265,10 @@ impl Berm {
 /// Guest state for one invocation. Memory is per-invocation; anything a
 /// harness needs to survive belongs in a storage harness, not here.
 pub struct Invocation {
+    /// The harness this invocation is of, and how deep it sits. Read once when
+    /// the store is built, so a system harness call costs no lookup.
+    id: Arc<str>,
+    depth: u32,
     args: Vec<u8>,
     /// The last system harness call's result, waiting for the guest to pull it.
     /// Staged rather than pushed because its size is not known until the work
@@ -241,6 +282,8 @@ pub struct Invocation {
 impl Invocation {
     fn empty() -> Self {
         Self {
+            id: Arc::from(""),
+            depth: 0,
             args: Vec::new(),
             result: Vec::new(),
             failure: None,
