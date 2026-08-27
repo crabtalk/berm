@@ -7,7 +7,7 @@
 
 use anyhow::{Context as _, Result};
 use berm::Harness;
-use berm::call;
+use berm::system::call;
 use berm_index::{Entry, Source};
 use bermd::Service;
 use bezel::{

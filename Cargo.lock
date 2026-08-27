@@ -720,7 +720,6 @@ dependencies = [
  "berm-api",
  "berm-index",
  "berm-oci",
- "berm-system",
  "bermd",
  "bezel",
  "bezel-gpui",
@@ -781,14 +780,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "berm-system"
-version = "0.0.5"
-dependencies = [
- "anyhow",
- "berm",
-]
-
-[[package]]
 name = "bermd"
 version = "0.0.5"
 dependencies = [
@@ -796,7 +787,6 @@ dependencies = [
  "axum",
  "berm",
  "berm-api",
- "berm-system",
  "clap",
  "hex",
  "rmcp",

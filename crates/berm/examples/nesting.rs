@@ -11,7 +11,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, call};
+use berm::{Berm, system::call};
 use rvtime::{Config, Engine};
 use std::{fs, path::PathBuf};
 

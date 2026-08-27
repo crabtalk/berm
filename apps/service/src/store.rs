@@ -5,7 +5,7 @@
 //! makes the isolation visible on disk as well as on the wire.
 
 use anyhow::{Context, Result};
-use berm::System;
+use berm::{System, system::store};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -14,7 +14,7 @@ use std::{
 /// `berm.get` and `berm.set`, against files under `root`.
 pub(crate) fn system(root: &Path) -> Vec<System> {
     let (reading, writing) = (root.to_owned(), root.to_owned());
-    berm_system::store::harnesses(
+    store::harnesses(
         move |harness, key| read(&reading, harness, key),
         move |harness, key, value| write(&writing, harness, key, value),
     )

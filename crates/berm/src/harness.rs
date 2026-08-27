@@ -1,6 +1,9 @@
 //! One compiled harness, and the state of one invocation of it.
 
-use crate::{Callsite, System, abi, depth, watchdog};
+use crate::{
+    Callsite, System, abi,
+    bound::{depth, watchdog},
+};
 use anyhow::{Context, Result, bail};
 use berm_api::Manifest;
 use rvtime::{Caller, Engine, Linker, Module, Store, TypedFunc};

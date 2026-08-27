@@ -6,7 +6,7 @@
 //! guest memory, and nothing survives the call.
 //!
 //! ```ignore
-//! let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
+//! let berm = Berm::new(&engine, system::call::DEFAULT_CALL_DEPTH, vec![]);
 //! berm.deploy("example", &elf)?;
 //! let result = berm.call("example", "echo", br#"{"query":"hi"}"#.to_vec())?;
 //! ```
@@ -32,10 +32,9 @@ use std::{
 };
 
 pub mod abi;
-pub mod call;
-mod depth;
+mod bound;
 mod harness;
-mod watchdog;
+pub mod system;
 pub mod wire;
 
 // Reached by the host expansion, and re-exported for the reason `berm-lang`
@@ -70,7 +69,7 @@ pub struct Berm {
     /// Every deployed harness, by the name it answers to. A `std` lock because
     /// it is read from inside a guest's host call, where an async one cannot go.
     harnesses: RwLock<BTreeMap<String, Arc<Harness>>>,
-    /// See [`call::DEFAULT_CALL_DEPTH`].
+    /// See [`system::call::DEFAULT_CALL_DEPTH`].
     depth: u32,
     /// What the embedder gives every harness, beside what berm serves itself.
     system: Vec<System>,
@@ -98,7 +97,7 @@ impl Berm {
     /// by the deploy that introduced it, not on a model's turn.
     pub fn deploy(&self, name: &str, elf: &[u8]) -> Result<Arc<Harness>> {
         let mut system = self.system.clone();
-        system.push(call::system(self.me.clone(), self.depth));
+        system.push(system::call::system(self.me.clone(), self.depth));
 
         let harness = Arc::new(Harness::load(&self.engine, elf, name, &system)?);
         self.harnesses

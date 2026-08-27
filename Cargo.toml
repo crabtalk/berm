@@ -21,7 +21,6 @@ berm-codegen = { path = "crates/codegen", version = "0.0.5" }
 berm-index = { path = "crates/index", version = "0.0.5" }
 berm-lang = { path = "crates/lang", version = "0.0.5" }
 berm-oci = { path = "crates/oci", version = "0.0.5" }
-berm-system = { path = "crates/system", version = "0.0.5", default-features = false }
 bermd = { path = "apps/service", version = "0.0.5" }
 rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.5" }
 translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.5" }
