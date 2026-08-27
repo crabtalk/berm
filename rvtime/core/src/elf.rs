@@ -29,6 +29,12 @@ pub fn load(bytes: &[u8]) -> Result<Program> {
     let text = text_range(&elf)?;
     let symbols = symbols(&elf);
     let functions = functions(&elf, &segments, &text)?;
+    if !relocated(&elf) {
+        bail!(
+            "guest was linked without `--emit-relocs`, so nothing says where an \
+             indirect jump may land; relink it with `-Clink-arg=--emit-relocs`"
+        );
+    }
     let indirect = indirect_targets(&elf, &text)?;
 
     Ok(Program {
@@ -150,6 +156,19 @@ fn disassemble(body: &[u8], start: u64) -> Result<Vec<(u64, crate::Inst)>> {
         offset += len;
     }
     Ok(code)
+}
+
+/// Whether the linker kept its relocations.
+///
+/// A fully linked executable carries none unless `--emit-relocs` asked for
+/// them, and without them [`indirect_targets`] returns an empty set rather than
+/// an error — so a guest built without the flag loads, runs, and traps at the
+/// first indirect jump instead of failing here. Any relocation at all is proof
+/// the flag reached the linker; a guest with none of its own would still carry
+/// the ones its direct calls left behind.
+fn relocated(elf: &object::File<'_>) -> bool {
+    elf.sections()
+        .any(|section| section.relocations().next().is_some())
 }
 
 /// Addresses reachable by an indirect jump, from the relocations that name a

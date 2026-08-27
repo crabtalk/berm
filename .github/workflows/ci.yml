@@ -9,7 +9,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
 
 jobs:
   # The matrix is the point of this job. rvtime had only ever run on
@@ -17,6 +16,8 @@ jobs:
   # generation. The runners cover both at once — and the 4 KiB page size on
   # Linux exercises the segment-permission merging that 16 KiB pages hide.
   test:
+    env:
+      RUSTFLAGS: -D warnings
     name: test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -47,6 +48,8 @@ jobs:
       - run: cargo nextest run -p rvtime-compiler -p rvtime --no-default-features --features rvtime-compiler/jit,rvtime/jit
 
   lint:
+    env:
+      RUSTFLAGS: -D warnings
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +64,8 @@ jobs:
   # The examples are documentation: the book includes them by reference rather
   # than pasting them, so running them here is what keeps the docs honest.
   docs:
+    env:
+      RUSTFLAGS: -D warnings
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

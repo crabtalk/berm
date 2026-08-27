@@ -27,5 +27,5 @@ question is whether it was deliberate. Its
 repository, compiled by CI and included here by reference rather than pasted, so
 what you read is what runs.
 
-API documentation is generated from the source and lives at
-[/api](https://crabtalk.github.io/berm/api/); it is not duplicated here.
+API documentation is not published; `cargo doc --open` builds it from the
+source.

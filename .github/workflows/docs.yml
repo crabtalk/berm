@@ -1,18 +1,15 @@
 name: Deploy Site
 
-# One build for the whole site: `bun run build` drives mdbook and rustdoc into
-# `www/static` first, so what CI publishes is what `bun run dev` serves.
+# One build for the whole site: `bun run build` drives mdbook into `www/static`
+# first, so what CI publishes is what `bun run dev` serves.
 on:
   push:
     branches: [main]
     paths:
       - "www/**"
       - "docs/**"
-      # The book includes the examples by reference, and rustdoc comes from the
-      # sources, so both invalidate the published site.
-      - "apps/*/src/**"
-      - "crates/*/src/**"
-      - "rvtime/*/src/**"
+      # The book includes the examples by reference, so they invalidate the
+      # published site too.
       - "rvtime/rvtime/examples/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
@@ -28,8 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - uses: oven-sh/setup-bun@v2
       - uses: peaceiris/actions-mdbook@v2
         with:
@@ -41,7 +36,6 @@ jobs:
       - run: bun run build
         working-directory: www
         env:
-          RUSTDOCFLAGS: -D warnings
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: peaceiris/actions-gh-pages@v4

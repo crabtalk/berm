@@ -21,12 +21,9 @@
 			.catch(() => {});
 	});
 
-	// Both destinations are built by something else — mdbook and rustdoc — and
-	// land in this output after the site does, so neither is a route here.
-	const nav = [
-		{ title: 'Docs', href: `${base}/book/` },
-		{ title: 'API', href: `${base}/api/` }
-	];
+	// mdbook builds this one and it lands in the output after the site does,
+	// so it is not a route here.
+	const nav = [{ title: 'Docs', href: `${base}/book/` }];
 
 	// One delegated handler for the whole site, so a block gets a working copy
 	// button from its markup alone.

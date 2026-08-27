@@ -67,8 +67,7 @@ so `search` reads a clone of it with no service and no credential. See
 
 - **[Guide and design notes](https://crabtalk.github.io/berm/book/)** — how it
   works and why, with worked examples.
-- **[API reference](https://crabtalk.github.io/berm/api/)** — generated from the
-  source.
+- **API reference** — `cargo doc --open`.
 
 ## Building
 
