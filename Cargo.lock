@@ -657,7 +657,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "berm"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "berm-api",
@@ -674,7 +674,7 @@ dependencies = [
 
 [[package]]
 name = "berm-api"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "object 0.40.0",
@@ -684,7 +684,7 @@ dependencies = [
 
 [[package]]
 name = "berm-cli"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "berm-api",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "berm-codegen"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -706,14 +706,14 @@ dependencies = [
 
 [[package]]
 name = "berm-fixture"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "berm-lang",
 ]
 
 [[package]]
 name = "berm-gui"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "berm",
@@ -730,7 +730,7 @@ dependencies = [
 
 [[package]]
 name = "berm-index"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "berm-api",
@@ -741,7 +741,7 @@ dependencies = [
 
 [[package]]
 name = "berm-indexd"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "axum",
@@ -758,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "berm-lang"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "berm-codegen",
  "linked_list_allocator",
@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "berm-oci"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "berm-api",
@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "bermd"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "axum",
@@ -5850,7 +5850,7 @@ dependencies = [
 
 [[package]]
 name = "rvtime"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "libc",
@@ -5863,7 +5863,7 @@ dependencies = [
 
 [[package]]
 name = "rvtime-compiler"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "cc",
@@ -5880,7 +5880,7 @@ dependencies = [
 
 [[package]]
 name = "rvtime-core"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "object 0.40.0",
@@ -5889,7 +5889,7 @@ dependencies = [
 
 [[package]]
 name = "rvtime-cranelift"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "cranelift",
@@ -5900,7 +5900,7 @@ dependencies = [
 
 [[package]]
 name = "rvtime-guest"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "linked_list_allocator",
 ]
