@@ -32,16 +32,6 @@ mod system;
 /// notification costs a stale tool list until the next change, not a wrong one.
 const CHANGE_BACKLOG: usize = 16;
 
-/// How deep a chain of harnesses calling harnesses may go before the next call
-/// is refused. Zero turns composition off, which is the posture bermd had
-/// before it served any system harness at all.
-///
-/// Not a bound on the native stack, which a nesting level costs ~720 bytes of
-/// and would allow thousands: it bounds how far a mechanical composition can
-/// run away from the turn that asked for it, and how much guest address space
-/// one chain reserves — 64 MiB a level.
-pub const DEFAULT_CALL_DEPTH: u32 = 4;
-
 pub struct Service {
     root: PathBuf,
     engine: Engine,
@@ -50,7 +40,7 @@ pub struct Service {
     /// into `notifications/tools/list_changed`, because the tool set mutates
     /// under clients that are already holding a list.
     changed: broadcast::Sender<()>,
-    /// See [`DEFAULT_CALL_DEPTH`].
+    /// See [`berm_system::call::DEFAULT_CALL_DEPTH`].
     depth: u32,
     /// This service, as the system harnesses hold it.
     ///

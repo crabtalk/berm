@@ -35,15 +35,16 @@ jobs:
       - run: cargo nextest run --workspace
       - run: cargo nextest run --workspace --release
 
-      # The object backend, which the default features leave out. Both runners
-      # matter more here than elsewhere: the relocation a call compiles to and
-      # the section names an artifact travels in are per-format, so Mach-O and
-      # ELF reach different arms of the loader.
+      # The JIT, which the default features leave out. With both backends the
+      # artifact is checked against the JIT; with only the JIT the whole
+      # instruction-set suite runs through it.
       #
-      # With both backends the artifact is checked against the JIT; with only
-      # the object backend the whole instruction-set suite runs through it.
-      - run: cargo nextest run -p rvtime-compiler -p rvtime --features rvtime-compiler/aot,rvtime/aot -E 'binary(aot)'
-      - run: cargo nextest run -p rvtime-compiler -p rvtime --no-default-features --features rvtime-compiler/aot,rvtime/aot
+      # Both runners matter for the object backend the default runs exercise:
+      # the relocation a call compiles to and the section names an artifact
+      # travels in are per-format, so Mach-O and ELF reach different arms of
+      # the loader.
+      - run: cargo nextest run -p rvtime-compiler -p rvtime --features rvtime-compiler/jit,rvtime/jit -E 'binary(aot)'
+      - run: cargo nextest run -p rvtime-compiler -p rvtime --no-default-features --features rvtime-compiler/jit,rvtime/jit
 
   lint:
     runs-on: ubuntu-latest
@@ -55,7 +56,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
-      - run: cargo clippy -p rvtime-compiler -p rvtime --no-default-features --features rvtime-compiler/aot,rvtime/aot --all-targets
+      - run: cargo clippy -p rvtime-compiler -p rvtime --no-default-features --features rvtime-compiler/jit,rvtime/jit --all-targets
 
   # The examples are documentation: the book includes them by reference rather
   # than pasting them, so running them here is what keeps the docs honest.

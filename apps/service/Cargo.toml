@@ -14,15 +14,16 @@ name = "bermd"
 path = "bin/main.rs"
 
 [features]
-default = ["jit"]
-jit = ["berm/jit"]
-aot = ["berm/aot"]
+default = ["aot"]
+jit = ["berm/jit", "berm-system/jit"]
+aot = ["berm/aot", "berm-system/aot"]
 
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
 berm.workspace = true
 berm-api.workspace = true
+berm-system.workspace = true
 clap.workspace = true
 rmcp.workspace = true
 serde.workspace = true

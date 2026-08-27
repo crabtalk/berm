@@ -7,16 +7,19 @@
 
 use anyhow::{Context as _, Result};
 use berm_index::{Entry, Source};
+use berm_system::call;
 use bermd::{Deployed, Service};
 use bezel::{
     gpui::{
-        AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, Window, div, prelude::*, px,
+        AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, ScrollHandle, Window, div,
+        prelude::*, px,
     },
     motion,
     theme::Theme,
     ui::{
         focus,
         input::{self, Shape, TextField},
+        scroll::TransientState,
         widgets::{self, Status},
     },
 };
@@ -107,6 +110,8 @@ pub struct Workbench {
     /// Bumped per edit, so an answer that comes back under an old number is
     /// dropped rather than painted over a newer one.
     asked: usize,
+    rail: ScrollHandle,
+    rail_bar: TransientState,
     /// Which schemas are open, keyed the way MCP names a tool.
     expanded: HashSet<String>,
     tab: Tab,
@@ -188,6 +193,8 @@ impl Workbench {
             term: String::new(),
             found: Found::Idle,
             asked: 0,
+            rail: ScrollHandle::new(),
+            rail_bar: TransientState::new(),
             expanded: HashSet::new(),
             tab: Tab::Tools,
             tool: None,
@@ -364,8 +371,7 @@ impl Render for Workbench {
 /// port is known before anything claims to be serving.
 async fn start() -> Result<(Arc<Service>, SocketAddr)> {
     let home = std::env::var("HOME").context("HOME is not set")?;
-    let service =
-        Service::new(PathBuf::from(home).join(".berm"), bermd::DEFAULT_CALL_DEPTH).await?;
+    let service = Service::new(PathBuf::from(home).join(".berm"), call::DEFAULT_CALL_DEPTH).await?;
     let listener = TcpListener::bind(ADDR)
         .await
         .with_context(|| format!("failed to bind {ADDR}"))?;

@@ -18,6 +18,7 @@ anyhow.workspace = true
 berm-api.workspace = true
 berm-index.workspace = true
 berm-oci.workspace = true
+berm-system.workspace = true
 bermd.workspace = true
 bezel.workspace = true
 # `actions!` expands to literal `gpui::` paths, so the crate name has to be in

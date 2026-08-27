@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["jit"]
+default = ["aot"]
 jit = ["rvtime/jit"]
 aot = ["rvtime/aot"]
 

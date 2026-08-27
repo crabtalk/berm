@@ -21,6 +21,7 @@ berm-codegen = { path = "crates/codegen", version = "0.0.5" }
 berm-index = { path = "crates/index", version = "0.0.5" }
 berm-lang = { path = "crates/lang", version = "0.0.5" }
 berm-oci = { path = "crates/oci", version = "0.0.5" }
+berm-system = { path = "crates/system", version = "0.0.5", default-features = false }
 bermd = { path = "apps/service", version = "0.0.5" }
 rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.5" }
 translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.5" }
@@ -80,3 +81,11 @@ syn = { version = "2", features = ["full"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "signal", "sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.dev]
+# Enough for a backtrace to name a line. The full DWARF is what made `target`
+# 12G, 8.6G of it `deps` (2026-08-27).
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = 0
