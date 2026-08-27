@@ -4,25 +4,27 @@
 [![Crates.io](https://img.shields.io/crates/v/berm.svg)](https://crates.io/crates/berm)
 [![Docs](https://img.shields.io/badge/docs-crabtalk.github.io-blue)](https://crabtalk.github.io/berm/)
 
-A sandbox for harnesses.
+The runtime of harnesses.
 
 A harness is one statically linked RV64 ELF. berm pins it by hash, compiles it
 once, and instantiates it per invocation — arguments go in through host calls,
 the result comes back out of guest memory, and nothing survives the call.
 
 ```rust
-let berm = Berm::load(&engine, &elf, "example", &[])?;
+let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
+berm.deploy("example", &elf)?;
 
 // The outer result is the host's — a missing tool, a trap. The inner one is
 // the harness reporting failure, which is a result the model should see.
-match berm.call("echo", br#"{"query":"hello"}"#.to_vec())? {
+match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
     Ok(result) => println!("{result}"),
     Err(failure) => eprintln!("{failure}"),
 }
 ```
 
-A harness reaches the world only through the *system harnesses* it was given,
-and that list is the `Linker` it is instantiated with — a call to anything else
+What is deployed is reachable by name from anything deployed beside it. Beyond
+that a harness reaches the world only through the *system harnesses* it was
+given, and that list is the linker it is instantiated with — a call to anything else
 traps because nothing is registered for it, not because a check said no. berm
 ships none: what a filesystem is bounded by, and where bytes persist, are
 decisions about a host, and berm has no host.

@@ -7,7 +7,7 @@
 //! Where the bytes land is the host's, and arrives as the two closures below.
 
 use anyhow::{Result, bail};
-use berm::{Callsite, Harness, abi, wire};
+use berm::{Callsite, System, abi, wire};
 use std::sync::Arc;
 
 /// Serve both doors against `read` and `write`, each handed the asking harness
@@ -19,9 +19,9 @@ use std::sync::Arc;
 pub fn harnesses(
     read: impl Fn(&str, &str) -> Result<Option<Vec<u8>>> + Send + Sync + 'static,
     write: impl Fn(&str, &str, &[u8]) -> Result<()> + Send + Sync + 'static,
-) -> Vec<Harness> {
+) -> Vec<System> {
     vec![
-        Harness {
+        System {
             name: abi::GET.to_owned(),
             call: Arc::new(move |at: &Callsite<'_>, request: &[u8]| {
                 let fields = wire::fields(request)?;
@@ -35,7 +35,7 @@ pub fn harnesses(
                 })
             }),
         },
-        Harness {
+        System {
             name: abi::SET.to_owned(),
             call: Arc::new(move |at: &Callsite<'_>, request: &[u8]| {
                 let fields = wire::fields(request)?;

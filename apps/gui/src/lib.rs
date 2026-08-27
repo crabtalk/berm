@@ -6,9 +6,10 @@
 //! harnesses the window paints.
 
 use anyhow::{Context as _, Result};
+use berm::Harness;
+use berm::call;
 use berm_index::{Entry, Source};
-use berm_system::call;
-use bermd::{Deployed, Service};
+use bermd::Service;
 use bezel::{
     gpui::{
         AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, ScrollHandle, Window, div,
@@ -93,7 +94,7 @@ pub struct Workbench {
     rt: Runtime,
     engine: Engine,
     /// What the service was holding as of the last refresh.
-    harnesses: Vec<Arc<Deployed>>,
+    harnesses: Vec<Arc<Harness>>,
     /// By name, not index: a refresh renumbers the list, and a harness removed
     /// under the pane should empty it rather than hand the selection to a
     /// neighbour.
@@ -213,13 +214,13 @@ impl Workbench {
     }
 
     /// The deployed harness the pane is on, if it is on one.
-    fn selected(&self) -> Option<&Arc<Deployed>> {
+    fn selected(&self) -> Option<&Arc<Harness>> {
         let Some(Showing::Deployed(name)) = &self.selection else {
             return None;
         };
         self.harnesses
             .iter()
-            .find(|deployed| deployed.name == *name)
+            .find(|deployed| *deployed.name == **name)
     }
 
     /// Show a harness, with the Run pane pointed at its first tool.
@@ -230,7 +231,7 @@ impl Workbench {
         let first = self
             .harnesses
             .iter()
-            .find(|deployed| deployed.name == name)
+            .find(|deployed| &*deployed.name == name)
             .and_then(|deployed| deployed.manifest().tools.first().cloned());
         if let Some(tool) = first {
             self.choose(&tool, cx);
@@ -243,7 +244,7 @@ impl Workbench {
             return;
         };
         let service = service.clone();
-        let listing = self.rt.spawn(async move { service.list().await });
+        let listing = self.rt.spawn(async move { service.list() });
         cx.spawn(async move |this, cx| {
             let Ok(harnesses) = listing.await else { return };
             let _ = this.update(cx, |this, cx| {

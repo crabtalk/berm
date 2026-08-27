@@ -1,13 +1,20 @@
 # berm
 
-A sandbox for harnesses. Loads a hash-pinned RV64 ELF, compiles it once, and
-instantiates it per invocation under [rvtime](https://crates.io/crates/rvtime);
-nothing survives the call.
+The runtime of harnesses. A harness is one hash-pinned RV64 ELF; berm compiles
+it once, holds it by the name it answers to, and instantiates it per invocation
+under [rvtime](https://crates.io/crates/rvtime) — nothing survives the call.
 
-A harness reaches the world only through the system harnesses it was given, and
-that list is the `Linker` it is instantiated with — a call to anything else
-traps because nothing is registered for it. berm ships none: every `Harness` a
-guest can reach is one the embedder passed to `Berm::load`.
+```rust
+let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
+berm.deploy("example", &elf)?;
+let result = berm.call("example", "echo", br#"{"query":"hi"}"#.to_vec())?;
+```
+
+What is deployed is reachable by name from anything deployed beside it, which is
+the one system harness berm serves itself. Everything else a harness reaches is
+a `System` the embedder passed in, and that list is the linker it is
+instantiated with — a call to anything else traps because nothing is registered
+for it. berm ships none.
 
 `Manifest::from_elf(elf)` reads what an image claims to be without compiling or
 running it.

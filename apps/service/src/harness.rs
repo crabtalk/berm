@@ -2,60 +2,41 @@
 
 use crate::Service;
 use anyhow::{Context, Result, bail};
-use berm::{Berm, Manifest};
-use sha2::{Digest, Sha256};
+use berm::Harness;
 use std::{path::PathBuf, sync::Arc};
-
-/// A harness the service is holding: its bytes pinned, its module compiled,
-/// its manifest read.
-pub struct Deployed {
-    pub name: String,
-    /// sha256 of the ELF. Redeploying different bytes under the same name is a
-    /// different harness, and this is what says so.
-    pub digest: String,
-    /// Entering this blocks the calling thread until the guest returns.
-    pub(crate) berm: Berm,
-}
-
-impl Deployed {
-    pub fn manifest(&self) -> &Manifest {
-        self.berm.manifest()
-    }
-}
 
 impl Service {
     /// Compile `elf`, store it, and make its tools reachable under `name`.
     ///
-    /// Compile, then disk, then memory — in that order throughout. Compiling
+    /// Compile, then disk, then publish — in that order throughout. Compiling
     /// first keeps a rejected image from leaving behind a file that fails again
-    /// on every restart; writing before publishing keeps the service from
+    /// on every restart; writing before announcing keeps the service from
     /// serving a tool that would vanish when it restarts.
-    pub async fn deploy(&self, name: &str, elf: Vec<u8>) -> Result<Arc<Deployed>> {
+    pub async fn deploy(&self, name: &str, elf: Vec<u8>) -> Result<Arc<Harness>> {
         validate(name)?;
-        let elf = Arc::new(elf);
-        let deployed = self.compile(name.to_owned(), elf.clone()).await?;
+        let harness = self.compile(name.to_owned(), Arc::new(elf.clone())).await?;
 
         tokio::fs::create_dir_all(self.images())
             .await
             .context("failed to open the image directory")?;
-        tokio::fs::write(self.image(name), elf.as_slice())
+        tokio::fs::write(self.image(name), &elf)
             .await
             .context("failed to store the image")?;
 
-        self.publish(deployed.clone()).await;
-        Ok(deployed)
+        let _ = self.changed.send(());
+        Ok(harness)
     }
 
     /// Forget a harness and delete its image. `false` if it wasn't deployed.
     pub async fn undeploy(&self, name: &str) -> Result<bool> {
-        if self.get(name).await.is_none() {
+        if self.get(name).is_none() {
             return Ok(false);
         }
         tokio::fs::remove_file(self.image(name))
             .await
             .context("failed to remove the image")?;
 
-        self.deployed.write().await.remove(name);
+        self.berm.remove(name);
         let _ = self.changed.send(());
         Ok(true)
     }
@@ -71,13 +52,13 @@ impl Service {
         tool: &str,
         args: Vec<u8>,
     ) -> Result<Result<String, String>> {
-        let Some(deployed) = self.get(harness).await else {
+        let Some(harness) = self.get(harness) else {
             bail!("no harness named {harness:?} is deployed");
         };
         let tool = tool.to_owned();
         // Entering a guest blocks the thread until the guest returns, which is
         // not something a runtime worker can afford to do.
-        tokio::task::spawn_blocking(move || deployed.berm.call(&tool, args))
+        tokio::task::spawn_blocking(move || harness.call(&tool, args))
             .await
             .context("invocation panicked")?
     }
@@ -107,40 +88,19 @@ impl Service {
             // One unloadable image is not a reason to come up with none of
             // them: it is reported and skipped, and the rest still serve.
             match self.compile(name.to_owned(), elf).await {
-                Ok(deployed) => {
-                    tracing::info!(name, digest = %deployed.digest, "restored");
-                    self.publish(deployed).await;
-                }
+                Ok(harness) => tracing::info!(name, digest = %harness.digest, "restored"),
                 Err(error) => tracing::error!(name, "{error:#}"),
             }
         }
         Ok(())
     }
 
-    /// Compile an image and read what it claims to be.
-    ///
-    /// Doing this at deploy rather than on first call means a broken image is
-    /// refused by the deploy that introduced it, not on a model's turn — and
-    /// `Berm::load` checks the manifest against the symbol table on the way.
-    async fn compile(&self, name: String, elf: Arc<Vec<u8>>) -> Result<Arc<Deployed>> {
-        let digest = hex::encode(Sha256::digest(elf.as_slice()));
-        let engine = self.engine.clone();
-        let system = self.system();
-        let id: Arc<str> = Arc::from(name.as_str());
-        let berm = tokio::task::spawn_blocking(move || Berm::load(&engine, &elf, id, &system))
+    /// Compile an image into the runtime, off the async workers.
+    async fn compile(&self, name: String, elf: Arc<Vec<u8>>) -> Result<Arc<Harness>> {
+        let berm = self.berm.clone();
+        tokio::task::spawn_blocking(move || berm.deploy(&name, &elf))
             .await
-            .context("compilation panicked")??;
-        Ok(Arc::new(Deployed { name, digest, berm }))
-    }
-
-    /// Make a compiled harness reachable, and tell every session the tool set
-    /// moved under it.
-    async fn publish(&self, deployed: Arc<Deployed>) {
-        self.deployed
-            .write()
-            .await
-            .insert(deployed.name.clone(), deployed);
-        let _ = self.changed.send(());
+            .context("compilation panicked")?
     }
 
     fn images(&self) -> PathBuf {

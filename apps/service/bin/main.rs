@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use berm_system::call;
+use berm::call;
 use bermd::Service;
 use clap::Parser;
 use std::{net::SocketAddr, path::PathBuf};

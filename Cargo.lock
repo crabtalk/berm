@@ -662,10 +662,12 @@ dependencies = [
  "anyhow",
  "berm-api",
  "berm-codegen",
+ "hex",
  "object 0.40.0",
  "rvtime",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tracing",
  "tracing-subscriber",
 ]
@@ -714,6 +716,7 @@ name = "berm-gui"
 version = "0.0.5"
 dependencies = [
  "anyhow",
+ "berm",
  "berm-api",
  "berm-index",
  "berm-oci",

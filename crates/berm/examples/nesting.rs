@@ -1,9 +1,9 @@
 //! A harness calling a harness.
 //!
-//! The reference guest exports `nest`, which calls `echo` on whatever the host
-//! answers for as `inner`. Here that is a second [`Berm`] built from the same
-//! ELF, which is all a nested call is: a system harness that happens to enter
-//! another guest.
+//! The reference guest exports `nest`, which calls `echo` on whatever the
+//! runtime answers for as `inner`. Here that is the same ELF, deployed twice
+//! under two names — which is all a nested call is: berm resolving a name
+//! against the set it already holds.
 //!
 //! ```sh
 //! cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
@@ -11,9 +11,9 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, Callsite, Harness, Refused, wire};
+use berm::{Berm, call};
 use rvtime::{Config, Engine};
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{fs, path::PathBuf};
 
 const GUEST: &str = "target/riscv64imac-unknown-none-elf/release/fixture";
 
@@ -35,13 +35,12 @@ fn main() -> Result<()> {
     config.cache_dir(std::env::temp_dir().join("berm-nesting"));
     let engine = Engine::new(&config)?;
 
-    // What the name resolves to. A daemon looks this up in what it has deployed
-    // on every call; here it is one harness, held.
-    let inner = Arc::new(Berm::load(&engine, &elf, "inner", &[])?);
+    let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
+    berm.deploy("inner", &elf)?;
+    berm.deploy("outer", &elf)?;
 
-    let outer = Berm::load(&engine, &elf, "outer", &[echo(inner.clone())])?;
-    let result = outer
-        .call("nest", br#"{"query":"hi"}"#.to_vec())?
+    let result = berm
+        .call("outer", "nest", br#"{"query":"hi"}"#.to_vec())?
         .map_err(anyhow::Error::msg)?;
     println!("reached:  {result}");
     assert!(
@@ -50,10 +49,11 @@ fn main() -> Result<()> {
     );
 
     // The other half of the wire: a refusal is not the target's own failure,
-    // and the calling guest is told which it got.
-    let refused = Berm::load(&engine, &elf, "outer", &[missing()])?;
-    let failure = refused
-        .call("nest", br#"{"query":"hi"}"#.to_vec())?
+    // and the calling guest is told which it got. Nothing answers to `inner`
+    // once it is gone.
+    assert!(berm.remove("inner"));
+    let failure = berm
+        .call("outer", "nest", br#"{"query":"hi"}"#.to_vec())?
         .expect_err("a refused call fails its caller");
     println!("refused:  {failure}");
     assert!(
@@ -61,53 +61,15 @@ fn main() -> Result<()> {
         "the guest could not tell a refusal from a failure: {failure}"
     );
 
-    // And the target running and saying no reaches the caller as the other
-    // kind, through the same call.
-    let failing = Berm::load(&engine, &elf, "outer", &[boom()])?;
-    let failure = failing
-        .call("nest", br#"{"query":"hi"}"#.to_vec())?
-        .expect_err("a failing target fails its caller");
-    println!("failed:   {failure}");
-    assert!(
-        !failure.starts_with("refused: "),
-        "a target that ran was reported as never having run: {failure}"
-    );
+    // And the depth bound: `recurse` calls itself on `inner`, which is this
+    // same image, until berm refuses to go deeper. What comes back is how many
+    // levels got through — the runaway a limit exists to stop.
+    berm.deploy("inner", &elf)?;
+    let reached = berm
+        .call("outer", "recurse", b"0".to_vec())?
+        .map_err(anyhow::Error::msg)?;
+    println!("depth:    {reached} levels before the runtime refused");
 
     println!("\nok");
     Ok(())
-}
-
-/// `berm.call`, answered by another compiled harness. A daemon looks the name
-/// up in what it has deployed; here there is one, so any name reaches it.
-fn echo(inner: Arc<Berm>) -> Harness {
-    Harness {
-        name: berm::abi::CALL.to_owned(),
-        call: Arc::new(move |_: &Callsite<'_>, request: &[u8]| {
-            let fields = wire::fields(request)?;
-            let tool = wire::text(&fields, 1, "tool")?;
-            let args = wire::text(&fields, 2, "arguments")?;
-            match inner.call(tool, args.as_bytes().to_vec())? {
-                Ok(result) => Ok(result.into_bytes()),
-                Err(failure) => anyhow::bail!(failure),
-            }
-        }),
-    }
-}
-
-/// Nothing deployed under the name the guest asked for.
-fn missing() -> Harness {
-    Harness {
-        name: berm::abi::CALL.to_owned(),
-        call: Arc::new(|_: &Callsite<'_>, _: &[u8]| {
-            Err(Refused("no harness named \"inner\" is deployed".into()).into())
-        }),
-    }
-}
-
-/// Something that ran and reported failure.
-fn boom() -> Harness {
-    Harness {
-        name: berm::abi::CALL.to_owned(),
-        call: Arc::new(|_: &Callsite<'_>, _: &[u8]| anyhow::bail!("the target said no")),
-    }
 }

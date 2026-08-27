@@ -1,7 +1,7 @@
 //! The rail of harnesses — what is deployed, or what the index lists.
 
 use crate::{Found, Sheet, Showing, TITLEBAR, Workbench, utils};
-use bermd::Deployed;
+use berm::Harness;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
     theme::Theme,
@@ -128,13 +128,14 @@ impl Workbench {
 
     fn row(
         &self,
-        deployed: &Arc<Deployed>,
+        deployed: &Arc<Harness>,
         first: bool,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let name = deployed.name.clone();
-        let selected = matches!(&self.selection, Some(Showing::Deployed(at)) if *at == name);
+        let name = deployed.name.to_string();
+        let selected =
+            matches!(&self.selection, Some(Showing::Deployed(at)) if at.as_str() == &*name);
         let tools = deployed.manifest().tools.len();
 
         theme

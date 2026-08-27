@@ -1,26 +1,11 @@
 # berm-system
 
-The host half of the system harnesses a host running more than one harness
-serves. [`berm`](https://crates.io/crates/berm) ships none of its own: every
-`Harness` a guest can reach is one the embedder passed to `Berm::load`.
+System harnesses an embedder hands to [`berm`](https://crates.io/crates/berm) —
+the ones whose behaviour is the harness model rather than a host's world.
 
-## `berm.call`
-
-One harness reaching a tool on another. berm names it and serves it for nobody
-— a `Berm` is one harness with nothing to dispatch to — so a host running more
-than one is what registers it. How a name resolves is the argument.
-
-```rust
-use berm_system::call;
-
-let system = vec![call::harness(
-    call::DEFAULT_CALL_DEPTH,
-    move |harness, tool, args| resolve(harness)?.call(tool, args),
-)];
-```
-
-The depth bound is on runaway composition, not on the native stack: `0` refuses
-the first nested call.
+berm serves `berm.call` itself, because resolving a name needs only the set of
+deployed harnesses it already is. Everything else a guest reaches is a `System`
+the embedder passed to `Berm::new`.
 
 ## `berm.get` and `berm.set`
 
@@ -42,9 +27,9 @@ empty value and an absent one are told apart. There is no `delete`.
 
 ## What belongs here
 
-A harness only if it needs no policy invented to compile: resolution and
-persistence arrive as arguments. A filesystem cannot be written without choosing
-a root, so it is written by the host that chose one.
+A harness only if it needs no policy invented to compile: persistence arrives
+as an argument. A filesystem cannot be written without choosing a root, so it is
+written by the host that chose one.
 
 ## License
 

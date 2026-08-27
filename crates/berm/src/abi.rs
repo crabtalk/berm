@@ -48,7 +48,7 @@ pub const fn hash(name: &str) -> u64 {
     result
 }
 
-/// What a host registers to serve [`HOST_CALL`], as [`crate::Harness::name`]
+/// What a host registers to serve [`HOST_CALL`], as [`crate::System::name`]
 /// wants it: the name, not the number it hashes to.
 pub const CALL: &str = "berm.call";
 
@@ -57,9 +57,8 @@ pub const CALL: &str = "berm.call";
 /// Request fields are the harness, the tool, and the argument blob; the reply
 /// is the tool's result, staged like any other.
 ///
-/// berm does not serve this one. A [`crate::Berm`] is a single harness and has
-/// nothing to dispatch to — the name is here because both ends of the wire are,
-/// and a host that runs more than one harness is what registers it.
+/// berm serves this one itself: resolving a name needs only the set of
+/// deployed harnesses, which is what a [`crate::Berm`] already is.
 pub const HOST_CALL: u64 = hash(CALL);
 
 /// What a host registers to serve [`HOST_GET`] and [`HOST_SET`].

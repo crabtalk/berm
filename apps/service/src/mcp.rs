@@ -75,7 +75,6 @@ impl ServerHandler for Mcp {
         let tools = self
             .service
             .list()
-            .await
             .iter()
             .flat_map(|deployed| {
                 deployed.manifest().tools.iter().map(|tool| {
@@ -130,7 +129,6 @@ impl ServerHandler for Mcp {
         let resources = self
             .service
             .list()
-            .await
             .iter()
             .filter(|deployed| !deployed.manifest().usage.is_empty())
             .map(|deployed| {
@@ -161,7 +159,6 @@ impl ServerHandler for Mcp {
         let deployed = self
             .service
             .get(name)
-            .await
             .ok_or_else(|| McpError::resource_not_found(request.uri.clone(), None))?;
 
         Ok(ReadResourceResult::new(vec![ResourceContents::text(
