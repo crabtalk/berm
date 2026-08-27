@@ -115,12 +115,99 @@ where
     }
 }
 
+/// How much stack the handler is given, under a guard page. It records a fault
+/// and unwinds and does nothing else, so this is wasmtime's size rather than a
+/// measured one.
+const ALT_STACK: usize = 64 * 1024;
+
+/// The alternate stack this thread's handler runs on, mapped for as long as the
+/// thread lives.
+///
+/// `SA_ONSTACK` names a stack that has to exist. Without one the handler runs
+/// on the stack of the thread that faulted, which for the one fault that most
+/// needs catching — running off the end of it — is the stack that just ran out.
+struct Alternate {
+    base: *mut c_void,
+    len: usize,
+    previous: libc::stack_t,
+}
+
+impl Drop for Alternate {
+    fn drop(&mut self) {
+        // Put back whatever was there before unmapping ours, so nothing is left
+        // pointing at memory this is about to return.
+        unsafe {
+            libc::sigaltstack(&raw const self.previous, ptr::null_mut());
+            libc::munmap(self.base, self.len);
+        }
+    }
+}
+
+thread_local! {
+    static ALTERNATE: Cell<Option<Alternate>> = const { Cell::new(None) };
+}
+
+/// Give this thread an alternate stack, unless it already has a usable one.
+///
+/// A runtime that installed its own is left alone: replacing it would strand
+/// whatever it meant to catch.
+fn alternate() -> Option<Alternate> {
+    let mut previous: libc::stack_t = unsafe { std::mem::zeroed() };
+    if unsafe { libc::sigaltstack(ptr::null(), &raw mut previous) } != 0 {
+        return None;
+    }
+    if previous.ss_flags & libc::SS_DISABLE == 0 && previous.ss_size >= ALT_STACK {
+        return None;
+    }
+
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+    let len = page + ALT_STACK;
+    let base = unsafe {
+        libc::mmap(
+            ptr::null_mut(),
+            len,
+            libc::PROT_NONE,
+            libc::MAP_PRIVATE | libc::MAP_ANON,
+            -1,
+            0,
+        )
+    };
+    if base == libc::MAP_FAILED {
+        return None;
+    }
+
+    // The lowest page stays unreadable: a stack grows down, so overrunning this
+    // one faults rather than writing into whatever was mapped below it.
+    let stack = unsafe { base.add(page) };
+    if unsafe { libc::mprotect(stack, ALT_STACK, libc::PROT_READ | libc::PROT_WRITE) } != 0 {
+        unsafe { libc::munmap(base, len) };
+        return None;
+    }
+
+    let ours = libc::stack_t {
+        ss_sp: stack,
+        ss_size: ALT_STACK,
+        ss_flags: 0,
+    };
+    if unsafe { libc::sigaltstack(&raw const ours, ptr::null_mut()) } != 0 {
+        unsafe { libc::munmap(base, len) };
+        return None;
+    }
+
+    Some(Alternate {
+        base,
+        len,
+        previous,
+    })
+}
+
 /// Install the signal handlers for this thread, once.
 fn install() {
     INSTALLED.with(|installed| {
         if installed.get() {
             return;
         }
+        ALTERNATE.with(|slot| slot.set(alternate()));
         let code = unsafe { rvtime_install(handler) };
         assert_eq!(code, 0, "failed to install guest fault handlers: {code}");
         installed.set(true);
