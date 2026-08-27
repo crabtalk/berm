@@ -157,7 +157,7 @@ impl Workbench {
                 div()
                     .w(px(460.0))
                     .p(px(24.0))
-                    .rounded(px(Theme::SURFACE_RADIUS))
+                    .rounded(px(Theme::surface_radius()))
                     .border_1()
                     .border_color(theme.border)
                     .bg(theme.surface_dialog)

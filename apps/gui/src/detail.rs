@@ -203,7 +203,7 @@ impl Workbench {
                         .w_full()
                         .px(px(10.0))
                         .py(px(8.0))
-                        .rounded(px(Theme::CONTROL_RADIUS))
+                        .rounded(px(Theme::control_radius()))
                         .bg(theme.surface_raised)
                         .font_family(theme.font_mono.clone())
                         .text_size(px(11.5))

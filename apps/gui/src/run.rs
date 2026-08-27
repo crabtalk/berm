@@ -215,7 +215,7 @@ impl Invocation {
                         .w_full()
                         .border_t_0()
                         .mt(px(4.0))
-                        .rounded(px(Theme::CONTROL_RADIUS))
+                        .rounded(px(Theme::control_radius()))
                         .bg(theme.surface_raised),
                 )
             })
