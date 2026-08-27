@@ -37,6 +37,10 @@ pub const HOST_ARG_READ: u64 = hash("berm.args.read");
 pub const HOST_FAIL: u64 = hash("berm.fail");
 /// Copy the last system harness call's staged result into guest memory.
 pub const HOST_RESULT_READ: u64 = hash("berm.result.read");
+/// Read one of this harness's own keys.
+pub const HOST_GET: u64 = hash("berm.get");
+/// Write one.
+pub const HOST_SET: u64 = hash("berm.set");
 /// Call a tool on another harness the same host is running.
 pub const HOST_CALL: u64 = hash("berm.call");
 /// Where this guest's heap starts. Asked for on the first allocation, from

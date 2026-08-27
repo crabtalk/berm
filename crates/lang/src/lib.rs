@@ -52,6 +52,7 @@ pub mod abi;
 mod call;
 mod heap;
 mod out;
+mod store;
 pub mod test;
 pub mod tool;
 
@@ -69,6 +70,8 @@ pub use out::Out;
 
 #[cfg(feature = "alloc")]
 pub use call::{CallError, call};
+#[cfg(feature = "alloc")]
+pub use store::{get, set};
 
 // Re-exported so a harness declares this SDK and nothing else. The `#[harness]`
 // macro writes `#[serde(crate = "::berm_lang::serde")]` onto argument structs,

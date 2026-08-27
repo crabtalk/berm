@@ -12,15 +12,15 @@
 //! harness still reaches only through what its host registered — and bermd
 //! registers nothing else.
 
-use crate::Service;
+use crate::{Service, store as disk};
 use berm::{Harness, Refused};
-use berm_system::call;
+use berm_system::{call, store};
 
 impl Service {
     /// What every deployed harness is given.
     pub(crate) fn system(&self) -> Vec<Harness> {
         let service = self.me.clone();
-        vec![call::harness(self.depth, move |harness, tool, args| {
+        let mut system = vec![call::harness(self.depth, move |harness, tool, args| {
             let Some(service) = service.upgrade() else {
                 return Err(Refused(format!(
                     "the service is shutting down, so {harness}.{tool} cannot run"
@@ -55,6 +55,15 @@ impl Service {
             // through the runtime would cost a blocking thread per level of
             // nesting.
             deployed.berm.call(tool, args.as_bytes().to_vec())
-        })]
+        })];
+
+        // The root rather than the service: reading a key needs nothing the
+        // service holds, so these outlive a shutdown that `berm.call` cannot.
+        let (reading, writing) = (self.root.clone(), self.root.clone());
+        system.extend(store::harnesses(
+            move |harness, key| disk::read(&reading, harness, key),
+            move |harness, key, value| disk::write(&writing, harness, key, value),
+        ));
+        system
     }
 }

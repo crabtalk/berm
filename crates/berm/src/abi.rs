@@ -62,6 +62,25 @@ pub const CALL: &str = "berm.call";
 /// and a host that runs more than one harness is what registers it.
 pub const HOST_CALL: u64 = hash(CALL);
 
+/// What a host registers to serve [`HOST_GET`] and [`HOST_SET`].
+pub const GET: &str = "berm.get";
+pub const SET: &str = "berm.set";
+
+/// Read one of this harness's own keys. `(ptr, len) -> staged length`
+///
+/// The request is the key; the reply is one field when the key is set and no
+/// fields when it is not, so an empty value and an absent one are told apart.
+///
+/// Neither this nor [`HOST_SET`] carries a harness: the keyspace is whichever
+/// harness is asking, which the host reads off the [`crate::Callsite`]. Another
+/// harness's keys are not refused, they are unaddressable.
+pub const HOST_GET: u64 = hash(GET);
+
+/// Write one. `(ptr, len) -> staged length`
+///
+/// Request fields are the key and the value; the reply is empty.
+pub const HOST_SET: u64 = hash(SET);
+
 /// Where this guest's heap starts. `() -> address`
 pub const HOST_HEAP_START: u64 = hash("berm.heap.start");
 /// How many bytes of it there are. `() -> length`

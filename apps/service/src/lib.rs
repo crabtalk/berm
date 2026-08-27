@@ -26,6 +26,7 @@ pub use harness::Deployed;
 mod api;
 mod harness;
 mod mcp;
+mod store;
 mod system;
 
 /// How many deploys may go unread by a session before it misses one. A missed
