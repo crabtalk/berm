@@ -14,13 +14,12 @@
 //! them. The *slot* belongs to whoever armed it, so pointing one at `a.b`
 //! leaves whatever `a` armed for itself alone.
 
-use crate::{Service, utils};
+use crate::Service;
 use anyhow::{Context, Result, bail};
-use berm::{Callsite, System, abi, wire};
+use berm::{Callsite, Records, System, abi, wire};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    path::PathBuf,
     sync::{Arc, Mutex, Weak},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -89,7 +88,9 @@ impl Service {
             );
         }
 
-        utils::write(&self.wake_record(owner), &serde_json::to_vec(&wake)?)
+        self.berm
+            .storage()
+            .put(Records::Wakes, owner, &serde_json::to_vec(&wake)?)
             .context("failed to write down a wake")?;
         self.hold(owner.to_owned(), wake, runtime);
         Ok(Vec::new())
@@ -147,51 +148,24 @@ impl Service {
     }
 
     fn erase_wake(&self, owner: &str) {
-        if let Err(error) = std::fs::remove_file(self.wake_record(owner))
-            && error.kind() != std::io::ErrorKind::NotFound
-        {
-            tracing::warn!(owner, "failed to forget a wake: {error}");
+        if let Err(error) = self.berm.storage().remove(Records::Wakes, owner) {
+            tracing::warn!(owner, "failed to forget a wake: {error:#}");
         }
     }
 
     /// Take up every wake that was pending when this process last stopped.
     pub(crate) async fn rearm(self: &Arc<Self>) -> Result<()> {
-        let directory = self.root.join("wakes");
-        if !directory.is_dir() {
-            return Ok(());
-        }
-
         let runtime = Handle::current();
-        let mut entries = tokio::fs::read_dir(&directory)
-            .await
-            .context("failed to read the wake directory")?;
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            let Some(owner) = path
-                .extension()
-                .filter(|extension| *extension == "json")
-                .and_then(|_| path.file_stem())
-                .and_then(|stem| stem.to_str())
-            else {
-                continue;
-            };
-
-            match tokio::fs::read(&path).await.map(|bytes| {
-                serde_json::from_slice::<Wake>(&bytes).context("unreadable wake record")
-            }) {
-                Ok(Ok(wake)) => {
+        for (owner, bytes) in self.berm.storage().list(Records::Wakes)? {
+            match serde_json::from_slice::<Wake>(&bytes) {
+                Ok(wake) => {
                     tracing::info!(owner, at = wake.at, "rearming");
-                    self.hold(owner.to_owned(), wake, &runtime);
+                    self.hold(owner, wake, &runtime);
                 }
-                Ok(Err(error)) => tracing::error!(owner, "{error:#}"),
-                Err(error) => tracing::error!(owner, "failed to read a wake: {error}"),
+                Err(error) => tracing::error!(owner, "unreadable wake record: {error}"),
             }
         }
         Ok(())
-    }
-
-    fn wake_record(&self, owner: &str) -> PathBuf {
-        self.root.join("wakes").join(format!("{owner}.json"))
     }
 }
 

@@ -11,7 +11,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, system::call};
+use berm::{Berm, storage, system::call};
 use rvtime::{Config, Engine};
 use std::{fs, path::PathBuf};
 
@@ -35,7 +35,12 @@ fn main() -> Result<()> {
     config.cache_dir(std::env::temp_dir().join("berm-nesting"));
     let engine = Engine::new(&config)?;
 
-    let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
+    let berm = Berm::new(
+        &engine,
+        call::DEFAULT_CALL_DEPTH,
+        vec![],
+        storage::Memory::new(),
+    );
     berm.deploy("inner", &elf)?;
     berm.deploy("outer", &elf)?;
 
@@ -51,7 +56,7 @@ fn main() -> Result<()> {
     // The other half of the wire: a refusal is not the target's own failure,
     // and the calling guest is told which it got. Nothing answers to `inner`
     // once it is gone.
-    assert!(berm.remove("inner"));
+    assert!(berm.remove("inner")?);
     let failure = berm
         .call("outer", "nest", br#"{"query":"hi"}"#.to_vec())?
         .expect_err("a refused call fails its caller");

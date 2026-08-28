@@ -16,6 +16,7 @@ use tokio::{net::TcpListener, runtime::Handle, sync::broadcast};
 
 mod api;
 mod deps;
+mod files;
 mod harness;
 mod mcp;
 mod socket;
@@ -31,9 +32,9 @@ pub use socket::Policy;
 const CHANGE_BACKLOG: usize = 16;
 
 pub struct Service {
-    root: PathBuf,
-    /// The harnesses this service is running. berm holds the set; what is left
-    /// here is where their images live and who is told when it changes.
+    /// The harnesses this service is running, and the records behind them.
+    /// berm holds both; what is left here is everything it has no opinion
+    /// about — who is told when the set changes, and what a guest may dial.
     berm: Arc<Berm>,
     /// Fires when the deployed set changes. Connected MCP sessions turn this
     /// into `notifications/tools/list_changed`, because the tool set mutates
@@ -64,17 +65,19 @@ impl Service {
             system.extend(socket::system(me.clone(), runtime.clone()));
             system.push(timer::system(me.clone(), runtime));
             Self {
-                berm: Berm::new(&engine, depth, system),
+                berm: Berm::new(&engine, depth, system, Arc::new(files::Files::open(&root))),
                 changed: broadcast::channel(CHANGE_BACKLOG).0,
                 sockets: socket::Sockets::default(),
                 wakes: timer::Wakes::default(),
                 policy,
-                root,
             }
         });
-        service.restore().await?;
-        // After the images: a connection's events name a harness, which has to
-        // be deployed before the first frame lands on it.
+        // Images first: a connection's events name a harness, which has to be
+        // deployed before the first frame lands on it.
+        let restoring = service.clone();
+        tokio::task::spawn_blocking(move || restoring.berm.restore())
+            .await
+            .context("restoring panicked")??;
         service.reopen().await?;
         service.rearm().await?;
         Ok(service)

@@ -15,14 +15,13 @@
 //! berm serves none of this itself. A dialer needs an allowlist and a frame
 //! cap to compile at all, and those are decisions about a host.
 
-use crate::{Service, utils};
+use crate::Service;
 use anyhow::{Context, Result, bail};
-use berm::{Callsite, System, abi, wire};
+use berm::{Callsite, Records, System, abi, wire};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    path::PathBuf,
     sync::{
         Arc, Mutex, Weak,
         atomic::{AtomicU64, Ordering},
@@ -279,7 +278,13 @@ impl Service {
 
         // Written before the dial, so a connection that comes up and is never
         // heard from again is still one a restart knows to reopen.
-        utils::write(&self.record(id), &serde_json::to_vec(&record)?)
+        self.berm
+            .storage()
+            .put(
+                Records::Sockets,
+                &id.to_string(),
+                &serde_json::to_vec(&record)?,
+            )
             .context("failed to write down a connection")?;
 
         runtime.spawn(run(
@@ -297,10 +302,12 @@ impl Service {
         if let Ok(mut open) = self.sockets.open.lock() {
             open.remove(&id);
         }
-        if let Err(error) = std::fs::remove_file(self.record(id))
-            && error.kind() != std::io::ErrorKind::NotFound
+        if let Err(error) = self
+            .berm
+            .storage()
+            .remove(Records::Sockets, &id.to_string())
         {
-            tracing::warn!(id, "failed to forget a connection: {error}");
+            tracing::warn!(id, "failed to forget a connection: {error:#}");
         }
     }
 
@@ -310,36 +317,16 @@ impl Service {
     /// the same as any other failed dial, so a far end that is down does not
     /// keep the service from starting.
     pub(crate) async fn reopen(self: &Arc<Self>) -> Result<()> {
-        let directory = self.root.join("sockets");
-        if !directory.is_dir() {
-            return Ok(());
-        }
-
         let runtime = Handle::current();
-        let mut entries = tokio::fs::read_dir(&directory)
-            .await
-            .context("failed to read the connection directory")?;
         let mut highest = 0;
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            let Some(id) = path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .and_then(|stem| stem.parse::<u64>().ok())
-            else {
+        for (key, bytes) in self.berm.storage().list(Records::Sockets)? {
+            let Ok(id) = key.parse::<u64>() else {
                 continue;
             };
-
-            let record: Record = match tokio::fs::read(&path).await {
-                Ok(bytes) => match serde_json::from_slice(&bytes) {
-                    Ok(record) => record,
-                    Err(error) => {
-                        tracing::error!(id, "unreadable connection record: {error}");
-                        continue;
-                    }
-                },
+            let record: Record = match serde_json::from_slice(&bytes) {
+                Ok(record) => record,
                 Err(error) => {
-                    tracing::error!(id, "failed to read a connection record: {error}");
+                    tracing::error!(id, "unreadable connection record: {error}");
                     continue;
                 }
             };
@@ -365,10 +352,6 @@ impl Service {
             bail!("{host} is not a host this service may dial");
         }
         Ok(())
-    }
-
-    fn record(&self, id: u64) -> PathBuf {
-        self.root.join("sockets").join(format!("{id}.json"))
     }
 }
 

@@ -80,7 +80,10 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("bermd=info".parse().expect("the default directive parses")),
+                .add_directive("bermd=info".parse().expect("the default directive parses"))
+                // The runtime restores its own images now, so its target has
+                // to be on by default or coming back says nothing.
+                .add_directive("berm=info".parse().expect("the default directive parses")),
         )
         .init();
 

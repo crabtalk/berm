@@ -11,7 +11,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, Harness};
+use berm::{Berm, Harness, storage};
 use rvtime::{Config, Engine};
 use std::{
     fs,
@@ -151,7 +151,7 @@ fn main() -> Result<()> {
         let mut config = Config::new();
         config.cache_dir(&cache).memory_size(mib * 1024 * 1024);
         let engine = Engine::new(&config)?;
-        let berm = Berm::new(&engine, 0, vec![]);
+        let berm = Berm::new(&engine, 0, vec![], storage::Memory::new());
         let harness = berm.deploy("fixture", &elf)?;
 
         let mut samples = Vec::with_capacity(ROUNDS);
@@ -179,7 +179,7 @@ fn compile(dir: &std::path::Path, elf: &[u8]) -> Result<Arc<Harness>> {
     config.cache_dir(dir);
 
     let engine = Engine::new(&config)?;
-    Berm::new(&engine, 0, vec![]).deploy("fixture", elf)
+    Berm::new(&engine, 0, vec![], storage::Memory::new()).deploy("fixture", elf)
 }
 
 fn time<T>(f: impl FnOnce() -> Result<T>) -> Result<Duration> {
