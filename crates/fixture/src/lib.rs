@@ -104,6 +104,48 @@ mod tools {
         }
     }
 
+    /// Dials the URL in its arguments, pointing everything that happens on it
+    /// at `wire` below. Answers with the connection's id.
+    pub fn dial(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let url = core::str::from_utf8(args).unwrap_or("").trim();
+        match berm_lang::socket::open(url, "fixture", "wire") {
+            Ok(id) => {
+                let mut buffer = alloc::string::String::new();
+                let _ = core::fmt::Write::write_fmt(&mut buffer, format_args!("{id}"));
+                out.write(buffer.as_bytes());
+                Ok(())
+            }
+            Err(error) => berm_lang::tool::system(Err(error), out).map(|_: ()| ()),
+        }
+    }
+
+    /// Where `dial`'s connection lands, echoing each frame back down the one it
+    /// arrived on — the whole loop in one tool: a host event starts an
+    /// invocation, and the invocation answers the connection that caused it.
+    pub fn wire(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        use berm_lang::socket::{Kind, event, send};
+
+        let Some(event) = event(args) else {
+            out.write(b"not a connection event");
+            return Err(Failed);
+        };
+        match event.kind {
+            Kind::Open(failure) if failure.is_empty() => out.write(b"open"),
+            Kind::Open(failure) => {
+                out.write(b"dial failed: ");
+                out.write(failure.as_bytes());
+                return Err(Failed);
+            }
+            Kind::Message(frame) => {
+                send(event.connection, frame)
+                    .map_err(|error| berm_lang::tool::system::<()>(Err(error), out).unwrap_err())?;
+                out.write(b"echoed");
+            }
+            Kind::Close(_) => out.write(b"closed"),
+        }
+        Ok(())
+    }
+
     /// Calls itself on `inner`, which is this same harness when deployed under
     /// that name — the runaway a depth limit exists to stop. Reports how many
     /// levels got through before the host refused.

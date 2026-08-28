@@ -43,6 +43,18 @@ pub const HOST_GET: u64 = hash("berm.get");
 pub const HOST_SET: u64 = hash("berm.set");
 /// Call a tool on another harness the same host is running.
 pub const HOST_CALL: u64 = hash("berm.call");
+/// Open a connection, naming the tool its events reach.
+pub const HOST_WS_OPEN: u64 = hash("berm.ws.open");
+/// Queue bytes on one.
+pub const HOST_WS_SEND: u64 = hash("berm.ws.send");
+/// Close one.
+pub const HOST_WS_CLOSE: u64 = hash("berm.ws.close");
+
+/// The first field of every invocation a connection starts, saying which of
+/// the three things happened. The body follows as the second field.
+pub const WS_EVENT_OPEN: &str = "open";
+pub const WS_EVENT_MESSAGE: &str = "message";
+pub const WS_EVENT_CLOSE: &str = "close";
 /// Where this guest's heap starts. Asked for on the first allocation, from
 /// inside the entry the guest is already in.
 pub const HOST_HEAP_START: u64 = hash("berm.heap.start");

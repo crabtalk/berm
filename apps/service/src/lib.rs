@@ -12,12 +12,16 @@
 use anyhow::{Context, Result};
 use berm::{Berm, Config, Engine, Harness};
 use std::{path::PathBuf, sync::Arc};
-use tokio::{net::TcpListener, sync::broadcast};
+use tokio::{net::TcpListener, runtime::Handle, sync::broadcast};
 
 mod api;
 mod harness;
 mod mcp;
+mod socket;
+mod source;
 mod store;
+
+pub use socket::Policy;
 
 /// How many deploys may go unread by a session before it misses one. A missed
 /// notification costs a stale tool list until the next change, not a wrong one.
@@ -32,19 +36,30 @@ pub struct Service {
     /// into `notifications/tools/list_changed`, because the tool set mutates
     /// under clients that are already holding a list.
     changed: broadcast::Sender<()>,
+    /// Connections harnesses have open, and the source of every invocation
+    /// they start.
+    pub(crate) sockets: socket::Sockets,
 }
 
 impl Service {
     /// Open `root`, restoring whatever was deployed before this process.
-    pub async fn new(root: PathBuf, depth: u32) -> Result<Arc<Self>> {
+    pub async fn new(root: PathBuf, depth: u32, policy: Policy) -> Result<Arc<Self>> {
         let mut config = Config::new();
         config.cache_dir(root.join("cache"));
         let engine = Engine::new(&config).context("failed to start the compiler")?;
 
-        let service = Arc::new(Self {
-            berm: Berm::new(&engine, depth, store::system(&root)),
-            changed: broadcast::channel(CHANGE_BACKLOG).0,
-            root,
+        // Cyclic for the reason `Berm` is: the socket doors reach back into
+        // the service holding the table they write to.
+        let runtime = Handle::current();
+        let service = Arc::new_cyclic(|me| {
+            let mut system = store::system(&root);
+            system.extend(socket::system(me.clone(), policy, runtime));
+            Self {
+                berm: Berm::new(&engine, depth, system),
+                changed: broadcast::channel(CHANGE_BACKLOG).0,
+                sockets: socket::Sockets::default(),
+                root,
+            }
         });
         service.restore().await?;
         Ok(service)

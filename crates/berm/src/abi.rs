@@ -80,6 +80,36 @@ pub const HOST_GET: u64 = hash(GET);
 /// Request fields are the key and the value; the reply is empty.
 pub const HOST_SET: u64 = hash(SET);
 
+/// What a host registers to serve the socket doors. berm serves none of them:
+/// a dialer needs an allowlist and a frame cap, which are a host's decisions.
+pub const WS_OPEN: &str = "berm.ws.open";
+pub const WS_SEND: &str = "berm.ws.send";
+pub const WS_CLOSE: &str = "berm.ws.close";
+
+/// Open a connection, naming the tool its events reach. `(ptr, len) -> staged length`
+///
+/// Request fields are the URL, the harness and the tool; the reply is the id
+/// the other two doors take. The dial outlives this call, so a connection that
+/// never comes up says so through a [`WS_EVENT_OPEN`] event carrying the error.
+pub const HOST_WS_OPEN: u64 = hash(WS_OPEN);
+
+/// Queue bytes on a connection. `(ptr, len) -> staged length`
+///
+/// Request fields are the id and the payload; the reply is empty. Queued: a
+/// guest that waited for the far end would hold its thread for a round trip.
+pub const HOST_WS_SEND: u64 = hash(WS_SEND);
+
+/// Close a connection. `(ptr, len) -> staged length`
+///
+/// The request is the id; the reply is empty.
+pub const HOST_WS_CLOSE: u64 = hash(WS_CLOSE);
+
+/// The first field of every invocation a connection starts, saying which of
+/// the three things happened. The body follows as the second field.
+pub const WS_EVENT_OPEN: &str = "open";
+pub const WS_EVENT_MESSAGE: &str = "message";
+pub const WS_EVENT_CLOSE: &str = "close";
+
 /// Where this guest's heap starts. `() -> address`
 pub const HOST_HEAP_START: u64 = hash("berm.heap.start");
 /// How many bytes of it there are. `() -> length`
