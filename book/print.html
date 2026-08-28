@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d2c996eb.js";
+            window.path_to_searchindex_js = "searchindex-98fc8db5.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-4d41d46a.js"></script>
@@ -319,8 +319,8 @@ rather than reading a plausible zero.</p>
 harness, and what berm’s own tests run against.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="the-manifest"><a class="header" href="#the-manifest">The Manifest</a></h1>
-<p>What a harness says it is: its ABI version, its tools, and when to reach for
-them.</p>
+<p>What a harness says it is: its ABI version, its tools, when to reach for them,
+and what it reaches for itself.</p>
 <p>The manifest is JSON, carried in a <code>.berm.abi</code> section of the ELF rather than
 behind an export. That placement is the point — reading what an image claims
 must not mean running it. <code>Manifest::from_elf</code> parses the section with nothing
@@ -339,6 +339,21 @@ reach for this harness at all, and how its tools go together. An embedder puts
 it in front of a model <em>before</em> it chooses between them, so it is paid on every
 turn — a few lines, not a manual. <code>#[harness(usage_file = "…")]</code> reads it from a
 file at compile time when it outgrows an attribute.</p>
+<h2 id="dependencies"><a class="header" href="#dependencies">Dependencies</a></h2>
+<p><code>#[harness(deps = ["weather", "wss://slack.com"])]</code> is what an image says it
+will reach for once it runs — harnesses it calls by name, and hosts it dials,
+told apart by whether one carries a scheme. These are runtime and resolved
+wherever the image lands: nothing here is fetched, installed, or compiled in,
+which is what separates them from the crate’s own <code>[dependencies]</code>.</p>
+<p>Declared by the author rather than found by reading the image, because a target
+the harness computes at the call is invisible to any scan — a list built that
+way would be quietly short, and the runtime <code>Refused</code> would still be needed
+underneath it.</p>
+<p>Nothing is refused for an unmet dependency. <code>berm deploy</code> says so and carries
+on, and <code>berm inspect</code> marks the ones this service answers to nothing for.
+Refusing would make deploy order significant, and a restart brings harnesses
+back in whatever order the filesystem lists them — two that name each other
+could then never come up at all.</p>
 <h2 id="two-checks-at-load"><a class="header" href="#two-checks-at-load">Two checks at load</a></h2>
 <p><code>Berm::deploy</code> refuses an image on two grounds before it can ever be offered to a
 model.</p>
