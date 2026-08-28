@@ -27,27 +27,52 @@ struct Args {
 
     /// A host a harness may open a connection to. Repeat for each one.
     ///
-    /// Given none, no harness may dial at all. Opening the door means saying
-    /// how wide, so this requires the two bounds below.
-    #[arg(
-        long = "ws-allow",
-        value_name = "HOST",
-        requires_all = ["ws_max_connections", "ws_queue"]
-    )]
+    /// Given none, no harness may dial at all.
+    #[arg(long = "ws-allow", value_name = "HOST")]
     ws_allow: Vec<String>,
 
     /// How many connections this service may hold at once.
-    #[arg(long)]
-    ws_max_connections: Option<usize>,
+    ///
+    /// Under a 1024-descriptor soft limit with room to spare, since each
+    /// connection costs one and the images, state and listener want theirs.
+    #[arg(long, value_name = "N|none", default_value = "256")]
+    ws_max_connections: Cap,
 
     /// How many frames may wait to go out on one connection before a send is
-    /// refused. A queue holds at least one.
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
-    ws_queue: Option<u64>,
+    /// refused.
+    ///
+    /// Backpressure rather than buffering: a deep queue delays the news that a
+    /// far end has stopped reading, and this is what reports it.
+    #[arg(long, value_name = "N|none", default_value = "64")]
+    ws_queue: Cap,
 
-    /// Largest message a connection may carry, tungstenite's own bound.
-    #[arg(long, default_value_t = 64 << 20)]
-    ws_max_frame: usize,
+    /// Largest message a connection may carry, 64 MiB being tungstenite's own
+    /// bound.
+    #[arg(long, value_name = "BYTES|none", default_value = "67108864")]
+    ws_max_frame: Cap,
+}
+
+/// A bound, or `none` for no bound at all.
+#[derive(Clone, Copy)]
+struct Cap(Option<usize>);
+
+impl std::str::FromStr for Cap {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.eq_ignore_ascii_case("none") {
+            return Ok(Self(None));
+        }
+        match value.parse() {
+            // Zero would be a cap that refuses everything, which `none` is
+            // already the word for the opposite of. Neither is a useful bound.
+            Ok(0) => Err(String::from(
+                "a bound of 0 admits nothing; say `none` for no bound",
+            )),
+            Ok(bound) => Ok(Self(Some(bound))),
+            Err(_) => Err(format!("expected a number or `none`, not {value:?}")),
+        }
+    }
 }
 
 #[tokio::main]
@@ -65,16 +90,13 @@ async fn main() -> Result<()> {
         None => PathBuf::from(std::env::var("HOME").context("HOME is not set")?).join(".berm"),
     };
 
-    // Both are present or both absent: clap ties them to `--ws-allow`, which
-    // is what decides whether any of it is reachable.
-    let policy = match (args.ws_max_connections, args.ws_queue) {
-        (Some(max_connections), Some(queue)) => Policy {
-            allow: args.ws_allow,
-            max_frame: args.ws_max_frame,
-            max_connections,
-            queue: queue as usize,
-        },
-        _ => Policy::default(),
+    // The bounds always have values; an empty allowlist is what decides
+    // whether any of them is ever reached.
+    let policy = Policy {
+        allow: args.ws_allow,
+        max_frame: args.ws_max_frame.0,
+        max_connections: args.ws_max_connections.0,
+        queue: args.ws_queue.0,
     };
 
     let service = Service::new(root, args.max_call_depth, policy).await?;

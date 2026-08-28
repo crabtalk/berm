@@ -38,15 +38,65 @@ use tokio_tungstenite::{
 ///
 /// [`Default`] is every door shut: an empty allowlist refuses each dial before
 /// any of the caps below it is read, so an embedder that says nothing grants
-/// nothing.
+/// nothing. Each cap is `None` for no bound at all.
 #[derive(Clone, Default)]
 pub struct Policy {
     /// Hosts a harness may dial.
     pub allow: Vec<String>,
-    pub max_frame: usize,
-    pub max_connections: usize,
+    pub max_frame: Option<usize>,
+    pub max_connections: Option<usize>,
     /// How many frames may be waiting to go out before a send is refused.
-    pub queue: usize,
+    pub queue: Option<usize>,
+}
+
+/// The sending half of a connection's queue.
+///
+/// Two shapes because an unbounded queue is a different tokio channel, and the
+/// alternative — a bounded one at some enormous capacity — would be a cap
+/// pretending not to be one.
+enum Outbound {
+    Bounded(mpsc::Sender<Message>),
+    Unbounded(mpsc::UnboundedSender<Message>),
+}
+
+/// Its receiving half.
+enum Inbound {
+    Bounded(mpsc::Receiver<Message>),
+    Unbounded(mpsc::UnboundedReceiver<Message>),
+}
+
+impl Outbound {
+    /// Never waits for room. This runs on the thread inside the guest, and the
+    /// task that would drain the queue is the same one awaiting this very
+    /// invocation — a send that waited would wait for itself.
+    fn try_send(&self, message: Message) -> Result<()> {
+        match self {
+            Self::Bounded(sender) => sender.try_send(message).map_err(|error| error.into()),
+            Self::Unbounded(sender) => sender.send(message).map_err(|error| error.into()),
+        }
+    }
+}
+
+impl Inbound {
+    async fn recv(&mut self) -> Option<Message> {
+        match self {
+            Self::Bounded(inbound) => inbound.recv().await,
+            Self::Unbounded(inbound) => inbound.recv().await,
+        }
+    }
+}
+
+fn queue(depth: Option<usize>) -> (Outbound, Inbound) {
+    match depth {
+        Some(depth) => {
+            let (sender, receiver) = mpsc::channel(depth);
+            (Outbound::Bounded(sender), Inbound::Bounded(receiver))
+        }
+        None => {
+            let (sender, receiver) = mpsc::unbounded_channel();
+            (Outbound::Unbounded(sender), Inbound::Unbounded(receiver))
+        }
+    }
 }
 
 /// What is written down about one connection: everything needed to dial it
@@ -76,11 +126,11 @@ struct Connection {
     owner: Arc<str>,
     /// Dropping this is what closes the connection: the task reading the far
     /// end sees its receiver end and shuts the socket down.
-    outbound: mpsc::Sender<Message>,
+    outbound: Arc<Outbound>,
 }
 
 impl Sockets {
-    fn owned_by(&self, harness: &str, id: u64) -> Result<mpsc::Sender<Message>> {
+    fn owned_by(&self, harness: &str, id: u64) -> Result<Arc<Outbound>> {
         let Ok(open) = self.open.lock() else {
             bail!("the connection table is poisoned");
         };
@@ -174,23 +224,24 @@ impl Service {
     fn dial(self: &Arc<Self>, record: Record, id: Option<u64>, runtime: &Handle) -> Result<u64> {
         self.permitted(&record.url)?;
 
-        let (outbound, inbound) = mpsc::channel(self.policy.queue);
+        let (outbound, inbound) = queue(self.policy.queue);
         let id = {
             let Ok(mut open) = self.sockets.open.lock() else {
                 bail!("the connection table is poisoned");
             };
-            if open.len() >= self.policy.max_connections {
-                bail!(
-                    "this service already holds its limit of {} connections",
-                    self.policy.max_connections
-                );
+            if self
+                .policy
+                .max_connections
+                .is_some_and(|most| open.len() >= most)
+            {
+                bail!("this service already holds every connection it may");
             }
             let id = id.unwrap_or_else(|| self.sockets.next.fetch_add(1, Ordering::Relaxed));
             open.insert(
                 id,
                 Connection {
                     owner: record.owner.as_str().into(),
-                    outbound,
+                    outbound: Arc::new(outbound),
                 },
             );
             id
@@ -313,11 +364,11 @@ async fn run(
     service: Weak<Service>,
     id: u64,
     record: Record,
-    mut outbound: mpsc::Receiver<Message>,
-    max_frame: usize,
+    mut outbound: Inbound,
+    max_frame: Option<usize>,
 ) {
     let (harness, tool) = (record.harness, record.tool);
-    let config = WebSocketConfig::default().max_message_size(Some(max_frame));
+    let config = WebSocketConfig::default().max_message_size(max_frame);
     let socket = match connect_async_with_config(&record.url, Some(config), false).await {
         Ok((socket, _)) => {
             deliver(&service, id, &harness, &tool, abi::WS_EVENT_OPEN, b"").await;
