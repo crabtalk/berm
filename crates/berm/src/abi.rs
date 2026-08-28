@@ -103,9 +103,10 @@ pub const WS_CLOSE: &str = "berm.ws.close";
 
 /// Open a connection, naming the tool its events reach. `(ptr, len) -> staged length`
 ///
-/// Request fields are the URL, the harness and the tool; the reply is the id
-/// the other two doors take. The dial outlives this call, so a connection that
-/// never comes up says so through a [`WS_EVENT_OPEN`] event carrying the error.
+/// Request fields are the URL, the harness and the tool, then header names and
+/// values in turn; the reply is the id the other two doors take. The dial
+/// outlives this call, so a connection that never comes up says so through a
+/// [`WS_EVENT_OPEN`] event carrying the error.
 pub const HOST_WS_OPEN: u64 = hash(WS_OPEN);
 
 /// Queue bytes on a connection. `(ptr, len) -> staged length`

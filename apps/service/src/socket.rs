@@ -28,10 +28,15 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
-use tokio::{runtime::Handle, sync::mpsc};
+use tokio::{net::TcpStream, runtime::Handle, sync::mpsc};
 use tokio_tungstenite::{
-    connect_async_with_config,
-    tungstenite::{Message, protocol::WebSocketConfig},
+    MaybeTlsStream, WebSocketStream, connect_async_with_config,
+    tungstenite::{
+        Message,
+        client::IntoClientRequest,
+        http::{HeaderName, HeaderValue},
+        protocol::WebSocketConfig,
+    },
 };
 
 /// What a host decides before a guest can reach the network.
@@ -109,6 +114,11 @@ struct Record {
     /// Where its events land.
     harness: String,
     tool: String,
+    /// Sent on the handshake, and kept so a reopen after a restart presents
+    /// them again. A credential put here is a credential on this host's disk,
+    /// the same as one a harness writes with `berm.set`.
+    #[serde(default)]
+    headers: Vec<(String, String)>,
 }
 
 /// Every open connection, and the counter that names the next one.
@@ -158,6 +168,25 @@ pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> Vec<System> {
                 let harness = wire::text(&fields, 1, "harness")?;
                 let tool = wire::text(&fields, 2, "tool")?;
 
+                // Whatever follows the three is header names and values in
+                // turn, which is how the codegen already flattens a trailing
+                // list of pairs.
+                let pairs = fields.get(3..).unwrap_or_default();
+                if pairs.len() % 2 != 0 {
+                    bail!("a header needs a name and a value");
+                }
+                let mut headers = Vec::with_capacity(pairs.len() / 2);
+                for (at, pair) in pairs.chunks_exact(2).enumerate() {
+                    headers.push((
+                        str::from_utf8(pair[0])
+                            .with_context(|| format!("header {at} has no name"))?
+                            .to_owned(),
+                        str::from_utf8(pair[1])
+                            .with_context(|| format!("header {at} has no value"))?
+                            .to_owned(),
+                    ));
+                }
+
                 let Some(service) = service.upgrade() else {
                     bail!("the service is shutting down, so {url} was not dialled");
                 };
@@ -166,6 +195,7 @@ pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> Vec<System> {
                     url: url.to_owned(),
                     harness: harness.to_owned(),
                     tool: tool.to_owned(),
+                    headers,
                 };
                 Ok(service
                     .dial(record, None, &runtime)?
@@ -342,6 +372,27 @@ impl Service {
     }
 }
 
+/// Dial `url`, presenting `headers` on the handshake.
+async fn connect(
+    url: &str,
+    headers: &[(String, String)],
+    max_frame: Option<usize>,
+) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+    let mut request = url.into_client_request()?;
+    for (name, value) in headers {
+        request.headers_mut().insert(
+            HeaderName::try_from(name.as_str())
+                .with_context(|| format!("{name} is not a header name"))?,
+            HeaderValue::try_from(value.as_str())
+                .with_context(|| format!("{name} has a value no header may carry"))?,
+        );
+    }
+
+    let config = WebSocketConfig::default().max_message_size(max_frame);
+    let (socket, _) = connect_async_with_config(request, Some(config), false).await?;
+    Ok(socket)
+}
+
 /// The host a URL names, or `None` when it carries no scheme — which is what
 /// tells a dependency on a harness from one on somewhere to dial.
 pub(crate) fn host(url: &str) -> Option<&str> {
@@ -369,14 +420,13 @@ async fn run(
     max_frame: Option<usize>,
 ) {
     let (harness, tool) = (record.harness, record.tool);
-    let config = WebSocketConfig::default().max_message_size(max_frame);
-    let socket = match connect_async_with_config(&record.url, Some(config), false).await {
-        Ok((socket, _)) => {
+    let socket = match connect(&record.url, &record.headers, max_frame).await {
+        Ok(socket) => {
             deliver(&service, id, &harness, &tool, abi::WS_EVENT_OPEN, b"").await;
             socket
         }
         Err(error) => {
-            let error = error.to_string();
+            let error = format!("{error:#}");
             deliver(
                 &service,
                 id,

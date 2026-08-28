@@ -63,12 +63,28 @@ pub fn event(args: &[u8]) -> Option<Event<'_>> {
 
 /// Dial `url`, delivering everything that happens on it to `harness`.`tool`.
 ///
+/// `headers` ride on the handshake, for a service that authenticates there.
+/// Pass `&[]` for one that does not, or that takes its token in the URL.
+///
+/// ```ignore
+/// let id = socket::open(url, "me", "wire", &[("Authorization", &bearer)])?;
+/// ```
+///
 /// Returns as soon as the connection is registered, with the id the other two
-/// doors take. The dial itself outlives the call, so its outcome arrives as an
-/// [`Event::Open`] rather than as this function's error — what fails here is
+/// doors take. The dial itself outlives the call, so its outcome arrives as a
+/// [`Kind::Open`] rather than as this function's error — what fails here is
 /// the host refusing to dial at all.
-pub fn open(url: &str, harness: &str, tool: &str) -> Result<u64, CallError> {
-    let request = wire::request(&[url.as_bytes(), harness.as_bytes(), tool.as_bytes()]);
+pub fn open(
+    url: &str,
+    harness: &str,
+    tool: &str,
+    headers: &[(&str, &str)],
+) -> Result<u64, CallError> {
+    let mut request = wire::request(&[url.as_bytes(), harness.as_bytes(), tool.as_bytes()]);
+    for (name, value) in headers {
+        wire::field(&mut request, name.as_bytes());
+        wire::field(&mut request, value.as_bytes());
+    }
     let reply = host::call(abi::HOST_WS_OPEN, &request)?;
     str::from_utf8(&reply)
         .ok()

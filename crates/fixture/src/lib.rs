@@ -11,7 +11,9 @@
 //! host calls to price one, `probe` allocates to show the heap arrives without
 //! a second entry into the guest, and `boom` fails on purpose.
 //! `tick` arms itself, to show a wake outliving the invocation that asked for
-//! it, and `dial` with `wire` hold a connection between them.
+//! it; `dial` with `wire` hold a connection and echo down it; `observe` with
+//! `listen` hold one and answer nothing, which is what a service that echoes
+//! back can be pointed at.
 //! `crates/berm/examples/measure.rs` reads the numbers off them, and
 //! `tests/tools.rs` is the only exercise the SDK's host-side `test::call` gets.
 
@@ -152,7 +154,7 @@ mod tools {
     /// at `wire` below. Answers with the connection's id.
     pub fn dial(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let url = core::str::from_utf8(args).unwrap_or("").trim();
-        match berm_lang::socket::open(url, "fixture", "wire") {
+        match berm_lang::socket::open(url, "fixture", "wire", &[]) {
             Ok(id) => {
                 let mut buffer = alloc::string::String::new();
                 let _ = core::fmt::Write::write_fmt(&mut buffer, format_args!("{id}"));
@@ -174,7 +176,7 @@ mod tools {
             return Err(Failed);
         };
         match event.kind {
-            Kind::Open(failure) if failure.is_empty() => out.write(b"open"),
+            Kind::Open("") => out.write(b"open"),
             Kind::Open(failure) => {
                 out.write(b"dial failed: ");
                 out.write(failure.as_bytes());
@@ -188,6 +190,63 @@ mod tools {
             Kind::Close(_) => out.write(b"closed"),
         }
         Ok(())
+    }
+
+    /// Records what a connection delivered and answers nothing, keeping the
+    /// last event under `heard`. `wire` cannot be pointed at a service that
+    /// echoes without the two of them trading one frame forever; this can.
+    pub fn listen(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        use berm_lang::socket::{Kind, event};
+
+        let Some(event) = event(args) else {
+            out.write(b"not a connection event");
+            return Err(Failed);
+        };
+
+        let mut heard = alloc::string::String::new();
+        let _ = match event.kind {
+            Kind::Open("") => core::fmt::Write::write_fmt(&mut heard, format_args!("open")),
+            Kind::Open(failure) => {
+                core::fmt::Write::write_fmt(&mut heard, format_args!("dial failed: {failure}"))
+            }
+            Kind::Message(frame) => core::fmt::Write::write_fmt(
+                &mut heard,
+                format_args!(
+                    "message: {}",
+                    core::str::from_utf8(frame).unwrap_or("<binary>")
+                ),
+            ),
+            Kind::Close(why) => {
+                core::fmt::Write::write_fmt(&mut heard, format_args!("close: {why}"))
+            }
+        };
+
+        if berm_lang::set("heard", heard.as_bytes()).is_err() {
+            return Err(Failed);
+        }
+        out.write(heard.as_bytes());
+        Ok(())
+    }
+
+    /// Dials the URL in its arguments, pointing its events at `listen`. A
+    /// second word onward is one `Name: Value` header for the handshake.
+    pub fn observe(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let args = core::str::from_utf8(args).unwrap_or("").trim();
+        let (url, header) = args.split_once(char::is_whitespace).unwrap_or((args, ""));
+        let header = header
+            .split_once(':')
+            .map(|(name, value)| (name.trim(), value.trim()));
+        let headers = header.as_slice();
+
+        match berm_lang::socket::open(url.trim(), "fixture", "listen", headers) {
+            Ok(id) => {
+                let mut buffer = alloc::string::String::new();
+                let _ = core::fmt::Write::write_fmt(&mut buffer, format_args!("{id}"));
+                out.write(buffer.as_bytes());
+                Ok(())
+            }
+            Err(error) => berm_lang::tool::system(Err(error), out).map(|_: ()| ()),
+        }
     }
 
     /// Calls itself on `inner`, which is this same harness when deployed under
