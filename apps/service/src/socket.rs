@@ -6,15 +6,23 @@
 //! harness holding a conversation keeps it in `berm.get`/`berm.set` and reads
 //! it back on the next frame.
 //!
+//! What is open is written down, so a restart brings it back under the same id
+//! — a harness that stored one is still holding a name that works. A drop the
+//! harness is alive for is its own to answer: it gets the close and decides
+//! whether to dial again, because how long to wait is a fact about the service
+//! at the far end, and this daemon knows none of them.
+//!
 //! berm serves none of this itself. A dialer needs an allowlist and a frame
 //! cap to compile at all, and those are decisions about a host.
 
-use crate::Service;
-use anyhow::{Result, bail};
+use crate::{Service, utils};
+use anyhow::{Context, Result, bail};
 use berm::{Callsite, System, abi, wire};
 use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{
         Arc, Mutex, Weak,
         atomic::{AtomicU64, Ordering},
@@ -41,6 +49,18 @@ pub struct Policy {
     pub queue: usize,
 }
 
+/// What is written down about one connection: everything needed to dial it
+/// again, and nothing about the socket itself, which does not survive.
+#[derive(Serialize, Deserialize)]
+struct Record {
+    /// Who opened it, and whose alone it is to send on or close.
+    owner: String,
+    url: String,
+    /// Where its events land.
+    harness: String,
+    tool: String,
+}
+
 /// Every open connection, and the counter that names the next one.
 #[derive(Default)]
 pub(crate) struct Sockets {
@@ -51,9 +71,9 @@ pub(crate) struct Sockets {
 }
 
 struct Connection {
-    /// Who opened it. The id of a connection another harness opened resolves
-    /// to nothing, the way another harness's keys are unaddressable.
-    harness: Arc<str>,
+    /// The id of a connection another harness opened resolves to nothing, the
+    /// way another harness's keys are unaddressable.
+    owner: Arc<str>,
     /// Dropping this is what closes the connection: the task reading the far
     /// end sees its receiver end and shuts the socket down.
     outbound: mpsc::Sender<Message>,
@@ -65,16 +85,10 @@ impl Sockets {
             bail!("the connection table is poisoned");
         };
         match open.get(&id) {
-            Some(connection) if &*connection.harness == harness => Ok(connection.outbound.clone()),
+            Some(connection) if &*connection.owner == harness => Ok(connection.outbound.clone()),
             // One message for both, so a probe cannot tell an id that is not
             // yours from one that does not exist.
             _ => bail!("no connection {id} is open"),
-        }
-    }
-
-    fn forget(&self, id: u64) {
-        if let Ok(mut open) = self.open.lock() {
-            open.remove(&id);
         }
     }
 }
@@ -83,7 +97,7 @@ impl Sockets {
 ///
 /// `Weak` for the reason berm holds its own runtime that way: a connection
 /// task reaches back into the service that owns the table it lives in.
-pub(crate) fn system(service: Weak<Service>, policy: Policy, runtime: Handle) -> Vec<System> {
+pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> Vec<System> {
     let (sending, closing) = (service.clone(), service.clone());
     vec![
         System {
@@ -94,21 +108,19 @@ pub(crate) fn system(service: Weak<Service>, policy: Policy, runtime: Handle) ->
                 let harness = wire::text(&fields, 1, "harness")?;
                 let tool = wire::text(&fields, 2, "tool")?;
 
-                let Some(runtime_service) = service.upgrade() else {
+                let Some(service) = service.upgrade() else {
                     bail!("the service is shutting down, so {url} was not dialled");
                 };
-                permitted(&policy, url)?;
-
-                let id = open(
-                    &runtime_service,
-                    &policy,
-                    &runtime,
-                    at.harness,
-                    url,
-                    harness,
-                    tool,
-                )?;
-                Ok(id.to_string().into_bytes())
+                let record = Record {
+                    owner: at.harness.to_owned(),
+                    url: url.to_owned(),
+                    harness: harness.to_owned(),
+                    tool: tool.to_owned(),
+                };
+                Ok(service
+                    .dial(record, None, &runtime)?
+                    .to_string()
+                    .into_bytes())
             }),
         },
         System {
@@ -146,11 +158,145 @@ pub(crate) fn system(service: Weak<Service>, policy: Policy, runtime: Handle) ->
                 };
                 // Checked first, so one harness cannot close another's.
                 service.sockets.owned_by(at.harness, id)?;
-                service.sockets.forget(id);
+                service.shut(id);
                 Ok(Vec::new())
             }),
         },
     ]
+}
+
+impl Service {
+    /// Register a connection, write it down, and start the task that runs it.
+    ///
+    /// `id` is `Some` only when bringing one back after a restart, where
+    /// keeping the number matters: a harness that stored it is still holding
+    /// it.
+    fn dial(self: &Arc<Self>, record: Record, id: Option<u64>, runtime: &Handle) -> Result<u64> {
+        self.permitted(&record.url)?;
+
+        let (outbound, inbound) = mpsc::channel(self.policy.queue);
+        let id = {
+            let Ok(mut open) = self.sockets.open.lock() else {
+                bail!("the connection table is poisoned");
+            };
+            if open.len() >= self.policy.max_connections {
+                bail!(
+                    "this service already holds its limit of {} connections",
+                    self.policy.max_connections
+                );
+            }
+            let id = id.unwrap_or_else(|| self.sockets.next.fetch_add(1, Ordering::Relaxed));
+            open.insert(
+                id,
+                Connection {
+                    owner: record.owner.as_str().into(),
+                    outbound,
+                },
+            );
+            id
+        };
+
+        // Written before the dial, so a connection that comes up and is never
+        // heard from again is still one a restart knows to reopen.
+        utils::write(&self.record(id), &serde_json::to_vec(&record)?)
+            .context("failed to write down a connection")?;
+
+        runtime.spawn(run(
+            Arc::downgrade(self),
+            id,
+            record,
+            inbound,
+            self.policy.max_frame,
+        ));
+        Ok(id)
+    }
+
+    /// Forget a connection and stop reopening it.
+    fn shut(&self, id: u64) {
+        if let Ok(mut open) = self.sockets.open.lock() {
+            open.remove(&id);
+        }
+        if let Err(error) = std::fs::remove_file(self.record(id))
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(id, "failed to forget a connection: {error}");
+        }
+    }
+
+    /// Dial everything that was open when this process last stopped.
+    ///
+    /// One that will not come up is reported through its harness's own event,
+    /// the same as any other failed dial, so a far end that is down does not
+    /// keep the service from starting.
+    pub(crate) async fn reopen(self: &Arc<Self>) -> Result<()> {
+        let directory = self.root.join("sockets");
+        if !directory.is_dir() {
+            return Ok(());
+        }
+
+        let runtime = Handle::current();
+        let mut entries = tokio::fs::read_dir(&directory)
+            .await
+            .context("failed to read the connection directory")?;
+        let mut highest = 0;
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            let Some(id) = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(|stem| stem.parse::<u64>().ok())
+            else {
+                continue;
+            };
+
+            let record: Record = match tokio::fs::read(&path).await {
+                Ok(bytes) => match serde_json::from_slice(&bytes) {
+                    Ok(record) => record,
+                    Err(error) => {
+                        tracing::error!(id, "unreadable connection record: {error}");
+                        continue;
+                    }
+                },
+                Err(error) => {
+                    tracing::error!(id, "failed to read a connection record: {error}");
+                    continue;
+                }
+            };
+
+            highest = highest.max(id + 1);
+            match self.dial(record, Some(id), &runtime) {
+                Ok(_) => tracing::info!(id, "reopening"),
+                Err(error) => tracing::error!(id, "{error:#}"),
+            }
+        }
+
+        // Past every id that came back, so a new connection cannot be handed a
+        // number a harness is still using.
+        self.sockets.next.fetch_max(highest, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn permitted(&self, url: &str) -> Result<()> {
+        let host = url
+            .split("://")
+            .nth(1)
+            .and_then(|rest| rest.split('/').next())
+            .map(|authority| authority.rsplit('@').next().unwrap_or(authority))
+            .and_then(|authority| authority.split(':').next())
+            .unwrap_or_default();
+
+        if host.is_empty() {
+            bail!("{url} names no host");
+        }
+        if !self.policy.allow.iter().any(|allowed| allowed == host) {
+            bail!("{host} is not a host this service may dial");
+        }
+        Ok(())
+    }
+
+    fn record(&self, id: u64) -> PathBuf {
+        self.root.join("sockets").join(format!("{id}.json"))
+    }
 }
 
 /// Text when the payload is UTF-8. Every API a harness is likely to hold a
@@ -162,80 +308,17 @@ fn frame(payload: &[u8]) -> Message {
     }
 }
 
-fn permitted(policy: &Policy, url: &str) -> Result<()> {
-    let host = url
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split('/').next())
-        .map(|authority| authority.rsplit('@').next().unwrap_or(authority))
-        .and_then(|authority| authority.split(':').next())
-        .unwrap_or_default();
-
-    if host.is_empty() {
-        bail!("{url} names no host");
-    }
-    if !policy.allow.iter().any(|allowed| allowed == host) {
-        bail!("{host} is not a host this service may dial");
-    }
-    Ok(())
-}
-
-/// Register a connection and start the task that runs it.
-fn open(
-    service: &Arc<Service>,
-    policy: &Policy,
-    runtime: &Handle,
-    owner: &str,
-    url: &str,
-    harness: &str,
-    tool: &str,
-) -> Result<u64> {
-    let (outbound, inbound) = mpsc::channel(policy.queue);
-    let id = {
-        let Ok(mut sockets) = service.sockets.open.lock() else {
-            bail!("the connection table is poisoned");
-        };
-        if sockets.len() >= policy.max_connections {
-            bail!(
-                "this service already holds its limit of {} connections",
-                policy.max_connections
-            );
-        }
-        let id = service.sockets.next.fetch_add(1, Ordering::Relaxed);
-        sockets.insert(
-            id,
-            Connection {
-                harness: owner.into(),
-                outbound,
-            },
-        );
-        id
-    };
-
-    runtime.spawn(run(
-        Arc::downgrade(service),
-        id,
-        url.to_owned(),
-        harness.to_owned(),
-        tool.to_owned(),
-        inbound,
-        policy.max_frame,
-    ));
-    Ok(id)
-}
-
 /// One connection, from the dial to the close.
 async fn run(
     service: Weak<Service>,
     id: u64,
-    url: String,
-    harness: String,
-    tool: String,
+    record: Record,
     mut outbound: mpsc::Receiver<Message>,
     max_frame: usize,
 ) {
+    let (harness, tool) = (record.harness, record.tool);
     let config = WebSocketConfig::default().max_message_size(Some(max_frame));
-    let socket = match connect_async_with_config(&url, Some(config), false).await {
+    let socket = match connect_async_with_config(&record.url, Some(config), false).await {
         Ok((socket, _)) => {
             deliver(&service, id, &harness, &tool, abi::WS_EVENT_OPEN, b"").await;
             socket
@@ -251,7 +334,7 @@ async fn run(
                 error.as_bytes(),
             )
             .await;
-            forget(&service, id);
+            shut(&service, id);
             return;
         }
     };
@@ -297,7 +380,7 @@ async fn run(
         why.as_bytes(),
     )
     .await;
-    forget(&service, id);
+    shut(&service, id);
 }
 
 /// Turn one event into an invocation. Gone if the service has shut down.
@@ -318,8 +401,8 @@ async fn deliver(
     }
 }
 
-fn forget(service: &Weak<Service>, id: u64) {
+fn shut(service: &Weak<Service>, id: u64) {
     if let Some(service) = service.upgrade() {
-        service.sockets.forget(id);
+        service.shut(id);
     }
 }

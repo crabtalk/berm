@@ -41,9 +41,9 @@ struct Args {
     ws_max_connections: Option<usize>,
 
     /// How many frames may wait to go out on one connection before a send is
-    /// refused.
-    #[arg(long)]
-    ws_queue: Option<usize>,
+    /// refused. A queue holds at least one.
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    ws_queue: Option<u64>,
 
     /// Largest message a connection may carry, tungstenite's own bound.
     #[arg(long, default_value_t = 64 << 20)]
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
             allow: args.ws_allow,
             max_frame: args.ws_max_frame,
             max_connections,
-            queue,
+            queue: queue as usize,
         },
         _ => Policy::default(),
     };
