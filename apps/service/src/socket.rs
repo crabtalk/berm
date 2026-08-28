@@ -175,7 +175,7 @@ pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> Vec<System> {
                     bail!("a header needs a name and a value");
                 }
                 let mut headers = Vec::with_capacity(pairs.len() / 2);
-                for (at, pair) in pairs.chunks_exact(2).enumerate() {
+                for (at, pair) in pairs.as_chunks::<2>().0.iter().enumerate() {
                     headers.push((
                         str::from_utf8(pair[0])
                             .with_context(|| format!("header {at} has no name"))?
