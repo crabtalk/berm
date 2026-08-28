@@ -23,6 +23,14 @@ impl Service {
             .await
             .context("failed to store the image")?;
 
+        // Said rather than refused: a harness deployed before the one it
+        // calls is ordinary, and the call reports it again if it stays that
+        // way.
+        let unresolved = self.unresolved(harness.manifest());
+        if !unresolved.is_empty() {
+            tracing::warn!(name, "nothing here answers to {}", unresolved.join(", "));
+        }
+
         let _ = self.changed.send(());
         Ok(harness)
     }

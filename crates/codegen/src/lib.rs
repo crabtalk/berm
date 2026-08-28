@@ -63,6 +63,8 @@ const TOOL_PREFIX: &str = "berm_tool_";
 struct Config {
     buffer: usize,
     usage: String,
+    /// What this harness reaches for at runtime, as the author declares it.
+    deps: Vec<String>,
     /// Kept only to re-emit as an `include_str!`, so editing the file
     /// rebuilds the harness.
     usage_file: Option<syn::LitStr>,
@@ -73,6 +75,7 @@ impl Parse for Config {
         let mut buffer = DEFAULT_BUFFER;
         let mut usage = String::new();
         let mut usage_file = None;
+        let mut deps = Vec::new();
 
         while !input.is_empty() {
             let key: syn::Ident = input.parse()?;
@@ -100,10 +103,24 @@ impl Parse for Config {
                     })?;
                     usage_file = Some(path);
                 }
+                // Declared, never inferred: a target the harness computes at
+                // the call is invisible to anything reading the image, so a
+                // scan of this crate would report a list that is quietly short.
+                "deps" => {
+                    let names;
+                    syn::bracketed!(names in input);
+                    deps = names
+                        .parse_terminated(<syn::LitStr as Parse>::parse, Token![,])?
+                        .iter()
+                        .map(syn::LitStr::value)
+                        .collect();
+                }
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
-                        format!("unknown argument: {other} (expected `buffer` or `usage_file`)"),
+                        format!(
+                            "unknown argument: {other} (expected `buffer`, `usage_file` or `deps`)"
+                        ),
                     ));
                 }
             }
@@ -117,6 +134,7 @@ impl Parse for Config {
             buffer,
             usage,
             usage_file,
+            deps,
         })
     }
 }
@@ -427,8 +445,15 @@ fn describe(config: &Config, tools: &[Tool]) -> String {
         .collect::<Vec<_>>()
         .join(",");
 
+    let deps = config
+        .deps
+        .iter()
+        .map(|dep| format!(r#""{}""#, escape(dep)))
+        .collect::<Vec<_>>()
+        .join(",");
+
     format!(
-        r#"{{"abi_version":0,"tools":[{tools}],"usage":"{}"}}"#,
+        r#"{{"abi_version":0,"tools":[{tools}],"usage":"{}","deps":[{deps}]}}"#,
         escape(&config.usage),
     )
 }

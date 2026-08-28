@@ -328,17 +328,9 @@ impl Service {
     }
 
     fn permitted(&self, url: &str) -> Result<()> {
-        let host = url
-            .split("://")
-            .nth(1)
-            .and_then(|rest| rest.split('/').next())
-            .map(|authority| authority.rsplit('@').next().unwrap_or(authority))
-            .and_then(|authority| authority.split(':').next())
-            .unwrap_or_default();
-
-        if host.is_empty() {
+        let Some(host) = host(url) else {
             bail!("{url} names no host");
-        }
+        };
         if !self.policy.allow.iter().any(|allowed| allowed == host) {
             bail!("{host} is not a host this service may dial");
         }
@@ -348,6 +340,15 @@ impl Service {
     fn record(&self, id: u64) -> PathBuf {
         self.root.join("sockets").join(format!("{id}.json"))
     }
+}
+
+/// The host a URL names, or `None` when it carries no scheme — which is what
+/// tells a dependency on a harness from one on somewhere to dial.
+pub(crate) fn host(url: &str) -> Option<&str> {
+    let authority = url.split("://").nth(1)?.split('/').next()?;
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+    let host = authority.split(':').next().unwrap_or(authority);
+    (!host.is_empty()).then_some(host)
 }
 
 /// Text when the payload is UTF-8. Every API a harness is likely to hold a

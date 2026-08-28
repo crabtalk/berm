@@ -21,7 +21,9 @@
 
 extern crate alloc;
 
-#[berm_lang::harness]
+// `inner` is what `nest` and `recurse` reach for, `127.0.0.1` what `dial`
+// does in the tests. Neither is resolved here; both are declared.
+#[berm_lang::harness(deps = ["inner", "ws://127.0.0.1"])]
 mod tools {
     use berm_lang::{Failed, Out};
 

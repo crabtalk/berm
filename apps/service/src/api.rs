@@ -44,19 +44,30 @@ pub fn router(service: Arc<Service>) -> Router {
         .with_state(service)
 }
 
-/// What berm read out of the ELF, on the wire.
-fn describe(deployed: &Arc<Harness>) -> Wire {
-    let manifest = deployed.manifest();
-    Wire {
-        name: deployed.name.to_string(),
-        digest: deployed.digest.clone(),
-        usage: manifest.usage.clone(),
-        tools: manifest.tools.clone(),
+impl Service {
+    /// What berm read out of the ELF, on the wire, and what of it this service
+    /// has nothing to answer with.
+    fn describe(&self, deployed: &Arc<Harness>) -> Wire {
+        let manifest = deployed.manifest();
+        Wire {
+            name: deployed.name.to_string(),
+            digest: deployed.digest.clone(),
+            usage: manifest.usage.clone(),
+            tools: manifest.tools.clone(),
+            deps: manifest.deps.clone(),
+            unresolved: self.unresolved(manifest),
+        }
     }
 }
 
 async fn list(State(service): State<Arc<Service>>) -> Json<Vec<Wire>> {
-    Json(service.list().iter().map(describe).collect())
+    Json(
+        service
+            .list()
+            .iter()
+            .map(|one| service.describe(one))
+            .collect(),
+    )
 }
 
 async fn inspect(
@@ -64,7 +75,7 @@ async fn inspect(
     Path(name): Path<String>,
 ) -> Result<Json<Wire>, Refused> {
     match service.get(&name) {
-        Some(deployed) => Ok(Json(describe(&deployed))),
+        Some(deployed) => Ok(Json(service.describe(&deployed))),
         None => Err(Refused::missing(&name)),
     }
 }
@@ -82,7 +93,7 @@ async fn deploy(
         // A rejected image is the client's ELF, not the service's fault: a bad
         // name, an unreadable ELF, a manifest that disagrees with its exports.
         .map_err(|error| Refused(StatusCode::BAD_REQUEST, format!("{error:#}")))?;
-    Ok(Json(describe(&deployed)))
+    Ok(Json(service.describe(&deployed)))
 }
 
 /// Run one tool. `POST` because an invocation is not idempotent, and the body

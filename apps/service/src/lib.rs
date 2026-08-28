@@ -15,6 +15,7 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, runtime::Handle, sync::broadcast};
 
 mod api;
+mod deps;
 mod harness;
 mod mcp;
 mod socket;
