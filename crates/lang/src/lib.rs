@@ -52,6 +52,7 @@ pub mod abi;
 mod call;
 mod heap;
 mod out;
+pub mod socket;
 mod store;
 pub mod test;
 pub mod tool;
@@ -64,12 +65,12 @@ pub mod tool;
 #[cfg_attr(not(target_arch = "riscv64"), path = "sys/stub.rs")]
 mod sys;
 
-pub use abi::{Buf, args_len, log};
+pub use abi::{Buf, args_len, log, now};
 pub use berm_codegen::{harness, harnesses};
 pub use out::Out;
 
 #[cfg(feature = "alloc")]
-pub use call::{CallError, call};
+pub use call::{CallError, after, call};
 #[cfg(feature = "alloc")]
 pub use store::{get, set};
 

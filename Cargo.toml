@@ -46,6 +46,7 @@ cranelift = { version = "0.134.3", features = [
 ] }
 cranelift-codegen = { version = "0.134.3", features = ["incremental-cache"] }
 cranelift-object = "0.134.3"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 # bezel's own gpui, republished. A second copy is a second type universe,
 # whose failure is a window that paints shapes but no text.
 gpui = { package = "bezel-gpui", version = "0.3.3" }
@@ -77,7 +78,23 @@ serde_json_guest = { package = "serde_json", version = "1", default-features = f
 ] }
 sha2 = "0.11"
 syn = { version = "2", features = ["full"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "signal", "sync"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "fs",
+    "net",
+    "signal",
+    "sync",
+    "time",
+] }
+# rustls to match what reqwest already pulls. A second TLS stack is a second
+# set of root certificates, and the one that fails is whichever you did not
+# configure.
+tokio-tungstenite = { version = "0.30", default-features = false, features = [
+    "connect",
+    "handshake",
+    "rustls-tls-native-roots",
+] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

@@ -30,10 +30,12 @@ use std::{
     collections::BTreeMap,
     sync::{Arc, RwLock, Weak},
 };
+pub use storage::{Records, Storage};
 
 pub mod abi;
 mod bound;
 mod harness;
+pub mod storage;
 pub mod system;
 pub mod wire;
 
@@ -73,6 +75,9 @@ pub struct Berm {
     depth: u32,
     /// What the embedder gives every harness, beside what berm serves itself.
     system: Vec<System>,
+    /// Where this runtime's own records live. Held as the trait: berm decides
+    /// what is worth writing down, a host decides where it goes.
+    storage: Arc<dyn Storage>,
     /// This runtime, as the system harnesses berm serves hold it. `Weak`
     /// because they are reachable *from* it — a deployed harness owns the
     /// linker that owns them — and an `Arc` would be a cycle that never drops.
@@ -80,26 +85,42 @@ pub struct Berm {
 }
 
 impl Berm {
-    /// A runtime with nothing deployed, giving every harness `system`.
-    pub fn new(engine: &Engine, depth: u32, system: Vec<System>) -> Arc<Self> {
+    /// A runtime with nothing deployed, giving every harness `system` and
+    /// writing what it must remember to `storage`.
+    ///
+    /// [`storage::Memory`] is the one to pass when nothing should outlive the
+    /// process.
+    pub fn new(
+        engine: &Engine,
+        depth: u32,
+        system: Vec<System>,
+        storage: Arc<dyn Storage>,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             engine: engine.clone(),
             harnesses: RwLock::new(BTreeMap::new()),
             depth,
             system,
+            storage,
             me: me.clone(),
         })
+    }
+
+    /// Where this runtime's records live, for whatever else a host keeps
+    /// beside the images — the connections and wakes it drives itself.
+    pub fn storage(&self) -> &Arc<dyn Storage> {
+        &self.storage
     }
 
     /// Compile `elf` and make its tools reachable as `name`.
     ///
     /// Compiling here rather than on first call means a broken image is refused
-    /// by the deploy that introduced it, not on a model's turn.
+    /// by the deploy that introduced it, not on a model's turn. Written down
+    /// before it is published, so a tool that is served is one a restart brings
+    /// back.
     pub fn deploy(&self, name: &str, elf: &[u8]) -> Result<Arc<Harness>> {
-        let mut system = self.system.clone();
-        system.push(system::call::system(self.me.clone(), self.depth));
-
-        let harness = Arc::new(Harness::load(&self.engine, elf, name, &system)?);
+        let harness = self.load(name, elf)?;
+        self.storage.put(Records::Harnesses, name, elf)?;
         self.harnesses
             .write()
             .expect("deployed harnesses")
@@ -107,13 +128,46 @@ impl Berm {
         Ok(harness)
     }
 
-    /// Forget one. `false` if nothing answered to that name.
-    pub fn remove(&self, name: &str) -> bool {
-        self.harnesses
+    /// Bring back every image deployed before this process.
+    ///
+    /// One that will not load is reported and skipped: a single bad record is
+    /// not a reason to come up with none of them.
+    pub fn restore(&self) -> Result<()> {
+        for (name, elf) in self.storage.list(Records::Harnesses)? {
+            match self.load(&name, &elf) {
+                Ok(harness) => {
+                    tracing::info!(name, digest = %harness.digest, "restored");
+                    self.harnesses
+                        .write()
+                        .expect("deployed harnesses")
+                        .insert(name, harness);
+                }
+                Err(error) => tracing::error!(name, "{error:#}"),
+            }
+        }
+        Ok(())
+    }
+
+    /// Compile an image against the system harnesses this runtime serves.
+    fn load(&self, name: &str, elf: &[u8]) -> Result<Arc<Harness>> {
+        let mut system = self.system.clone();
+        system.push(system::call::system(self.me.clone(), self.depth));
+        Ok(Arc::new(Harness::load(&self.engine, elf, name, &system)?))
+    }
+
+    /// Forget one and drop its image. `false` if nothing answered to that name.
+    pub fn remove(&self, name: &str) -> Result<bool> {
+        if self
+            .harnesses
             .write()
             .expect("deployed harnesses")
             .remove(name)
-            .is_some()
+            .is_none()
+        {
+            return Ok(false);
+        }
+        self.storage.remove(Records::Harnesses, name)?;
+        Ok(true)
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<Harness>> {

@@ -16,6 +16,14 @@ pub fn show(harness: &Harness) {
     if !harness.usage.is_empty() {
         println!("  usage   {}", harness.usage);
     }
+    for dep in &harness.deps {
+        let answered = if harness.unresolved.contains(dep) {
+            "  (nothing answers to it here)"
+        } else {
+            ""
+        };
+        println!("  dep     {dep}{answered}");
+    }
 
     for tool in &harness.tools {
         println!();

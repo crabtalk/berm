@@ -27,13 +27,22 @@ pub struct Manifest {
     /// manual.
     #[serde(default)]
     pub usage: String,
+    /// What this harness reaches for once it runs: harnesses it calls by name,
+    /// and hosts it dials, told apart by whether one carries a scheme.
+    ///
+    /// Runtime, and resolved wherever the image lands — nothing here is
+    /// fetched or installed, and a name nothing answers to is reported rather
+    /// than refused. Declared by the author because a target computed at the
+    /// call cannot be read off the image at all.
+    #[serde(default)]
+    pub deps: Vec<String>,
 }
 
 impl Manifest {
     /// Read what an ELF claims to be, without compiling or running it.
     ///
     /// This is what the section is *for* (RFC 0205): learning a harness's tools,
-    /// wants, and usage must not mean instantiating it. An embedder assembling a
+    /// deps, and usage must not mean instantiating it. An embedder assembling a
     /// prompt or listing a registry needs exactly this and nothing else.
     pub fn from_elf(elf: &[u8]) -> Result<Self> {
         let json = str::from_utf8(Self::section(elf)?).context("harness manifest is not UTF-8")?;
@@ -73,6 +82,11 @@ pub struct Harness {
     /// When to reach for this harness's tools, and how they go together.
     pub usage: String,
     pub tools: Vec<ToolSpec>,
+    #[serde(default)]
+    pub deps: Vec<String>,
+    /// The subset of `deps` this service answers to nothing for.
+    #[serde(default)]
+    pub unresolved: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

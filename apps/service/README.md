@@ -49,9 +49,10 @@ turn.
 
 ## What a harness can reach
 
-Its arguments, the log, and any other harness deployed on the same daemon —
-nothing else. There is no wiring step: what is deployed is reachable by name,
-the way containers on one network reach each other.
+Its arguments, the log, its own stored keys, the clock, a callback timer, any
+connection this daemon was configured to let it dial, and any other harness
+deployed beside it. There is no wiring step: what is deployed is reachable by
+name, the way containers on one network reach each other.
 
 ```sh
 berm deploy inner ./inner.elf

@@ -25,6 +25,10 @@ pub fn run(reference: &str, image: &Path) -> Result<()> {
         digest,
         usage: manifest.usage,
         tools: manifest.tools,
+        deps: manifest.deps,
+        // Nothing to resolve against: a registry runs no harnesses and dials
+        // nowhere, so what this image needs is a question for whoever deploys it.
+        unresolved: Vec::new(),
     });
     Ok(())
 }

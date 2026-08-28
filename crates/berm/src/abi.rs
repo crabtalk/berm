@@ -61,6 +61,21 @@ pub const CALL: &str = "berm.call";
 /// deployed harnesses, which is what a [`crate::Berm`] already is.
 pub const HOST_CALL: u64 = hash(CALL);
 
+/// What a host registers to serve [`HOST_CALL_AFTER`].
+pub const CALL_AFTER: &str = "berm.call.after";
+
+/// Call a tool later. `(ptr, len) -> staged length`
+///
+/// Request fields are the delay in milliseconds, the harness, the tool and the
+/// argument blob; the reply is empty. A duration rather than an instant
+/// because the runtime stamps the deadline as it takes the call: a guest
+/// reading the clock and then arming would drift by however long it ran in
+/// between, and only the host can close that gap.
+///
+/// One wake per harness that arms it. Arming again replaces what was pending,
+/// which is what bounds a harness to one and keeps it from fanning out.
+pub const HOST_CALL_AFTER: u64 = hash(CALL_AFTER);
+
 /// What a host registers to serve [`HOST_GET`] and [`HOST_SET`].
 pub const GET: &str = "berm.get";
 pub const SET: &str = "berm.set";
@@ -79,6 +94,45 @@ pub const HOST_GET: u64 = hash(GET);
 ///
 /// Request fields are the key and the value; the reply is empty.
 pub const HOST_SET: u64 = hash(SET);
+
+/// What a host registers to serve the socket doors. berm serves none of them:
+/// a dialer needs an allowlist and a frame cap, which are a host's decisions.
+pub const WS_OPEN: &str = "berm.ws.open";
+pub const WS_SEND: &str = "berm.ws.send";
+pub const WS_CLOSE: &str = "berm.ws.close";
+
+/// Open a connection, naming the tool its events reach. `(ptr, len) -> staged length`
+///
+/// Request fields are the URL, the harness and the tool, then header names and
+/// values in turn; the reply is the id the other two doors take. The dial
+/// outlives this call, so a connection that never comes up says so through a
+/// [`WS_EVENT_OPEN`] event carrying the error.
+pub const HOST_WS_OPEN: u64 = hash(WS_OPEN);
+
+/// Queue bytes on a connection. `(ptr, len) -> staged length`
+///
+/// Request fields are the id and the payload; the reply is empty. Queued: a
+/// guest that waited for the far end would hold its thread for a round trip.
+pub const HOST_WS_SEND: u64 = hash(WS_SEND);
+
+/// Close a connection. `(ptr, len) -> staged length`
+///
+/// The request is the id; the reply is empty.
+pub const HOST_WS_CLOSE: u64 = hash(WS_CLOSE);
+
+/// The first field of every invocation a connection starts, saying which of
+/// the three things happened. The body follows as the second field.
+pub const WS_EVENT_OPEN: &str = "open";
+pub const WS_EVENT_MESSAGE: &str = "message";
+pub const WS_EVENT_CLOSE: &str = "close";
+
+/// Milliseconds since the Unix epoch, as the host reads its clock. `() -> millis`
+///
+/// berm serves this one itself: a clock needs no root, no cap and no
+/// allowlist, so a host has nothing to decide about it. A harness an event
+/// woke has no other way to tell how long it was away — a wake that came due
+/// while the process was down arrives late, and says so only against this.
+pub const HOST_NOW: u64 = hash("berm.now");
 
 /// Where this guest's heap starts. `() -> address`
 pub const HOST_HEAP_START: u64 = hash("berm.heap.start");
