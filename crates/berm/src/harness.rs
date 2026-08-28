@@ -69,6 +69,14 @@ impl Harness {
             },
         )?;
 
+        // Saturating at the epoch: this is reached across a boundary an
+        // unwind would abort the process at, so it cannot be allowed to panic.
+        linker.func_wrap(abi::HOST_NOW, |_caller: Caller<'_, Invocation>| {
+            Ok(std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |since| since.as_millis() as u64))
+        })?;
+
         // Asked for on the guest's first allocation, from inside the entry it
         // is already in. Pushing these in would mean entering the guest a
         // second time, which costs ~13µs against ~30ns for a host call.

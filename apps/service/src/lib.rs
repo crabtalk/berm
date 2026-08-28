@@ -20,6 +20,7 @@ mod mcp;
 mod socket;
 mod source;
 mod store;
+mod timer;
 mod utils;
 
 pub use socket::Policy;
@@ -43,6 +44,8 @@ pub struct Service {
     /// What a guest may reach the network for, held here because reopening a
     /// connection after a restart reads the same bounds the dial did.
     pub(crate) policy: Policy,
+    /// What each harness has asked to be called back for.
+    pub(crate) wakes: timer::Wakes,
 }
 
 impl Service {
@@ -57,11 +60,13 @@ impl Service {
         let runtime = Handle::current();
         let service = Arc::new_cyclic(|me| {
             let mut system = store::system(&root);
-            system.extend(socket::system(me.clone(), runtime));
+            system.extend(socket::system(me.clone(), runtime.clone()));
+            system.push(timer::system(me.clone(), runtime));
             Self {
                 berm: Berm::new(&engine, depth, system),
                 changed: broadcast::channel(CHANGE_BACKLOG).0,
                 sockets: socket::Sockets::default(),
+                wakes: timer::Wakes::default(),
                 policy,
                 root,
             }
@@ -70,6 +75,7 @@ impl Service {
         // After the images: a connection's events name a harness, which has to
         // be deployed before the first frame lands on it.
         service.reopen().await?;
+        service.rearm().await?;
         Ok(service)
     }
 

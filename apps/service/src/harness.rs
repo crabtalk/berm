@@ -36,6 +36,10 @@ impl Service {
             .await
             .context("failed to remove the image")?;
 
+        // A wake it armed has nowhere left to run. One pointed *at* it by
+        // another harness stays: that slot is the armer's, and a target that
+        // has gone away is reported when it fires.
+        self.forget_wake(name);
         self.berm.remove(name);
         let _ = self.changed.send(());
         Ok(true)

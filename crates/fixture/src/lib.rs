@@ -10,6 +10,8 @@
 //! deserializes the same payload to price a parse, `chatty` makes a hundred
 //! host calls to price one, `probe` allocates to show the heap arrives without
 //! a second entry into the guest, and `boom` fails on purpose.
+//! `tick` arms itself, to show a wake outliving the invocation that asked for
+//! it, and `dial` with `wire` hold a connection between them.
 //! `crates/berm/examples/measure.rs` reads the numbers off them, and
 //! `tests/tools.rs` is the only exercise the SDK's host-side `test::call` gets.
 
@@ -102,6 +104,46 @@ mod tools {
             }
             Err(error) => berm_lang::tool::system(Err(error), out).map(|_: ()| ()),
         }
+    }
+
+    /// Counts how many times it has run, arming itself to run again in the
+    /// milliseconds its arguments name until it has run three times. Proves an
+    /// invocation can outlive the one that asked for it, and that what crosses
+    /// the gap is the harness's own keys.
+    pub fn tick(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let delay = core::str::from_utf8(args)
+            .unwrap_or("")
+            .trim()
+            .parse()
+            .unwrap_or(0);
+
+        let round = berm_lang::get("ticks")
+            .ok()
+            .flatten()
+            .and_then(|seen| core::str::from_utf8(&seen).ok()?.parse::<u64>().ok())
+            .unwrap_or(0)
+            + 1;
+
+        let mut buffer = alloc::string::String::new();
+        let _ = core::fmt::Write::write_fmt(&mut buffer, format_args!("{round}"));
+        if berm_lang::set("ticks", buffer.as_bytes()).is_err() {
+            return Err(Failed);
+        }
+
+        // The delay rides along, so each round arms the next on the same one.
+        let mut again = alloc::string::String::new();
+        let _ = core::fmt::Write::write_fmt(&mut again, format_args!("{delay}"));
+        if round < 3 && berm_lang::after(delay, "fixture", "tick", &again).is_err() {
+            return Err(Failed);
+        }
+
+        let mut said = alloc::string::String::new();
+        let _ = core::fmt::Write::write_fmt(
+            &mut said,
+            format_args!(r#"{{"round":{round},"at":{}}}"#, berm_lang::now()),
+        );
+        out.write(said.as_bytes());
+        Ok(())
     }
 
     /// Dials the URL in its arguments, pointing everything that happens on it
