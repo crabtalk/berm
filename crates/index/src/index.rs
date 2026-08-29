@@ -7,11 +7,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Every published version, by the harness it belongs to.
+/// Every published version, by the program it belongs to.
 ///
 /// Held whole, because a clone of the index is a directory of small files and
 /// searching one means reading all of it either way. That is fine into the low
-/// thousands of harnesses and wrong past them, which is the ceiling of a list
+/// thousands of programs and wrong past them, which is the ceiling of a list
 /// you can `git clone`.
 #[derive(Debug, Default)]
 pub struct Index {
@@ -52,12 +52,12 @@ impl Index {
             .collect()
     }
 
-    /// One harness's versions, in the order they were published.
+    /// One program's versions, in the order they were published.
     pub fn versions(&self, key: &str) -> Option<&[Entry]> {
         self.entries.get(key).map(Vec::as_slice)
     }
 
-    /// How many harnesses are listed, which is not how many versions there are.
+    /// How many programs are listed, which is not how many versions there are.
     pub fn len(&self) -> usize {
         self.entries.len()
     }

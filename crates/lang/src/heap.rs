@@ -4,7 +4,7 @@
 //! way — the host enters the guest to hand the bounds over — costs a second
 //! entry, and entering a guest is around 13µs against ~30ns for a host call.
 //! So the guest asks instead, from inside the entry it is already in, the first
-//! time it allocates. A harness that never allocates never asks, which is why
+//! time it allocates. A program that never allocates never asks, which is why
 //! there is nothing to declare.
 #![cfg(all(feature = "alloc", target_arch = "riscv64"))]
 

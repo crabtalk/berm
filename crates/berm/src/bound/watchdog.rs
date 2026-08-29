@@ -24,9 +24,9 @@ use std::{
 /// How long a guest may run before it is asked to stop.
 ///
 /// A guest blocked in a host call cannot notice an interrupt until that call
-/// returns, so an embedder's system harness has to time out well inside this.
+/// returns, so an embedder's syscall has to time out well inside this.
 /// The bound exists to stop non-termination, not to enforce latency, and a
-/// harness doing slow but finite work should finish rather than be killed.
+/// program doing slow but finite work should finish rather than be killed.
 ///
 /// This is a bound on a whole chain, not on each link: a guest reached from
 /// another guest's host call inherits what is left of its caller's.

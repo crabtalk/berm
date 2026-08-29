@@ -1,10 +1,10 @@
 # berm-index
 
-A list of published harnesses, and how to search one.
+A list of published programs, and how to search one.
 
 A registry holds the bytes; an index holds the list, because no registry API
-will tell you who published a harness. The list is a git repository — one JSON
-Lines file per harness, one line per version — so a copy of it is a clone, and
+will tell you who published a program. The list is a git repository — one JSON
+Lines file per program, one line per version — so a copy of it is a clone, and
 reading one needs no service and no credential.
 
 ```rust

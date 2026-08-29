@@ -1,7 +1,7 @@
-//! How a system harness request is laid out.
+//! How a syscall request is laid out.
 //!
 //! Every request is a sequence of length-prefixed byte fields — one rule with
-//! no exceptions, so the host has a single decoder and a system harness taking one
+//! no exceptions, so the host has a single decoder and a syscall taking one
 //! argument is framed the same way as one taking five. The four bytes a
 //! single-field request spends on its own length buy that.
 //!
@@ -10,7 +10,7 @@
 //! not the direction.
 //!
 //! Not JSON, because file content is arbitrary bytes and JSON cannot carry
-//! those without base64. A system harness that moves bytes should not pay an
+//! those without base64. A syscall that moves bytes should not pay an
 //! encoding to do it.
 
 use alloc::vec::Vec;

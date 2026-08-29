@@ -23,7 +23,7 @@ fn probe_allocates() {
 }
 
 #[test]
-fn nest_forwards_what_the_other_harness_answered() {
+fn nest_forwards_what_the_other_program_answered() {
     test::answer("inner", "echo", Ok(br#"{"echo":"pong"}"#));
     let out = test::call(berm_fixture::berm_tool_nest, br#"{"query":"hi"}"#).unwrap();
     assert_eq!(out, br#"nested:{"echo":"pong"}"#);
@@ -38,11 +38,11 @@ fn nest_tells_a_refusal_from_a_failure() {
         "inner",
         "echo",
         Err(CallError::Refused(
-            "no harness named \"inner\" is deployed".into(),
+            "no program named \"inner\" is deployed".into(),
         )),
     );
     let error = test::call(berm_fixture::berm_tool_nest, b"{}").unwrap_err();
-    assert_eq!(error, "refused: no harness named \"inner\" is deployed");
+    assert_eq!(error, "refused: no program named \"inner\" is deployed");
 
     test::answer(
         "inner",

@@ -6,4 +6,4 @@ export const author = 'https://x.com/tianyi_gc';
 
 /** Search only — no page repeats it. */
 export const description =
-	'A sandbox for harnesses. berm pins one statically linked RV64 ELF by hash, compiles it once, and instantiates it per invocation.';
+	'The OS for agent harnesses. berm pins one statically linked RV64 ELF by hash, compiles it once, and runs it as a process under a syscall table you can read before it runs.';

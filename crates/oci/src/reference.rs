@@ -64,7 +64,7 @@ impl FromStr for Reference {
 /// folded by the time this sees it.
 ///
 /// Checked rather than assumed because a repository becomes a path. An index
-/// holds one file per harness at `{registry}/{repository}.json`, and `..` in a
+/// holds one file per program at `{registry}/{repository}.json`, and `..` in a
 /// name a registry served would write outside it — `Path::join` concatenates,
 /// and the `..` is resolved by the kernel at open time. The grammar has no way
 /// to spell that, so enforcing the grammar is the whole fix.

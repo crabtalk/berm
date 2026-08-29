@@ -21,7 +21,7 @@ impl Sheet {
         Self {
             name: cx.new(|cx| TextField::new(cx).with_placeholder("echo")),
             image: cx.new(|cx| {
-                TextField::new(cx).with_placeholder("./harness.elf or ghcr.io/org/echo:v1")
+                TextField::new(cx).with_placeholder("./program.elf or ghcr.io/org/echo:v1")
             }),
         }
     }
@@ -30,7 +30,7 @@ impl Sheet {
 impl Workbench {
     /// Compile an image and make its tools reachable.
     ///
-    /// Deploying is where a broken harness is refused, so the compiler's own
+    /// Deploying is where a broken program is refused, so the compiler's own
     /// words go on screen rather than "deploy failed" — for an author, that
     /// message is the whole point of the screen.
     pub(crate) fn deploy(&mut self, name: String, spec: String, cx: &mut Context<Self>) {
@@ -55,7 +55,7 @@ impl Workbench {
             let _ = this.update(cx, |this, cx| {
                 this.refused = refused;
                 this.deploying = None;
-                // The `changed` broadcast brings the new harness in.
+                // The `changed` broadcast brings the new program in.
                 if this.refused.is_none() {
                     this.sheet = None;
                 }
@@ -105,7 +105,7 @@ impl Workbench {
         cx.notify();
     }
 
-    /// The trash affordance in the harness header, which asks once.
+    /// The trash affordance in the program header, which asks once.
     pub(crate) fn remove(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         if !self.confirming {
             return theme
@@ -164,7 +164,7 @@ impl Workbench {
                     .flex()
                     .flex_col()
                     .gap(px(8.0))
-                    .child(theme.page_header("Deploy a harness", None))
+                    .child(theme.page_header("Deploy a program", None))
                     .child(theme.page_subtitle(
                         "Compiled on the way in, so a broken image is refused here.",
                     ))
@@ -220,7 +220,7 @@ impl Workbench {
             .into_any_element()
     }
 
-    /// The native picker, which also names the harness after the file — the
+    /// The native picker, which also names the program after the file — the
     /// name an author would have typed anyway.
     fn browse(
         &mut self,

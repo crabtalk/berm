@@ -6,10 +6,10 @@ use berm_oci::{Access, Reference, Registry};
 use std::{fs, path::Path, str::FromStr};
 
 pub fn run(client: &Client, name: &str, image: &str) -> Result<()> {
-    let harness = client.deploy(name, read(image)?)?;
+    let program = client.deploy(name, read(image)?)?;
     // The service compiled it to answer, so what comes back is what it will
     // serve — worth showing rather than saying "ok".
-    inspect::show(&harness);
+    inspect::show(&program);
     Ok(())
 }
 

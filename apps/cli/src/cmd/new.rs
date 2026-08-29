@@ -1,9 +1,9 @@
-//! `berm new` — scaffold a harness.
+//! `berm new` — scaffold a program.
 
 use anyhow::{Context, Result, bail};
 use std::{fs, path::Path};
 
-/// The SDK a scaffold depends on. Taken from this binary so a harness is
+/// The SDK a scaffold depends on. Taken from this binary so a program is
 /// generated against the `berm-lang` that shipped with the CLI that wrote it.
 const SDK: &str = env!("CARGO_PKG_VERSION");
 
@@ -21,7 +21,7 @@ const FILES: [(&str, &str); 5] = [
     ("tests/tools.rs", include_str!("../../templates/tools.rs")),
 ];
 
-/// What a harness is built for. Named here because the next steps quote it.
+/// What a program is built for. Named here because the next steps quote it.
 const TARGET: &str = "riscv64imac-unknown-none-elf";
 
 pub fn run(name: &str) -> Result<()> {
@@ -55,11 +55,11 @@ pub fn run(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// A harness name is a crate name, and cargo's rules are the ones that bite —
+/// A program name is a crate name, and cargo's rules are the ones that bite —
 /// better here than three lines into a build.
 fn check(name: &str) -> Result<()> {
     if name.is_empty() {
-        bail!("a harness needs a name");
+        bail!("a program needs a name");
     }
     if name.starts_with(|c: char| c.is_ascii_digit()) {
         bail!("{name:?} starts with a digit, which a crate name cannot");

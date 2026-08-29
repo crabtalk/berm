@@ -1,7 +1,7 @@
 //! The control API: what a UI or a CLI drives the service with.
 //!
 //! Resource-shaped, on one endpoint, for the reason dockerd is: the clients are
-//! a UI, a CLI and `curl`, and a harness is a resource. The MCP endpoint that
+//! a UI, a CLI and `curl`, and a program is a resource. The MCP endpoint that
 //! agents reach sits on the same server at `/mcp`.
 
 use crate::Service;
@@ -13,8 +13,8 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use berm::Harness;
-use berm_api::{Failed, Harness as Wire, Output};
+use berm::Program;
+use berm_api::{Failed, Output, Program as Wire};
 use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
 };
@@ -34,12 +34,12 @@ pub fn router(service: Arc<Service>) -> Router {
     );
 
     Router::new()
-        .route("/harnesses", get(list))
+        .route("/programs", get(list))
         .route(
-            "/harnesses/{name}",
+            "/programs/{name}",
             get(inspect).put(deploy).delete(undeploy),
         )
-        .route("/harnesses/{name}/tools/{tool}", post(call))
+        .route("/programs/{name}/tools/{tool}", post(call))
         .route_service("/mcp", mcp)
         .with_state(service)
 }
@@ -47,7 +47,7 @@ pub fn router(service: Arc<Service>) -> Router {
 impl Service {
     /// What berm read out of the ELF, on the wire, and what of it this service
     /// has nothing to answer with.
-    fn describe(&self, deployed: &Arc<Harness>) -> Wire {
+    fn describe(&self, deployed: &Arc<Program>) -> Wire {
         let manifest = deployed.manifest();
         Wire {
             name: deployed.name.to_string(),
@@ -97,7 +97,7 @@ async fn deploy(
 }
 
 /// Run one tool. `POST` because an invocation is not idempotent, and the body
-/// is the argument object byte for byte as the harness will read it.
+/// is the argument object byte for byte as the program will read it.
 async fn call(
     State(service): State<Arc<Service>>,
     Path((name, tool)): Path<(String, String)>,
@@ -117,13 +117,13 @@ async fn call(
     {
         return Err(Refused(
             StatusCode::NOT_FOUND,
-            format!("harness {name:?} exports no tool named {tool:?}"),
+            format!("program {name:?} exports no tool named {tool:?}"),
         ));
     }
 
     match service.call(&name, &tool, arguments.to_vec()).await {
         Ok(outcome) => Ok(Json(outcome.into())),
-        // The harness is there and so is the tool, so what is left is the
+        // The program is there and so is the tool, so what is left is the
         // invocation: a trap, or a guest that came back unreadable.
         Err(error) => Err(Refused(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -152,7 +152,7 @@ impl Refused {
     fn missing(name: &str) -> Self {
         Self(
             StatusCode::NOT_FOUND,
-            format!("no harness named {name:?} is deployed"),
+            format!("no program named {name:?} is deployed"),
         )
     }
 }

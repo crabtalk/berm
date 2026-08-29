@@ -1,6 +1,6 @@
 //! Where a handler writes its result.
 //!
-//! A fixed buffer rather than an allocation, so a harness that never needs a
+//! A fixed buffer rather than an allocation, so a program that never needs a
 //! heap never pays for one and the result stays valid after the handler
 //! returns — the host reads it once the guest is back out.
 

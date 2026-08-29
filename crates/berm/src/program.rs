@@ -1,7 +1,7 @@
-//! One compiled harness, and the state of one invocation of it.
+//! One compiled program, and the state of one invocation of it.
 
 use crate::{
-    Callsite, System, abi,
+    Callsite, Syscall, abi,
     bound::{depth, watchdog},
 };
 use anyhow::{Context, Result, bail};
@@ -13,15 +13,15 @@ use std::{collections::BTreeMap, sync::Arc};
 /// A guest entry point: takes nothing, returns a pointer and a length.
 type Export = TypedFunc<(), (u64, u64)>;
 
-/// One compiled harness: an image, its exports, and the system harnesses it
+/// One compiled program: an image, its exports, and the syscalls it
 /// was linked against. Compilation is paid once per ELF; every invocation gets
 /// a fresh [`Store`] so no guest state crosses between calls.
-pub struct Harness {
-    /// What this harness was deployed as, as every system harness call
+pub struct Program {
+    /// What this program was deployed as, as every syscall call
     /// reports it. An `Arc` because it is cloned into each invocation.
     pub name: Arc<str>,
     /// sha256 of the ELF. Redeploying different bytes under the same name is a
-    /// different harness, and this is what says so.
+    /// different program, and this is what says so.
     pub digest: String,
     engine: Engine,
     module: Module,
@@ -33,22 +33,22 @@ pub struct Harness {
     tools: BTreeMap<String, Export>,
 }
 
-impl Harness {
-    /// Compile `elf` and resolve its exports, giving it `system`. The engine's
+impl Program {
+    /// Compile `elf` and resolve its exports, giving it `syscalls`. The engine's
     /// code cache makes a second load of the same bytes cheap across processes
     /// as well as within one.
     pub(crate) fn load(
         engine: &Engine,
         elf: &[u8],
         name: impl Into<Arc<str>>,
-        system: &[System],
+        syscalls: &[Syscall],
     ) -> Result<Self> {
-        let module = Module::new(engine, elf).context("failed to compile harness")?;
+        let module = Module::new(engine, elf).context("failed to compile program")?;
         let mut linker = Linker::new(engine);
 
         linker.func_wrap(abi::HOST_LOG, |caller: Caller<'_, Invocation>, ptr, len| {
             let bytes = caller.read(ptr, len)?;
-            tracing::info!(target: "harness", "{}", String::from_utf8_lossy(bytes));
+            tracing::info!(target: "program", "{}", String::from_utf8_lossy(bytes));
             Ok(0u64)
         })?;
 
@@ -98,8 +98,8 @@ impl Harness {
             },
         )?;
 
-        // The other half of every system harness call. A harness given no
-        // system harnesses never stages anything, so this is registered
+        // The other half of every syscall call. A program given no
+        // syscalls never stages anything, so this is registered
         // unconditionally and has nothing to hand over.
         linker.func_wrap(
             abi::HOST_RESULT_READ,
@@ -111,17 +111,17 @@ impl Harness {
             },
         )?;
 
-        for harness in system {
-            let call = harness.call.clone();
+        for syscall in syscalls {
+            let call = syscall.call.clone();
             linker.func_wrap(
-                abi::hash(&harness.name),
+                abi::hash(&syscall.name),
                 move |caller: Caller<'_, Invocation>, ptr, len| {
                     let call = call.clone();
                     let (name, depth) = (caller.data().name.clone(), caller.data().depth);
                     Invocation::stage(caller, ptr, len, move |request| {
                         call(
                             &Callsite {
-                                harness: &name,
+                                program: &name,
                                 depth,
                             },
                             request,
@@ -140,7 +140,7 @@ impl Harness {
             .map(str::to_owned)
             .collect();
         if names.is_empty() {
-            bail!("harness exports no tools");
+            bail!("program exports no tools");
         }
 
         let mut tools = BTreeMap::new();
@@ -149,15 +149,15 @@ impl Harness {
             tools.insert(name, instance.get_typed_func(&symbol)?);
         }
 
-        // A harness that advertises a tool it does not export would fail at
+        // A program that advertises a tool it does not export would fail at
         // dispatch, on a model's turn, as a missing symbol. The symbol table
         // and the manifest are both in hand here, so disagreement is caught
-        // before the harness is ever offered.
+        // before the program is ever offered.
         let manifest = Manifest::from_elf(elf)?;
         for tool in &manifest.tools {
             if !tools.contains_key(&tool.name) {
                 bail!(
-                    "harness manifest declares tool {:?}, which it does not export",
+                    "program manifest declares tool {:?}, which it does not export",
                     tool.name
                 );
             }
@@ -174,12 +174,12 @@ impl Harness {
         })
     }
 
-    /// The tools this harness exports, as the symbol table reports them.
+    /// The tools this program exports, as the symbol table reports them.
     pub fn tools(&self) -> impl Iterator<Item = &str> {
         self.tools.keys().map(String::as_str)
     }
 
-    /// What the harness says it is: ABI version, tools, and usage.
+    /// What the program says it is: ABI version, tools, and usage.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
@@ -187,15 +187,15 @@ impl Harness {
     /// Run one tool by name.
     ///
     /// The outer `Result` is the host's — a missing tool, a trap, a broken
-    /// image. The inner one is the guest's: `Err` means the harness reported
+    /// image. The inner one is the guest's: `Err` means the program reported
     /// failure, which is what a tool result carries back to the model.
     pub fn call(&self, tool: &str, args: impl Into<Vec<u8>>) -> Result<Result<String, String>> {
         let Some(func) = self.tools.get(tool) else {
-            bail!("harness exports no tool named {tool:?}");
+            bail!("program exports no tool named {tool:?}");
         };
 
         // Counted before the store is built, so this guest's own depth is what
-        // its system harnesses are handed.
+        // its syscalls are handed.
         let _level = depth::Level::enter();
         let mut store = self.instantiate(args.into())?;
 
@@ -206,7 +206,7 @@ impl Harness {
 
         let (ptr, len) = func
             .call(&mut store, ())
-            .with_context(|| format!("harness trapped in {tool}"))?;
+            .with_context(|| format!("program trapped in {tool}"))?;
 
         if let Some(failure) = store.data_mut().failure.take() {
             return Ok(Err(failure));
@@ -214,7 +214,7 @@ impl Harness {
 
         let result = store.read(ptr, len)?;
         Ok(Ok(
-            String::from_utf8(result.to_vec()).context("harness returned invalid UTF-8")?
+            String::from_utf8(result.to_vec()).context("program returned invalid UTF-8")?
         ))
     }
 
@@ -236,14 +236,14 @@ impl Harness {
 }
 
 /// Guest state for one invocation. Memory is per-invocation; anything a
-/// harness needs to survive belongs in a storage harness, not here.
+/// program needs to survive belongs in a storage program, not here.
 pub struct Invocation {
-    /// The harness this invocation is of, and how deep it sits. Read once when
-    /// the store is built, so a system harness call costs no lookup.
+    /// The program this invocation is of, and how deep it sits. Read once when
+    /// the store is built, so a syscall call costs no lookup.
     name: Arc<str>,
     depth: u32,
     args: Vec<u8>,
-    /// The last system harness call's result, waiting for the guest to pull it.
+    /// The last syscall call's result, waiting for the guest to pull it.
     /// Staged rather than pushed because its size is not known until the work
     /// is done, and doing the work twice to measure it is not an option.
     result: Vec<u8>,
@@ -263,24 +263,24 @@ impl Invocation {
         }
     }
 
-    /// Run one system harness and leave its bytes for the guest to pull.
+    /// Run one syscall and leave its bytes for the guest to pull.
     ///
     /// Failure rides on the same return value: the [`abi::ERROR`] bit says the
     /// staged bytes are a message. One that fails therefore costs the
     /// guest nothing extra to find out about, and an empty result cannot be
     /// mistaken for one.
     ///
-    /// A system harness that answers with [`Refused`] additionally sets
+    /// A syscall that answers with [`Refused`] additionally sets
     /// [`abi::REFUSED`], which is how a guest tells "it ran and said no" from
     /// "it never ran".
     pub fn stage(
         mut caller: Caller<'_, Self>,
         ptr: u64,
         len: u64,
-        harness: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
+        program: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
     ) -> Result<u64> {
         let request = caller.read(ptr, len)?.to_vec();
-        let (staged, outcome) = match harness(&request) {
+        let (staged, outcome) = match program(&request) {
             Ok(result) => (result, 0),
             Err(error) => {
                 let refused = error
@@ -300,11 +300,11 @@ impl Invocation {
     }
 }
 
-/// A system harness's answer when it refused the call and nothing ran.
+/// A syscall's answer when it refused the call and nothing ran.
 ///
 /// Returned in an `Err` — on its own or as the source of a richer one — it
 /// reaches the guest with [`abi::REFUSED`] set. Anything else is the other
-/// kind of failure: whatever the system harness reached did run, and said no.
+/// kind of failure: whatever the syscall reached did run, and said no.
 #[derive(Debug)]
 pub struct Refused(pub String);
 

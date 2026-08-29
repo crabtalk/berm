@@ -1,8 +1,8 @@
 # berm-lang
 
-Build a harness for [Crabtalk](https://github.com/crabtalk/crabtalk).
+Build a program for [Crabtalk](https://github.com/crabtalk/crabtalk).
 
-A harness is code the daemon schedules: one RV64IMAC ELF, confined to its own
+A program is code the daemon schedules: one RV64IMAC ELF, confined to its own
 address space, reaching the world only through the host calls it was given. This
 crate owns the ABI, so you never see a call number, a register, or a pointer
 pair.
@@ -10,7 +10,7 @@ pair.
 ```rust
 #![cfg_attr(target_arch = "riscv64", no_std, no_main)]
 
-#[berm_lang::harness]
+#[berm_lang::program]
 mod tools {
     use berm_lang::{Failed, Out};
 
@@ -34,7 +34,7 @@ mod tools {
 Every `pub fn` is a tool and its doc comment is what the model reads when
 deciding to call it. `#[args(Echo)]` derives the JSON Schema from that struct's
 fields — their types, their doc comments, and `Option` for the ones the model
-may omit. Nothing is deserialized for you, so a harness that wants no JSON
+may omit. Nothing is deserialized for you, so a program that wants no JSON
 parser links none.
 
 Off the guest's target this is an ordinary binary, which is why the `cfg_attr`
@@ -63,11 +63,11 @@ The resulting ELF is the whole artifact: one file, every platform.
 
 ## Reaching a runtime
 
-This crate owns the ABI and declares no system harness of its own. What a
-harness can reach is whatever its host registered, so naming any of it here
+This crate owns the ABI and declares no syscall of its own. What a
+program can reach is whatever its host registered, so naming any of it here
 would be the SDK deciding what a host must serve.
 
-A harness running under the Crabtalk daemon adds
+A program running under the Crabtalk daemon adds
 [`berm-crabtalk`](https://crates.io/crates/berm-crabtalk), which declares the
 `crabtalk` namespace — files, commands, HTTP, the runtime — and carries the
 message types.

@@ -1,4 +1,4 @@
-//! A harness calling a harness.
+//! A program calling a program.
 //!
 //! The reference guest exports `nest`, which calls `echo` on whatever the
 //! runtime answers for as `inner`. Here that is the same ELF, deployed twice
@@ -11,7 +11,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, storage, system::call};
+use berm::{Berm, storage, syscall::call};
 use rvtime::{Config, Engine};
 use std::{fs, path::PathBuf};
 
@@ -19,7 +19,7 @@ const GUEST: &str = "target/riscv64imac-unknown-none-elf/release/fixture";
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::new("warn,harness=info"))
+        .with_env_filter(tracing_subscriber::EnvFilter::new("warn,program=info"))
         .init();
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

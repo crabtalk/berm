@@ -1,10 +1,10 @@
 # berm.app
 
-A workbench for harnesses — deploy one, read its tools, run them.
+A workbench for programs — deploy one, read its tools, run them.
 
 The app *is* bermd. It owns the `Service`, binds the endpoint, and runs both on
 a tokio runtime beside gpui's, so launching this window starts the daemon: a
-`berm` CLI in a terminal and an agent's MCP client reach the same harnesses the
+`berm` CLI in a terminal and an agent's MCP client reach the same programs the
 window paints.
 
 ```sh

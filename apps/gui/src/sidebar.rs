@@ -1,7 +1,7 @@
-//! The rail of harnesses — what is deployed, or what the index lists.
+//! The rail of programs — what is deployed, or what the index lists.
 
 use crate::{Found, Sheet, Showing, TITLEBAR, Workbench, utils};
-use berm::Harness;
+use berm::Program;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
     theme::Theme,
@@ -19,7 +19,7 @@ impl Workbench {
         // One rail, two lists: an empty field is what this machine holds, and a
         // term is what has been published.
         let (heading, count) = match self.term.is_empty() {
-            true => ("Harnesses", self.harnesses.len()),
+            true => ("Programs", self.programs.len()),
             false => match &self.found {
                 Found::Listed(entries) => ("Index", entries.len()),
                 _ => ("Index", 0),
@@ -70,7 +70,7 @@ impl Workbench {
 
     fn list(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let rail = div()
-            .id("harnesses")
+            .id("programs")
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.rail);
@@ -85,7 +85,7 @@ impl Workbench {
         };
         let rail = if self.term.is_empty() {
             rail.children(
-                self.harnesses
+                self.programs
                     .iter()
                     .enumerate()
                     .map(|(index, deployed)| self.row(deployed, index == 0, theme, cx))
@@ -118,7 +118,7 @@ impl Workbench {
             .min_h_0()
             .child(rail)
             .child(scroll::transient(
-                "harnesses-bar",
+                "programs-bar",
                 &self.rail,
                 &self.rail_bar,
                 cx.reduce_motion(),
@@ -128,7 +128,7 @@ impl Workbench {
 
     fn row(
         &self,
-        deployed: &Arc<Harness>,
+        deployed: &Arc<Program>,
         first: bool,
         theme: &Theme,
         cx: &mut Context<Self>,

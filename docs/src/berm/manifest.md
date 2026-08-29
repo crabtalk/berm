@@ -1,6 +1,6 @@
 # The Manifest
 
-What a harness says it is: its ABI version, its tools, when to reach for them,
+What a program says it is: its ABI version, its tools, when to reach for them,
 and what it reaches for itself.
 
 The manifest is JSON, carried in a `.berm.abi` section of the ELF rather than
@@ -17,33 +17,33 @@ for tool in &manifest.tools {
 ```
 
 A `ToolSpec` carries the tool's name, the description a model reads, and a JSON
-Schema for its arguments. The `#[harness]` macro writes all three at compile
+Schema for its arguments. The `#[program]` macro writes all three at compile
 time from the module it expands.
 
 ## Usage
 
 `Manifest::usage` is the question no single tool's description answers: when to
-reach for this harness at all, and how its tools go together. An embedder puts
+reach for this program at all, and how its tools go together. An embedder puts
 it in front of a model *before* it chooses between them, so it is paid on every
-turn — a few lines, not a manual. `#[harness(usage_file = "…")]` reads it from a
+turn — a few lines, not a manual. `#[program(usage_file = "…")]` reads it from a
 file at compile time when it outgrows an attribute.
 
 ## Dependencies
 
-`#[harness(deps = ["weather", "wss://slack.com"])]` is what an image says it
-will reach for once it runs — harnesses it calls by name, and hosts it dials,
+`#[program(deps = ["weather", "wss://slack.com"])]` is what an image says it
+will reach for once it runs — programs it calls by name, and hosts it dials,
 told apart by whether one carries a scheme. These are runtime and resolved
 wherever the image lands: nothing here is fetched, installed, or compiled in,
 which is what separates them from the crate's own `[dependencies]`.
 
 Declared by the author rather than found by reading the image, because a target
-the harness computes at the call is invisible to any scan — a list built that
+the program computes at the call is invisible to any scan — a list built that
 way would be quietly short, and the runtime `Refused` would still be needed
 underneath it.
 
 Nothing is refused for an unmet dependency. `berm deploy` says so and carries
 on, and `berm inspect` marks the ones this service answers to nothing for.
-Refusing would make deploy order significant, and a restart brings harnesses
+Refusing would make deploy order significant, and a restart brings programs
 back in whatever order the filesystem lists them — two that name each other
 could then never come up at all.
 
@@ -53,7 +53,7 @@ could then never come up at all.
 model.
 
 A manifest built against a different `abi_version` is refused outright, rather
-than dispatched into a system harness its author did not mean.
+than dispatched into a syscall its author did not mean.
 
 A manifest that declares a tool the ELF does not export is also refused. The
 symbol table and the manifest are both in hand at load, so the disagreement is

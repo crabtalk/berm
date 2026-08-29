@@ -1,10 +1,10 @@
-//! The framing a system harness request and its reply share.
+//! The framing a syscall request and its reply share.
 //!
 //! The guest builds these in `crates/lang/src/wire.rs`: a flat sequence of
-//! `u32`-prefixed fields, one rule for every system harness. This is the only
+//! `u32`-prefixed fields, one rule for every syscall. This is the only
 //! decoder, so a malformed request is rejected in one place rather than in
-//! each system harness's own hand-rolled parse — which is why it is public: an
-//! embedder supplying a [`crate::System`] frames it the same way rather
+//! each syscall's own hand-rolled parse — which is why it is public: an
+//! embedder supplying a [`crate::Syscall`] frames it the same way rather
 //! than inventing a second layout.
 
 use anyhow::{Result, bail};
@@ -30,7 +30,7 @@ pub fn fields(mut request: &[u8]) -> Result<Vec<&[u8]>> {
 }
 
 /// Lay fields out for the guest to read back. The other direction of
-/// [`fields`], for a system harness whose answer is more than one blob.
+/// [`fields`], for a syscall whose answer is more than one blob.
 pub fn frame(fields: &[&[u8]]) -> Vec<u8> {
     let mut framed = Vec::new();
     for field in fields {

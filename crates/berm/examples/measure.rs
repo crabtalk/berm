@@ -1,4 +1,4 @@
-//! What a harness invocation costs.
+//! What a program invocation costs.
 //!
 //! RFC 0205 puts store-per-invocation on the critical path for every tool
 //! call, so this measures the parts that decide whether that holds: compiling
@@ -11,7 +11,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, Harness, storage};
+use berm::{Berm, Program, storage};
 use rvtime::{Config, Engine};
 use std::{
     fs,
@@ -26,7 +26,7 @@ const ROUNDS: usize = 1000;
 fn main() -> Result<()> {
     // Only the guest's own log; cranelift is chatty at info.
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::new("warn,harness=info"))
+        .with_env_filter(tracing_subscriber::EnvFilter::new("warn,program=info"))
         .init();
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -55,29 +55,29 @@ fn main() -> Result<()> {
     let warm = time(|| compile(&cache, &elf))?;
     println!("compile (warm {kept}):{warm:>12.3?}");
 
-    let harness = compile(&cache, &elf)?;
-    println!("manifest:              {:?}", harness.manifest());
+    let program = compile(&cache, &elf)?;
+    println!("manifest:              {:?}", program.manifest());
 
     println!(
         "heap probe:            {:?}",
-        harness.call("probe", b"".to_vec())?
+        program.call("probe", b"".to_vec())?
     );
 
     // A payload in the range a real tool call carries.
     let args = format!(r#"{{"query":"{}"}}"#, "x".repeat(256));
-    let echoed = harness
+    let echoed = program
         .call("echo", args.as_bytes())?
         .map_err(anyhow::Error::msg)?;
     assert!(echoed.contains(&args), "round trip lost the payload");
     println!(
         "failure path:          {:?}",
-        harness.call("boom", b"".to_vec())?.unwrap_err()
+        program.call("boom", b"".to_vec())?.unwrap_err()
     );
 
     let mut chatty = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
         let start = Instant::now();
-        let _ = harness.call("chatty", b"".to_vec())?;
+        let _ = program.call("chatty", b"".to_vec())?;
         chatty.push(start.elapsed());
     }
     chatty.sort();
@@ -86,7 +86,7 @@ fn main() -> Result<()> {
     let mut samples = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
         let start = Instant::now();
-        let _ = harness.call("echo", args.as_bytes())?;
+        let _ = program.call("echo", args.as_bytes())?;
         samples.push(start.elapsed());
     }
     samples.sort();
@@ -99,7 +99,7 @@ fn main() -> Result<()> {
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
             let start = Instant::now();
-            let _ = harness.call(tool, args.to_vec())?;
+            let _ = program.call(tool, args.to_vec())?;
             samples.push(start.elapsed());
         }
         samples.sort();
@@ -144,7 +144,7 @@ fn main() -> Result<()> {
     );
 
     // Instantiate maps a guest address space per invocation. If that cost
-    // tracked the configured size, a harness wanting room would pay for it on
+    // tracked the configured size, a program wanting room would pay for it on
     // every call.
     println!("p50 by guest memory size:");
     for mib in [16u64, 64, 256, 1024] {
@@ -152,12 +152,12 @@ fn main() -> Result<()> {
         config.cache_dir(&cache).memory_size(mib * 1024 * 1024);
         let engine = Engine::new(&config)?;
         let berm = Berm::new(&engine, 0, vec![], storage::Memory::new());
-        let harness = berm.deploy("fixture", &elf)?;
+        let program = berm.deploy("fixture", &elf)?;
 
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
             let start = Instant::now();
-            let _ = harness.call("echo", args.as_bytes())?;
+            let _ = program.call("echo", args.as_bytes())?;
             samples.push(start.elapsed());
         }
         samples.sort();
@@ -173,7 +173,7 @@ fn main() -> Result<()> {
 /// cache holds generated code per function, an artifact holds the whole
 /// compiled object. Only one is in play at a time, since enabling `aot` is
 /// what selects it.
-fn compile(dir: &std::path::Path, elf: &[u8]) -> Result<Arc<Harness>> {
+fn compile(dir: &std::path::Path, elf: &[u8]) -> Result<Arc<Program>> {
     let mut config = Config::new();
 
     config.cache_dir(dir);

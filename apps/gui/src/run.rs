@@ -1,7 +1,7 @@
 //! Running a tool, and what came back.
 
 use crate::{Engine, Workbench, utils};
-use berm::Harness;
+use berm::Program;
 use berm_api::ToolSpec;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
@@ -15,9 +15,9 @@ use std::{
 
 /// One invocation, and how it went.
 pub struct Invocation {
-    /// Which harness ran it — the transcript is one list, and a pane shows its
+    /// Which program ran it — the transcript is one list, and a pane shows its
     /// own.
-    harness: String,
+    program: String,
     tool: String,
     arguments: String,
     elapsed: Duration,
@@ -28,9 +28,9 @@ pub struct Invocation {
 /// around: only the last one is berm's fault.
 enum Outcome {
     Running,
-    /// The harness returned.
+    /// The program returned.
     Done(String),
-    /// The harness ran and reported failure — a tool result a model should see
+    /// The program ran and reported failure — a tool result a model should see
     /// and react to, not a protocol error.
     Failed(String),
     /// A trap, or no such tool. The host's.
@@ -50,7 +50,7 @@ impl Workbench {
         let Engine::Serving { service, .. } = &self.engine else {
             return;
         };
-        let (Some(harness), Some(tool)) = (
+        let (Some(program), Some(tool)) = (
             self.selected().map(|deployed| deployed.name.clone()),
             self.tool.clone(),
         ) else {
@@ -61,7 +61,7 @@ impl Workbench {
 
         let at = self.transcript.len();
         self.transcript.push(Invocation {
-            harness: harness.to_string(),
+            program: program.to_string(),
             tool: tool.clone(),
             arguments: arguments.clone(),
             elapsed: Duration::ZERO,
@@ -71,7 +71,7 @@ impl Workbench {
         let started = Instant::now();
         let call = self
             .rt
-            .spawn(async move { service.call(&harness, &tool, arguments.into_bytes()).await });
+            .spawn(async move { service.call(&program, &tool, arguments.into_bytes()).await });
         cx.spawn(async move |this, cx| {
             let outcome = match call.await {
                 Ok(Ok(Ok(result))) => Outcome::Done(result),
@@ -94,7 +94,7 @@ impl Workbench {
 
     pub(crate) fn run_pane(
         &self,
-        deployed: &Arc<Harness>,
+        deployed: &Arc<Program>,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -145,7 +145,7 @@ impl Workbench {
                         self.transcript
                             .iter()
                             .enumerate()
-                            .filter(|(_, entry)| entry.harness == *deployed.name)
+                            .filter(|(_, entry)| entry.program == *deployed.name)
                             // Newest first: the result you just asked for is
                             // under the button you pressed, not below the scroll.
                             .rev()
@@ -167,7 +167,7 @@ impl Invocation {
             Outcome::Failed(failure) => (
                 theme.warning,
                 Some(failure.clone()),
-                Some("harness failure"),
+                Some("program failure"),
             ),
             Outcome::Refused(error) => (theme.danger, Some(error.clone()), Some("refused")),
         };

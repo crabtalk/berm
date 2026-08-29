@@ -20,7 +20,7 @@ fn main() {
             if let Err(error) = ui::register_fonts(cx) {
                 eprintln!("FONT REGISTRATION FAILED: {error:?}");
             }
-            appearance::init(AppearanceMode::System, cx);
+            appearance::init(AppearanceMode::Syscall, cx);
             berm_gui::init(cx);
             // Without a menu item `cmd-q` does nothing: the standard items come
             // from a nib and there is no nib here.

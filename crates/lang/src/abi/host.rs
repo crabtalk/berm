@@ -1,4 +1,4 @@
-//! How a system harness call works, once, for all of them.
+//! How a syscall call works, once, for all of them.
 //!
 //! A call hands the host a request and gets back a length. The bytes stay
 //! host-side until the guest asks for them, which is the same pull the
@@ -18,10 +18,10 @@ use crate::{
 };
 use alloc::{string::String, vec, vec::Vec};
 
-/// Why a system harness call did not produce a result.
+/// Why a syscall call did not produce a result.
 ///
 /// The distinction is the host's own, carried through unchanged: reaching a
-/// harness that is not deployed is not the same event as reaching one that ran
+/// program that is not deployed is not the same event as reaching one that ran
 /// and said no, and only the caller knows which of them it can do something
 /// about.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +52,7 @@ impl core::fmt::Display for CallError {
     }
 }
 
-/// Make one system harness call. `Err` carries whatever the host said went wrong.
+/// Make one syscall call. `Err` carries whatever the host said went wrong.
 pub fn call(number: u64, request: &[u8]) -> Result<Vec<u8>, CallError> {
     let staged = sys::call2(number, request.as_ptr() as u64, request.len() as u64);
     let failed = staged & ERROR != 0;

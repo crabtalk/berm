@@ -13,8 +13,8 @@ use sha2::{Digest, Sha256};
 use std::env;
 
 /// The layer, and what the whole artifact is typed as.
-pub const HARNESS: &str = "application/vnd.berm.harness.v1";
-/// The config blob: what the harness says it is.
+pub const HARNESS: &str = "application/vnd.berm.program.v1";
+/// The config blob: what the program says it is.
 pub const MANIFEST: &str = "application/vnd.berm.manifest.v1+json";
 const OCI_MANIFEST: &str = "application/vnd.oci.image.manifest.v1+json";
 /// Accepted only to be refused by name: a registry handed one of these back as
@@ -93,14 +93,14 @@ impl Registry {
 
         let config = artifact
             .get("config")
-            .context("not a harness: the artifact has no config")?;
+            .context("not a program: the artifact has no config")?;
 
         let kind = config
             .get("mediaType")
             .and_then(Value::as_str)
             .unwrap_or("");
         if kind != MANIFEST {
-            bail!("not a harness: its config is {kind:?}");
+            bail!("not a program: its config is {kind:?}");
         }
         let digest = config
             .get("digest")
@@ -108,7 +108,7 @@ impl Registry {
             .context("the artifact's config has no digest")?;
 
         let bytes = self.blob(digest)?;
-        let json = str::from_utf8(&bytes).context("harness manifest is not UTF-8")?;
+        let json = str::from_utf8(&bytes).context("program manifest is not UTF-8")?;
         Ok((image, Manifest::parse(json)?))
     }
 
@@ -269,34 +269,34 @@ fn send(request: RequestBuilder) -> Result<Response> {
     }
 }
 
-/// The one layer a harness has, refusing anything that is not one.
+/// The one layer a program has, refusing anything that is not one.
 fn layer(manifest: &Value) -> Result<&Value> {
     // An index is what a container image looks like, and pointing at one is the
     // likely mistake here — worth saying so rather than reporting a missing
     // field.
     if manifest.get("manifests").is_some() {
-        bail!("not a harness: a multi-platform image, which berm has no use for");
+        bail!("not a program: a multi-platform image, which berm has no use for");
     }
 
     let layers = manifest
         .get("layers")
         .and_then(Value::as_array)
-        .context("not a harness: the artifact has no layers")?;
+        .context("not a program: the artifact has no layers")?;
     let [layer] = layers.as_slice() else {
         bail!(
-            "not a harness: {} layers, where one is the whole of it",
+            "not a program: {} layers, where one is the whole of it",
             layers.len()
         );
     };
 
     let kind = layer.get("mediaType").and_then(Value::as_str).unwrap_or("");
     if kind != HARNESS {
-        bail!("not a harness: its layer is {kind:?}");
+        bail!("not a program: its layer is {kind:?}");
     }
     Ok(layer)
 }
 
-/// Standard OCI keys only. What the harness *is* lives in the config blob, and
+/// Standard OCI keys only. What the program *is* lives in the config blob, and
 /// a second copy here would be the one that rots.
 fn annotations() -> Value {
     let mut annotations = Map::new();
