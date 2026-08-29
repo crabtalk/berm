@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use std::env;
 
 /// The layer, and what the whole artifact is typed as.
-pub const HARNESS: &str = "application/vnd.berm.program.v1";
+pub const PROGRAM: &str = "application/vnd.berm.program.v1";
 /// The config blob: what the program says it is.
 pub const MANIFEST: &str = "application/vnd.berm.manifest.v1+json";
 const OCI_MANIFEST: &str = "application/vnd.oci.image.manifest.v1+json";
@@ -121,9 +121,9 @@ impl Registry {
         let artifact = json!({
             "schemaVersion": 2,
             "mediaType": OCI_MANIFEST,
-            "artifactType": HARNESS,
+            "artifactType": PROGRAM,
             "config": { "mediaType": MANIFEST, "digest": config, "size": manifest.len() },
-            "layers": [ { "mediaType": HARNESS, "digest": image, "size": elf.len() } ],
+            "layers": [ { "mediaType": PROGRAM, "digest": image, "size": elf.len() } ],
             "annotations": annotations(),
         });
 
@@ -290,7 +290,7 @@ fn layer(manifest: &Value) -> Result<&Value> {
     };
 
     let kind = layer.get("mediaType").and_then(Value::as_str).unwrap_or("");
-    if kind != HARNESS {
+    if kind != PROGRAM {
         bail!("not a program: its layer is {kind:?}");
     }
     Ok(layer)

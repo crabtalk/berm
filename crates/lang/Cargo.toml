@@ -1,12 +1,12 @@
 [package]
 name = "berm-lang"
-description = "Guest-side library for building Crabtalk harnesses"
+description = "Guest-side library for building Crabtalk programs"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-keywords = ["crabtalk", "harness", "sandbox", "riscv"]
+keywords = ["crabtalk", "program", "sandbox", "riscv"]
 readme = "README.md"
 
 [lib]
@@ -19,7 +19,7 @@ test = false
 default = ["alloc", "args"]
 alloc = ["dep:linked_list_allocator"]
 # Typed tool arguments. On by default because a tool that takes none is the
-# exception; a harness like `peers` can turn it off.
+# exception; a program like `peers` can turn it off.
 args = ["alloc", "dep:serde_guest", "dep:serde_json_guest"]
 
 [dependencies]

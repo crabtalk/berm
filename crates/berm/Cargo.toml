@@ -1,6 +1,6 @@
 [package]
 name = "berm"
-description = "Sandboxed harness host — runs guest ELFs under rvtime"
+description = "The operating system for agent harnesses — runs guest ELFs under rvtime"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

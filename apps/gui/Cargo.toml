@@ -1,6 +1,6 @@
 [package]
 name = "berm-gui"
-description = "A workbench for harnesses — deploy one, read its tools, run them"
+description = "A workbench for programs — deploy one, read its tools, run them"
 edition.workspace = true
 version.workspace = true
 repository.workspace = true

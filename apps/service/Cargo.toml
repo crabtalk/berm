@@ -1,12 +1,12 @@
 [package]
 name = "bermd"
-description = "A long-running service that deploys harnesses and serves their tools over MCP"
+description = "A long-running service that deploys programs and serves their tools over MCP"
 edition.workspace = true
 version.workspace = true
 repository.workspace = true
 license.workspace = true
 authors.workspace = true
-keywords = ["mcp", "sandbox", "riscv", "harness", "daemon"]
+keywords = ["mcp", "sandbox", "riscv", "program", "daemon"]
 categories = ["virtualization"]
 
 [[bin]]
