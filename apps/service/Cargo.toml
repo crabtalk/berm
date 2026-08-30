@@ -14,9 +14,10 @@ name = "bermd"
 path = "bin/main.rs"
 
 [features]
-default = ["aot"]
-jit = ["berm/jit"]
-aot = ["berm/aot"]
+# Passed through to berm, which is where the backend lives.
+default = ["riscv"]
+riscv = ["berm/riscv"]
+riscv-jit = ["berm/riscv-jit"]
 
 [dependencies]
 anyhow.workspace = true

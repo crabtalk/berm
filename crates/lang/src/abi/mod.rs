@@ -33,6 +33,8 @@ pub const HOST_LOG: u64 = hash("berm.log");
 pub const HOST_ARG_LEN: u64 = hash("berm.args.len");
 /// Copy the argument blob into guest memory.
 pub const HOST_ARG_READ: u64 = hash("berm.args.read");
+/// Finish this invocation with a result.
+pub const HOST_DONE: u64 = hash("berm.done");
 /// Fail this invocation with a message.
 pub const HOST_FAIL: u64 = hash("berm.fail");
 /// Copy the last syscall call's staged result into guest memory.
@@ -88,26 +90,6 @@ pub const fn hash(name: &str) -> u64 {
     result
 }
 
-/// A pointer and length, which is exactly what two result registers hold.
-/// `repr(C)` puts them in `a0` and `a1` under LP64.
-#[repr(C)]
-pub struct Buf {
-    pub ptr: u64,
-    pub len: u64,
-}
-
-impl Buf {
-    /// Point at bytes the host may read after the guest returns. They must
-    /// outlive the call — a static buffer or a leaked allocation, never a
-    /// local.
-    pub fn new(bytes: &[u8]) -> Self {
-        Self {
-            ptr: bytes.as_ptr() as u64,
-            len: bytes.len() as u64,
-        }
-    }
-}
-
 /// Write a line to the host's log.
 pub fn log(message: &str) {
     sys::call2(HOST_LOG, message.as_ptr() as u64, message.len() as u64);
@@ -137,12 +119,20 @@ pub fn read_args(buffer: &mut [u8]) -> usize {
     ) as usize
 }
 
-/// Report failure. The host marks the invocation an error rather than a
-/// result, which is the difference between a tool that failed and a tool that
-/// returned the word "error".
-pub fn fail(message: &[u8]) -> Buf {
+/// Hand the host what this tool produced.
+///
+/// A call, as everything else here is: a returned pointer pair would be two
+/// registers on RV64 and a hidden out-parameter on wasm32, which is two
+/// conventions for one ABI.
+pub fn done(result: &[u8]) {
+    sys::call2(HOST_DONE, result.as_ptr() as u64, result.len() as u64);
+}
+
+/// Report failure, the other half of [`done`]. The host marks the invocation
+/// an error rather than a result, which is the difference between a tool that
+/// failed and a tool that returned the word "error".
+pub fn fail(message: &[u8]) {
     sys::call2(HOST_FAIL, message.as_ptr() as u64, message.len() as u64);
-    Buf { ptr: 0, len: 0 }
 }
 
 /// Pull the last syscall call's staged result, returning its *full* length

@@ -53,9 +53,10 @@ pub struct Service {
 impl Service {
     /// Open `root`, restoring whatever was deployed before this process.
     pub async fn new(root: PathBuf, depth: u32, policy: Policy) -> Result<Arc<Self>> {
-        let mut config = Config::new();
-        config.cache_dir(root.join("cache"));
-        let engine = Engine::new(&config).context("failed to start the compiler")?;
+        let engine = Engine::new(&Config {
+            cache_dir: Some(root.join("cache")),
+        })
+        .context("failed to start the compiler")?;
 
         // Cyclic for the reason `Berm` is: the socket doors reach back into
         // the service holding the table they write to.

@@ -1,9 +1,9 @@
 //! berm — the runtime of programs.
 //!
-//! A program is one hash-pinned RV64 ELF. berm compiles it once, holds it by
-//! the name it answers to, and instantiates it per invocation under rvtime:
-//! arguments are pulled in through host calls, the result is read back out of
-//! guest memory, and nothing survives the call.
+//! A program is one hash-pinned image. berm compiles it once, holds it by the
+//! name it answers to, and instantiates it per invocation: arguments are
+//! pulled in through syscalls, the result is handed back through one, and
+//! nothing survives the call.
 //!
 //! ```ignore
 //! let berm = Berm::new(&engine, syscall::call::DEFAULT_CALL_DEPTH, vec![]);
@@ -23,9 +23,9 @@
 //! berm has no host.
 
 use anyhow::Result;
+pub use backend::{Config, Engine};
 pub use berm_api::{Manifest, ToolSpec};
 pub use program::{Invocation, Program, Refused};
-pub use rvtime::{Config, Engine};
 use std::{
     collections::BTreeMap,
     sync::{Arc, RwLock, Weak},
@@ -33,6 +33,7 @@ use std::{
 pub use storage::{Records, Storage};
 
 pub mod abi;
+mod backend;
 mod bound;
 mod program;
 pub mod storage;
@@ -112,15 +113,15 @@ impl Berm {
         &self.storage
     }
 
-    /// Compile `elf` and make its tools reachable as `name`.
+    /// Compile `image` and make its tools reachable as `name`.
     ///
     /// Compiling here rather than on first call means a broken image is refused
     /// by the deploy that introduced it, not on a model's turn. Written down
     /// before it is published, so a tool that is served is one a restart brings
     /// back.
-    pub fn deploy(&self, name: &str, elf: &[u8]) -> Result<Arc<Program>> {
-        let program = self.load(name, elf)?;
-        self.storage.put(Records::Programs, name, elf)?;
+    pub fn deploy(&self, name: &str, image: &[u8]) -> Result<Arc<Program>> {
+        let program = self.load(name, image)?;
+        self.storage.put(Records::Programs, name, image)?;
         self.programs
             .write()
             .expect("deployed programs")
@@ -133,8 +134,8 @@ impl Berm {
     /// One that will not load is reported and skipped: a single bad record is
     /// not a reason to come up with none of them.
     pub fn restore(&self) -> Result<()> {
-        for (name, elf) in self.storage.list(Records::Programs)? {
-            match self.load(&name, &elf) {
+        for (name, image) in self.storage.list(Records::Programs)? {
+            match self.load(&name, &image) {
                 Ok(program) => {
                     tracing::info!(name, digest = %program.digest, "restored");
                     self.programs
@@ -149,10 +150,15 @@ impl Berm {
     }
 
     /// Compile an image against the syscalls this runtime serves.
-    fn load(&self, name: &str, elf: &[u8]) -> Result<Arc<Program>> {
+    fn load(&self, name: &str, image: &[u8]) -> Result<Arc<Program>> {
         let mut syscalls = self.syscalls.clone();
         syscalls.push(syscall::call::syscalls(self.me.clone(), self.depth));
-        Ok(Arc::new(Program::load(&self.engine, elf, name, &syscalls)?))
+        Ok(Arc::new(Program::load(
+            &self.engine,
+            image,
+            name,
+            &syscalls,
+        )?))
     }
 
     /// Forget one and drop its image. `false` if nothing answered to that name.

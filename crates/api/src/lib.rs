@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// The ABI this host speaks. A program built against a different one is
 /// refused rather than dispatched into a syscall its author did not
 /// mean.
-pub const ABI_VERSION: u32 = 0;
+pub const ABI_VERSION: u32 = 1;
 
 /// The section carrying the manifest. A section rather than an export, so
 /// reading what a program claims to be never means running it.

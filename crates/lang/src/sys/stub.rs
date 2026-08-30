@@ -18,6 +18,8 @@ std::thread_local! {
 pub(crate) struct Host {
     pub args: Vec<u8>,
     pub logged: Vec<String>,
+    /// What the tool answered with, whichever door it used.
+    pub done: Option<Vec<u8>>,
     pub failure: Option<String>,
     /// What the last syscall call answered with. Staged exactly as a
     /// real host stages it, so the pull in [`crate::abi::host::call`] is the
@@ -34,6 +36,7 @@ impl Host {
         Self {
             args: Vec::new(),
             logged: Vec::new(),
+            done: None,
             failure: None,
             result: Vec::new(),
             answers: Vec::new(),
@@ -66,6 +69,10 @@ pub fn call2(number: u64, a0: u64, a1: u64) -> u64 {
         }),
         abi::HOST_LOG => {
             with(|host| host.logged.push(read(a0, a1)));
+            0
+        }
+        abi::HOST_DONE => {
+            with(|host| host.done = Some(bytes(a0, a1)));
             0
         }
         abi::HOST_FAIL => {
@@ -117,9 +124,12 @@ pub fn call2(number: u64, a0: u64, a1: u64) -> u64 {
 
 /// Read a `(ptr, len)` pair the caller passed. Off-target these are real
 /// addresses in this process.
+fn bytes(ptr: u64, len: u64) -> Vec<u8> {
+    unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) }.to_vec()
+}
+
 fn read(ptr: u64, len: u64) -> String {
-    let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    String::from_utf8_lossy(bytes).into_owned()
+    String::from_utf8_lossy(&bytes(ptr, len)).into_owned()
 }
 
 #[cold]

@@ -15,7 +15,7 @@
 //! ```
 #![cfg(not(target_arch = "riscv64"))]
 
-use crate::{Buf, CallError, abi, sys};
+use crate::{CallError, abi, sys};
 use std::{
     string::String,
     sync::{Mutex, PoisonError},
@@ -32,7 +32,7 @@ static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 /// `Err` is what the program reported through its failure channel — the same
 /// distinction the host draws between a tool that failed and one that returned
 /// the word "error".
-pub fn call(entry: extern "C" fn() -> Buf, args: &[u8]) -> Result<Vec<u8>, String> {
+pub fn call(entry: extern "C" fn(), args: &[u8]) -> Result<Vec<u8>, String> {
     // A failing assertion is a test doing its job, so a panic while holding
     // this must not poison it into failing every other test.
     let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
@@ -40,18 +40,19 @@ pub fn call(entry: extern "C" fn() -> Buf, args: &[u8]) -> Result<Vec<u8>, Strin
     sys::with(|host| {
         host.args = args.to_vec();
         host.logged.clear();
+        host.done = None;
         host.failure = None;
     });
 
-    let Buf { ptr, len } = entry();
+    entry();
 
-    if let Some(failure) = sys::with(|host| host.failure.take()) {
-        return Err(failure);
-    }
-    // Safety: the program returned this pair to be read, and off-target its
-    // buffers are ordinary memory in this process.
-    let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    Ok(bytes.to_vec())
+    // A tool that returned without answering wrote nothing, which is an empty
+    // result rather than a missing one.
+    sys::with(|host| match (host.failure.take(), host.done.take()) {
+        (Some(failure), _) => Err(failure),
+        (None, Some(result)) => Ok(result),
+        (None, None) => Ok(Vec::new()),
+    })
 }
 
 /// What the program logged during the last [`call`].

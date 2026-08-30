@@ -4,7 +4,7 @@
 //! heap never pays for one and the result stays valid after the handler
 //! returns — the host reads it once the guest is back out.
 
-use crate::abi::Buf;
+use crate::abi;
 
 /// A bounded sink over a caller-owned buffer.
 ///
@@ -48,8 +48,8 @@ impl<'a> Out<'a> {
     }
 
     /// Hand what was written back to the host.
-    pub fn finish(&self) -> Buf {
-        Buf::new(self.written())
+    pub fn finish(&self) {
+        abi::done(self.written());
     }
 }
 

@@ -1,9 +1,16 @@
 //! The wire between a program and its host.
 //!
-//! A syscall is identified by its *name*; the number `ecall` carries in
-//! `a7` is derived from it (RFC 0205). Adding a syscall therefore cannot
-//! collide with an allocation someone else made, and there is no registry of
-//! integers to keep.
+//! A syscall is identified by its *name*; the number carrying it is derived
+//! from that name (RFC 0205). Adding a syscall therefore cannot collide with
+//! an allocation someone else made, and there is no registry of integers to
+//! keep.
+//!
+//! Every one takes a request at `(ptr, len)` and answers with a single word.
+//! One shape for all of them: a call that needs no request is handed a pair it
+//! ignores, and one whose answer is longer than a word stages it for the guest
+//! to pull. That is what lets a backend register a table rather than a list of
+//! signatures — rvtime puts the number in `a7` and the pair in `a0`/`a1`,
+//! wasmtime takes all three as arguments to one import.
 //!
 //! The same hash is computed guest-side in `crates/lang/src/abi.rs`. The two
 //! must agree — and cannot drift quietly if they don't: a mismatched name
@@ -16,7 +23,15 @@ pub const HOST_LOG: u64 = hash("berm.log");
 pub const HOST_ARG_LEN: u64 = hash("berm.args.len");
 /// Copy the argument blob into guest memory. `(ptr, cap) -> full length`
 pub const HOST_ARG_READ: u64 = hash("berm.args.read");
+/// Finish this invocation with a result. `(ptr, len) -> 0`
+pub const HOST_DONE: u64 = hash("berm.done");
 /// Fail this invocation with a message. `(ptr, len) -> 0`
+///
+/// The other half of [`HOST_DONE`], and the reason neither is a return value:
+/// what a tool answers with travels the same way everything else does, so an
+/// export takes nothing and returns nothing on every backend. A pointer pair
+/// in registers would have been two words on RV64 and a hidden out-parameter
+/// on wasm32, which is one convention too many for one ABI.
 pub const HOST_FAIL: u64 = hash("berm.fail");
 /// Copy the staged syscall result into guest memory. `(ptr, cap) -> full length`
 pub const HOST_RESULT_READ: u64 = hash("berm.result.read");
@@ -141,4 +156,6 @@ pub const HOST_HEAP_SIZE: u64 = hash("berm.heap.size");
 /// Prefix on every tool's exported symbol. A tool is resolved by name like any
 /// other symbol; the prefix keeps one called `init` from colliding with the
 /// exports the ABI reserves.
+///
+/// A tool takes nothing and returns nothing — see [`HOST_FAIL`].
 pub const TOOL_PREFIX: &str = "berm_tool_";

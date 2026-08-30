@@ -65,7 +65,7 @@ pub mod tool;
 #[cfg_attr(not(target_arch = "riscv64"), path = "sys/stub.rs")]
 mod sys;
 
-pub use abi::{Buf, args_len, log, now};
+pub use abi::{args_len, log, now};
 pub use berm_codegen::{program, syscalls};
 pub use out::Out;
 
@@ -86,10 +86,10 @@ pub use serde_json_guest as serde_json;
 
 /// The ABI this SDK generates against. A host that does not recognise it
 /// refuses the program rather than guessing.
-pub const ABI_VERSION: u32 = 0;
+pub const ABI_VERSION: u32 = 1;
 
 #[doc(hidden)]
-pub const ABI_VERSION_TEXT: &str = "0";
+pub const ABI_VERSION_TEXT: &str = "1";
 
 /// Returned by a handler that failed. Whatever it wrote to its [`Out`] becomes
 /// the failure message, so an error can be specific without an allocator.

@@ -204,7 +204,7 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
         quote! {
             #[doc = #doc]
             #[unsafe(no_mangle)]
-            pub extern "C" fn #symbol() -> ::berm_lang::Buf {
+            pub extern "C" fn #symbol() {
                 let arguments = unsafe { &mut *::core::ptr::addr_of_mut!(_CRABTALK_ARGS) };
                 let length = ::berm_lang::abi::read_args(arguments);
                 if length > _CRABTALK_BUFFER {
@@ -453,7 +453,7 @@ fn describe(config: &Config, tools: &[Tool]) -> String {
         .join(",");
 
     format!(
-        r#"{{"abi_version":0,"tools":[{tools}],"usage":"{}","deps":[{deps}]}}"#,
+        r#"{{"abi_version":1,"tools":[{tools}],"usage":"{}","deps":[{deps}]}}"#,
         escape(&config.usage),
     )
 }

@@ -11,11 +11,13 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, storage, syscall::call};
-use rvtime::{Config, Engine};
+use berm::{Berm, Config, Engine, storage, syscall::call};
 use std::{fs, path::PathBuf};
 
-const GUEST: &str = "target/riscv64imac-unknown-none-elf/release/fixture";
+const GUEST: (&str, &str) = (
+    "target/riscv64imac-unknown-none-elf/release/fixture",
+    "riscv64imac-unknown-none-elf",
+);
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -27,13 +29,14 @@ fn main() -> Result<()> {
         .and_then(|p| p.parent())
         .context("no workspace root")?
         .to_path_buf();
-    let elf = fs::read(root.join(GUEST)).with_context(|| {
-        format!("build the guest first: cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf ({GUEST})")
+    let (guest, target) = GUEST;
+    let elf = fs::read(root.join(guest)).with_context(|| {
+        format!("build the guest first: cargo build --release -p berm-fixture --target {target} ({guest})")
     })?;
 
-    let mut config = Config::new();
-    config.cache_dir(std::env::temp_dir().join("berm-nesting"));
-    let engine = Engine::new(&config)?;
+    let engine = Engine::new(&Config {
+        cache_dir: Some(std::env::temp_dir().join("berm-nesting")),
+    })?;
 
     let berm = Berm::new(
         &engine,
