@@ -1,8 +1,8 @@
 use berm_gui::Workbench;
 use bezel::{
     gpui::{
-        App, AppContext as _, Bounds, Menu, MenuItem, TitlebarOptions, WindowBounds, WindowOptions,
-        actions, point, px, size,
+        self, App, AppContext as _, Bounds, Menu, MenuItem, TitlebarOptions, WindowBounds,
+        WindowOptions, actions, point, px, size,
     },
     theme::{
         Theme,
@@ -20,7 +20,7 @@ fn main() {
             if let Err(error) = ui::register_fonts(cx) {
                 eprintln!("FONT REGISTRATION FAILED: {error:?}");
             }
-            appearance::init(AppearanceMode::Syscall, cx);
+            appearance::init(AppearanceMode::System, cx);
             berm_gui::init(cx);
             // Without a menu item `cmd-q` does nothing: the standard items come
             // from a nib and there is no nib here.

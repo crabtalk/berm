@@ -21,11 +21,8 @@ berm-index.workspace = true
 berm-oci.workspace = true
 bermd.workspace = true
 bezel.workspace = true
-# `actions!` expands to literal `gpui::` paths, so the crate name has to be in
-# scope even though no type is ever named through it.
-gpui.workspace = true
-# The facade re-exports gpui but not the platform, and this gpui has no
-# `Application::new()`.
+# The facade re-exports gpui but not the platform, and `Application` builds only
+# from one.
 gpui_platform.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

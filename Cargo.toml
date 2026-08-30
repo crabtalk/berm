@@ -35,7 +35,7 @@ guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.7", de
 # crates-io
 anyhow = "1.0"
 axum = "0.8"
-bezel = "0.1"
+bezel = "=0.1.1"
 cc = "1.4"
 clap = { version = "4", features = ["derive"] }
 cranelift = { version = "0.134.3", features = [
@@ -47,10 +47,9 @@ cranelift = { version = "0.134.3", features = [
 cranelift-codegen = { version = "0.134.3", features = ["incremental-cache"] }
 cranelift-object = "0.134.3"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-# bezel's own gpui, republished. A second copy is a second type universe,
-# whose failure is a window that paints shapes but no text.
-gpui = { package = "bezel-gpui", version = "0.3.3" }
-gpui_platform = { package = "bezel-gpui-platform", version = "0.3.3", features = [
+# The one thing the facade does not re-export. `gpui::Application` builds only
+# from a platform, and this is where the platform comes from.
+gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.3", features = [
     "font-kit",
 ] }
 libc = "0.2"
