@@ -1,7 +1,7 @@
 //! `#[program]` — turns a module of plain functions into a loadable program.
 //!
-//! The exports an ELF needs are ceremony: an entry point that keeps the linker
-//! from discarding the image, a heap handshake, a description the host reads at
+//! The exports an image needs are ceremony: an entry point that keeps the
+//! linker from discarding it, a heap handshake, a description the host reads at
 //! registration, and dispatch from a tool index back to a function. None of it
 //! is the author's problem, so none of it is in their source.
 
@@ -195,7 +195,7 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
 
     // One export per tool, so the host resolves it the way it resolves any
     // other symbol. An index would couple the two sides by declaration order
-    // for no gain — rvtime looks entries up by name already.
+    // for no gain — both backends look entries up by name already.
     let exports = tools.iter().map(|tool| {
         let ident = &tool.ident;
         let symbol = syn::Ident::new(&format!("{TOOL_PREFIX}{}", tool.name), ident.span());
@@ -252,19 +252,26 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
         static mut _CRABTALK_OUT: [u8; _CRABTALK_BUFFER] = [0; _CRABTALK_BUFFER];
 
         /// What this program is, as a section rather than an export: the host
-        /// reads it out of the ELF without compiling or running anything, so
+        /// reads it out of the image without compiling or running anything, so
         /// learning what a program claims never means executing it.
+        ///
+        /// One attribute for both targets — an ELF section and a wasm custom
+        /// section are what `link_section` emits for each.
         #[used]
-        #[cfg_attr(target_arch = "riscv64", unsafe(link_section = ".berm.abi"))]
+        #[cfg_attr(
+            any(target_arch = "wasm32", target_arch = "riscv64"),
+            unsafe(link_section = ".berm.abi")
+        )]
         static _CRABTALK_ABI: [u8; #description_len] = *#description_bytes;
 
-        /// A program is a binary, and off the guest's target a binary needs a
+        /// A program is a binary, and off a guest target a binary needs a
         /// `main` — which is what lets `cargo test` build one natively.
-        #[cfg(not(target_arch = "riscv64"))]
+        #[cfg(not(any(target_arch = "wasm32", target_arch = "riscv64")))]
         fn main() {}
 
         /// The ELF entry point. Never called: it exists so `--gc-sections`
-        /// keeps the exports, which nothing else in the image references.
+        /// keeps the exports, which nothing else in the image references. wasm
+        /// needs no equivalent — an exported function is a root there.
         /// Off the guest's target the C runtime owns `_start`, and defining a
         /// second one fails the native test link on ELF platforms.
         #[cfg(target_arch = "riscv64")]

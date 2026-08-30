@@ -7,9 +7,14 @@
 //!
 //! ```ignore
 //! let berm = Berm::new(&engine, syscall::call::DEFAULT_CALL_DEPTH, vec![]);
-//! berm.deploy("example", &elf)?;
+//! berm.deploy("example", &wasm)?;
 //! let result = berm.call("example", "echo", br#"{"query":"hi"}"#.to_vec())?;
 //! ```
+//!
+//! An image is WebAssembly, run under wasmtime, or — experimentally — a
+//! statically linked RV64 ELF run under rvtime. Which one a deploy reaches is
+//! read off its first four bytes, and the two answer the same ABI: same
+//! syscall names, same framing, same exports.
 //!
 //! What is deployed is reachable, by name, from any other program deployed
 //! beside it — which is the one syscall berm serves itself, because it

@@ -97,6 +97,16 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = [
 ] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Off by default down the chain, as `compiler` is: a build of bermd picks its
+# backends, and `cache` drags in a config format nothing here reads.
+wasmtime = { version = "48", default-features = false, features = [
+    "anyhow",
+    "cache",
+    "cranelift",
+    "parallel-compilation",
+    "runtime",
+    "std",
+] }
 
 [profile.dev]
 # Enough for a backtrace to name a line. The full DWARF is what made `target`

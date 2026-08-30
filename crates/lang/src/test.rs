@@ -1,7 +1,7 @@
 //! Run a program's tools natively, without a toolchain or a daemon.
 //!
-//! A program is an ELF that a host compiles and enters, which is a slow way to
-//! find out that a handler mishandles an empty string. Off the guest's target
+//! A program is an image that a host compiles and enters, which is a slow way
+//! to find out that a handler mishandles an empty string. Off a guest target
 //! the exports are ordinary functions and the buffers are ordinary memory, so a
 //! test can call one the way the host would — the same argument transfer, the
 //! same buffer limits, the same failure channel — and check what came back.
@@ -13,7 +13,7 @@
 //!     assert_eq!(out, br#"{"echo":hi}"#);
 //! }
 //! ```
-#![cfg(not(target_arch = "riscv64"))]
+#![cfg(not(any(target_arch = "wasm32", target_arch = "riscv64")))]
 
 use crate::{CallError, abi, sys};
 use std::{

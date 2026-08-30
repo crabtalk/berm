@@ -6,7 +6,7 @@
 //! transfer, guest call, result read, teardown.
 //!
 //! ```sh
-//! cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
+//! cargo build --release -p berm-fixture --target wasm32-unknown-unknown
 //! cargo run --release --example measure -p berm
 //! ```
 
@@ -19,6 +19,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Whichever image the backend this was built with can run.
+#[cfg(feature = "wasm")]
+const GUEST: (&str, &str) = (
+    "target/wasm32-unknown-unknown/release/fixture.wasm",
+    "wasm32-unknown-unknown",
+);
+#[cfg(not(feature = "wasm"))]
 const GUEST: (&str, &str) = (
     "target/riscv64imac-unknown-none-elf/release/fixture",
     "riscv64imac-unknown-none-elf",

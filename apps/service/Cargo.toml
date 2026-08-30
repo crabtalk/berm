@@ -14,8 +14,9 @@ name = "bermd"
 path = "bin/main.rs"
 
 [features]
-# Passed through to berm, which is where the backend lives.
-default = ["riscv"]
+# Passed through to berm, which is where the two backends live.
+default = ["wasm"]
+wasm = ["berm/wasm"]
 riscv = ["berm/riscv"]
 riscv-jit = ["berm/riscv-jit"]
 

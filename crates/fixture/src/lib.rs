@@ -17,9 +17,9 @@
 //! `crates/berm/examples/measure.rs` reads the numbers off them, and
 //! `tests/tools.rs` is the only exercise the SDK's host-side `test::call` gets.
 
-// `no_std` and `no_main` are the guest's shape. Off its target this is an
+// `no_std` and `no_main` are the guest's shape. Off a guest target this is an
 // ordinary library, so `cargo test` runs the tools below natively.
-#![cfg_attr(target_arch = "riscv64", no_std, no_main)]
+#![cfg_attr(any(target_arch = "wasm32", target_arch = "riscv64"), no_std, no_main)]
 
 extern crate alloc;
 

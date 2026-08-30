@@ -24,12 +24,16 @@ args = ["alloc", "dep:serde_guest", "dep:serde_json_guest"]
 
 [dependencies]
 berm-codegen.workspace = true
-guest.workspace = true
 serde_guest = { workspace = true, optional = true }
 serde_json_guest = { workspace = true, optional = true }
 
-# The allocator is installed as *the* global allocator, which only the guest's
-# own target may do — off it, this crate is a library inside someone's tests and
+# The allocator is installed as *the* global allocator, which only a guest
+# target may do — off one, this crate is a library inside someone's tests and
 # std already has one.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+linked_list_allocator = { workspace = true, optional = true }
+
+# `guest` supplies the `ecall` wrappers, which only this target has.
 [target.'cfg(target_arch = "riscv64")'.dependencies]
+guest.workspace = true
 linked_list_allocator = { workspace = true, optional = true }

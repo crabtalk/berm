@@ -1,6 +1,6 @@
 [package]
 name = "berm"
-description = "The operating system for agent harnesses — runs guest ELFs under rvtime"
+description = "The operating system for agent harnesses — runs guest programs under wasmtime or rvtime"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,8 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-# Which backend compiles a program.
-default = ["riscv"]
+# What a program is built for. rvtime is experimental: it runs a statically
+# linked RV64 ELF, which is what any language with a RISC-V target can already
+# produce.
+default = ["wasm"]
+wasm = ["wasmtime"]
 riscv = ["rvtime/aot"]
 # rvtime's other backend, compiling into memory rather than an object file.
 riscv-jit = ["rvtime/jit"]
@@ -24,6 +27,7 @@ rvtime = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
+wasmtime = { workspace = true, optional = true }
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
