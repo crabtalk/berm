@@ -4,7 +4,7 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-version = "0.0.7"
+version = "0.0.8"
 repository = "https://github.com/crabtalk/berm"
 license = "Apache-2.0"
 authors = ["clearloop <tianyi.gc@gmail.com>"]
@@ -15,22 +15,22 @@ categories = ["compilers", "virtualization"]
 [workspace.dependencies]
 # Off by default down the chain from `compiler`, so that a build of bermd can
 # pick a backend.
-berm = { path = "crates/berm", version = "0.0.7", default-features = false }
-berm-api = { path = "crates/api", version = "0.0.7" }
-berm-codegen = { path = "crates/codegen", version = "0.0.7" }
-berm-index = { path = "crates/index", version = "0.0.7" }
-berm-lang = { path = "crates/lang", version = "0.0.7" }
-berm-oci = { path = "crates/oci", version = "0.0.7" }
-bermd = { path = "apps/service", version = "0.0.7" }
-rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.7" }
-translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.7" }
+berm = { path = "crates/berm", version = "0.0.8", default-features = false }
+berm-api = { path = "crates/api", version = "0.0.8" }
+berm-codegen = { path = "crates/codegen", version = "0.0.8" }
+berm-index = { path = "crates/index", version = "0.0.8" }
+berm-lang = { path = "crates/lang", version = "0.0.8" }
+berm-oci = { path = "crates/oci", version = "0.0.8" }
+bermd = { path = "apps/service", version = "0.0.8" }
+rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.8" }
+translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.8" }
 # Off by default: rvtime's own `jit` and `aot` features pick the backend, and a
 # member cannot turn off default features it inherits.
-compiler = { path = "rvtime/compiler", package = "rvtime-compiler", version = "0.0.7", default-features = false }
-rvtime = { path = "rvtime/rvtime", package = "rvtime", version = "0.0.7", default-features = false }
+compiler = { path = "rvtime/compiler", package = "rvtime-compiler", version = "0.0.8", default-features = false }
+rvtime = { path = "rvtime/rvtime", package = "rvtime", version = "0.0.8", default-features = false }
 # Off by default: berm-lang installs its own global allocator, and a guest can
 # only have one.
-guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.7", default-features = false }
+guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.8", default-features = false }
 
 # crates-io
 anyhow = "1.0"
