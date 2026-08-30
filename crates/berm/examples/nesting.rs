@@ -1,4 +1,4 @@
-//! A harness calling a harness.
+//! A program calling a program.
 //!
 //! The reference guest exports `nest`, which calls `echo` on whatever the
 //! runtime answers for as `inner`. Here that is the same ELF, deployed twice
@@ -6,20 +6,29 @@
 //! against the set it already holds.
 //!
 //! ```sh
-//! cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
+//! cargo build --release -p berm-fixture --target wasm32-unknown-unknown
 //! cargo run --release --example nesting -p berm
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, storage, system::call};
-use rvtime::{Config, Engine};
+use berm::{Berm, Config, Engine, storage, syscall::call};
 use std::{fs, path::PathBuf};
 
-const GUEST: &str = "target/riscv64imac-unknown-none-elf/release/fixture";
+/// Whichever image the backend this was built with can run.
+#[cfg(feature = "wasm")]
+const GUEST: (&str, &str) = (
+    "target/wasm32-unknown-unknown/release/fixture.wasm",
+    "wasm32-unknown-unknown",
+);
+#[cfg(not(feature = "wasm"))]
+const GUEST: (&str, &str) = (
+    "target/riscv64imac-unknown-none-elf/release/fixture",
+    "riscv64imac-unknown-none-elf",
+);
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::new("warn,harness=info"))
+        .with_env_filter(tracing_subscriber::EnvFilter::new("warn,program=info"))
         .init();
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -27,13 +36,14 @@ fn main() -> Result<()> {
         .and_then(|p| p.parent())
         .context("no workspace root")?
         .to_path_buf();
-    let elf = fs::read(root.join(GUEST)).with_context(|| {
-        format!("build the guest first: cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf ({GUEST})")
+    let (guest, target) = GUEST;
+    let elf = fs::read(root.join(guest)).with_context(|| {
+        format!("build the guest first: cargo build --release -p berm-fixture --target {target} ({guest})")
     })?;
 
-    let mut config = Config::new();
-    config.cache_dir(std::env::temp_dir().join("berm-nesting"));
-    let engine = Engine::new(&config)?;
+    let engine = Engine::new(&Config {
+        cache_dir: Some(std::env::temp_dir().join("berm-nesting")),
+    })?;
 
     let berm = Berm::new(
         &engine,

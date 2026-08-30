@@ -1,7 +1,7 @@
-//! The reference guest: the smallest real harness, and what berm is measured
+//! The reference guest: the smallest real program, and what berm is measured
 //! and tested against.
 //!
-//! Everything below the `#[harness]` line is what an author actually writes.
+//! Everything below the `#[program]` line is what an author actually writes.
 //! The exports, the manifest section, the dispatch, and the panic handler come
 //! from the SDK.
 //!
@@ -17,15 +17,15 @@
 //! `crates/berm/examples/measure.rs` reads the numbers off them, and
 //! `tests/tools.rs` is the only exercise the SDK's host-side `test::call` gets.
 
-// `no_std` and `no_main` are the guest's shape. Off its target this is an
+// `no_std` and `no_main` are the guest's shape. Off a guest target this is an
 // ordinary library, so `cargo test` runs the tools below natively.
-#![cfg_attr(target_arch = "riscv64", no_std, no_main)]
+#![cfg_attr(any(target_arch = "wasm32", target_arch = "riscv64"), no_std, no_main)]
 
 extern crate alloc;
 
 // `inner` is what `nest` and `recurse` reach for, `127.0.0.1` what `dial`
 // does in the tests. Neither is resolved here; both are declared.
-#[berm_lang::harness(deps = ["inner", "ws://127.0.0.1"])]
+#[berm_lang::program(deps = ["inner", "ws://127.0.0.1"])]
 mod tools {
     use berm_lang::{Failed, Out};
 
@@ -89,8 +89,8 @@ mod tools {
         Err(Failed)
     }
 
-    /// Calls `echo` on whatever is deployed as `inner`, to prove a harness can
-    /// reach a harness. Says which kind of failure came back, because telling
+    /// Calls `echo` on whatever is deployed as `inner`, to prove a program can
+    /// reach a program. Says which kind of failure came back, because telling
     /// "it ran and said no" from "it was never there" is the point of the
     /// second bit on the wire.
     pub fn nest(args: &[u8], out: &mut Out) -> Result<(), Failed> {
@@ -106,14 +106,14 @@ mod tools {
                 out.write(error.message().as_bytes());
                 Err(Failed)
             }
-            Err(error) => berm_lang::tool::system(Err(error), out).map(|_: ()| ()),
+            Err(error) => berm_lang::tool::syscall(Err(error), out).map(|_: ()| ()),
         }
     }
 
     /// Counts how many times it has run, arming itself to run again in the
     /// milliseconds its arguments name until it has run three times. Proves an
     /// invocation can outlive the one that asked for it, and that what crosses
-    /// the gap is the harness's own keys.
+    /// the gap is the program's own keys.
     pub fn tick(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let delay = core::str::from_utf8(args)
             .unwrap_or("")
@@ -161,7 +161,7 @@ mod tools {
                 out.write(buffer.as_bytes());
                 Ok(())
             }
-            Err(error) => berm_lang::tool::system(Err(error), out).map(|_: ()| ()),
+            Err(error) => berm_lang::tool::syscall(Err(error), out).map(|_: ()| ()),
         }
     }
 
@@ -183,8 +183,9 @@ mod tools {
                 return Err(Failed);
             }
             Kind::Message(frame) => {
-                send(event.connection, frame)
-                    .map_err(|error| berm_lang::tool::system::<()>(Err(error), out).unwrap_err())?;
+                send(event.connection, frame).map_err(|error| {
+                    berm_lang::tool::syscall::<()>(Err(error), out).unwrap_err()
+                })?;
                 out.write(b"echoed");
             }
             Kind::Close(_) => out.write(b"closed"),
@@ -245,11 +246,11 @@ mod tools {
                 out.write(buffer.as_bytes());
                 Ok(())
             }
-            Err(error) => berm_lang::tool::system(Err(error), out).map(|_: ()| ()),
+            Err(error) => berm_lang::tool::syscall(Err(error), out).map(|_: ()| ()),
         }
     }
 
-    /// Calls itself on `inner`, which is this same harness when deployed under
+    /// Calls itself on `inner`, which is this same program when deployed under
     /// that name — the runaway a depth limit exists to stop. Reports how many
     /// levels got through before the host refused.
     pub fn recurse(args: &[u8], out: &mut Out) -> Result<(), Failed> {
@@ -270,7 +271,7 @@ mod tools {
                 out.write(buffer.as_bytes());
                 Ok(())
             }
-            Err(error) => berm_lang::tool::system(Err(error), out).map(|_: ()| ()),
+            Err(error) => berm_lang::tool::syscall(Err(error), out).map(|_: ()| ()),
         }
     }
 }

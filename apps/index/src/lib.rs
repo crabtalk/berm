@@ -98,7 +98,7 @@ async fn record(root: &Path, reference: &str) -> Result<Entry> {
     let reference = Reference::from_str(reference)?;
     let name = reference.to_string();
 
-    // Anonymously, as a real index would: a harness nobody can pull is not one
+    // Anonymously, as a real index would: a program nobody can pull is not one
     // to list.
     let (digest, manifest) = tokio::task::spawn_blocking(move || {
         Registry::open(&reference, Access::Read)?.describe(&reference.reference)

@@ -2,7 +2,7 @@
 
 use crate::http;
 use anyhow::{Context, Result};
-use berm_api::{Harness, Output};
+use berm_api::{Output, Program};
 
 pub struct Client {
     host: String,
@@ -17,27 +17,27 @@ impl Client {
         }
     }
 
-    pub fn list(&self) -> Result<Vec<Harness>> {
-        let collection = format!("{}/harnesses", self.host);
+    pub fn list(&self) -> Result<Vec<Program>> {
+        let collection = format!("{}/programs", self.host);
         http::read(&self.host, self.http.get(collection).send())?
             .json()
-            .context("bermd returned something that is not a harness list")
+            .context("bermd returned something that is not a program list")
     }
 
-    pub fn inspect(&self, name: &str) -> Result<Harness> {
+    pub fn inspect(&self, name: &str) -> Result<Program> {
         http::read(&self.host, self.http.get(self.url(name)).send())?
             .json()
-            .context("bermd returned something that is not a harness")
+            .context("bermd returned something that is not a program")
     }
 
-    pub fn deploy(&self, name: &str, elf: Vec<u8>) -> Result<Harness> {
-        http::read(&self.host, self.http.put(self.url(name)).body(elf).send())?
+    pub fn deploy(&self, name: &str, image: Vec<u8>) -> Result<Program> {
+        http::read(&self.host, self.http.put(self.url(name)).body(image).send())?
             .json()
-            .context("bermd returned something that is not a harness")
+            .context("bermd returned something that is not a program")
     }
 
-    pub fn run(&self, harness: &str, tool: &str, arguments: Vec<u8>) -> Result<Output> {
-        let url = format!("{}/tools/{tool}", self.url(harness));
+    pub fn run(&self, program: &str, tool: &str, arguments: Vec<u8>) -> Result<Output> {
+        let url = format!("{}/tools/{tool}", self.url(program));
         http::read(&self.host, self.http.post(url).body(arguments).send())?
             .json()
             .context("bermd returned something that is not a tool result")
@@ -49,6 +49,6 @@ impl Client {
     }
 
     fn url(&self, name: &str) -> String {
-        format!("{}/harnesses/{name}", self.host)
+        format!("{}/programs/{name}", self.host)
     }
 }

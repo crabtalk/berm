@@ -1,22 +1,22 @@
 //! Time as a source of invocations.
 //!
-//! A harness asks to have a tool called in so many milliseconds and returns.
+//! A program asks to have a tool called in so many milliseconds and returns.
 //! When the time comes the tool runs as a fresh invocation, holding nothing
 //! from the one that armed it — what has to cross the gap goes in
 //! `berm.get`/`berm.set`, and how wide the gap really was is `berm.now`.
 //!
-//! One wake per harness that arms it. Arming again replaces what was pending,
-//! so the count of these is bounded by the deployed set and no harness can fan
-//! out. A harness wanting several timers keeps them in its own keys and arms
+//! One wake per program that arms it. Arming again replaces what was pending,
+//! so the count of these is bounded by the deployed set and no program can fan
+//! out. A program wanting several timers keeps them in its own keys and arms
 //! for the earliest.
 //!
-//! The target may be any deployed harness, the way `berm.call` reaches any of
+//! The target may be any deployed program, the way `berm.call` reaches any of
 //! them. The *slot* belongs to whoever armed it, so pointing one at `a.b`
 //! leaves whatever `a` armed for itself alone.
 
 use crate::Service;
 use anyhow::{Context, Result, bail};
-use berm::{Callsite, Records, System, abi, wire};
+use berm::{Callsite, Records, Syscall, abi, wire};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -32,20 +32,20 @@ struct Wake {
     /// to be measured against a moment the file does not record, and a restart
     /// is exactly when that moment is gone.
     at: u64,
-    harness: String,
+    program: String,
     tool: String,
     args: String,
 }
 
-/// One pending wake per harness, and the task holding each.
+/// One pending wake per program, and the task holding each.
 #[derive(Default)]
 pub(crate) struct Wakes {
     armed: Mutex<HashMap<String, JoinHandle<()>>>,
 }
 
 /// `berm.call.after`, against `service`.
-pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> System {
-    System {
+pub(crate) fn syscalls(service: Weak<Service>, runtime: Handle) -> Syscall {
+    Syscall {
         name: abi::CALL_AFTER.to_owned(),
         call: Arc::new(move |at: &Callsite<'_>, request: &[u8]| {
             let fields = wire::fields(request)?;
@@ -54,7 +54,7 @@ pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> System {
                 .context("a delay is milliseconds")?;
             let wake = Wake {
                 at: now().saturating_add(after),
-                harness: wire::text(&fields, 1, "harness")?.to_owned(),
+                program: wire::text(&fields, 1, "program")?.to_owned(),
                 tool: wire::text(&fields, 2, "tool")?.to_owned(),
                 args: wire::text(&fields, 3, "arguments")?.to_owned(),
             };
@@ -62,7 +62,7 @@ pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> System {
             let Some(service) = service.upgrade() else {
                 bail!("the service is shutting down, so nothing was armed");
             };
-            service.arm(at.harness, wake, &runtime)
+            service.arm(at.program, wake, &runtime)
         }),
     }
 }
@@ -70,10 +70,10 @@ pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> System {
 impl Service {
     /// Hold `wake` for `owner`, replacing whatever it had pending.
     fn arm(self: &Arc<Self>, owner: &str, wake: Wake, runtime: &Handle) -> Result<Vec<u8>> {
-        // Checked here, where the harness that armed it is still running and
+        // Checked here, where the program that armed it is still running and
         // can act on the answer. At firing time nobody is listening.
-        let Some(target) = self.get(&wake.harness) else {
-            bail!("no harness named {:?} is deployed", wake.harness);
+        let Some(target) = self.get(&wake.program) else {
+            bail!("no program named {:?} is deployed", wake.program);
         };
         if !target
             .manifest()
@@ -82,8 +82,8 @@ impl Service {
             .any(|spec| spec.name == wake.tool)
         {
             bail!(
-                "harness {:?} exports no tool named {:?}",
-                wake.harness,
+                "program {:?} exports no tool named {:?}",
+                wake.program,
                 wake.tool
             );
         }
@@ -104,14 +104,14 @@ impl Service {
             runtime.spawn(async move {
                 // Saturating: a wake that came due while the process was down
                 // has nothing left to wait for and fires late, which the
-                // harness can see for itself against `berm.now`.
+                // program can see for itself against `berm.now`.
                 tokio::time::sleep(Duration::from_millis(wake.at.saturating_sub(now()))).await;
                 if let Some(service) = service.upgrade() {
                     // Given up before the tool runs, so a wake it arms for
                     // itself replaces nothing and survives.
                     service.retire(&owner);
                     service
-                        .dispatch(&wake.harness, &wake.tool, wake.args.into_bytes())
+                        .dispatch(&wake.program, &wake.tool, wake.args.into_bytes())
                         .await;
                 }
             })
@@ -137,7 +137,7 @@ impl Service {
     }
 
     /// Drop what `owner` had pending and stop whatever was waiting on it, for
-    /// when the harness that armed it goes away.
+    /// when the program that armed it goes away.
     pub(crate) fn forget_wake(&self, owner: &str) {
         if let Ok(mut armed) = self.wakes.armed.lock()
             && let Some(task) = armed.remove(owner)

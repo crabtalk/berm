@@ -21,13 +21,23 @@ pub(crate) struct Files {
 
 impl Files {
     pub(crate) fn open(root: &Path) -> Self {
+        // `Records::Programs` was `Harnesses`, and the variant names the
+        // directory — without this a service that had a deployed set comes
+        // back with none.
+        let (before, now) = (root.join("harnesses"), root.join("programs"));
+        if before.is_dir()
+            && !now.exists()
+            && let Err(error) = fs::rename(&before, &now)
+        {
+            tracing::warn!("failed to move the deployed set: {error}");
+        }
         Self {
             root: root.to_owned(),
         }
     }
 
     fn path(&self, records: Records, key: &str) -> PathBuf {
-        // Hex, so any key berm builds is a legal filename — an id, a harness
+        // Hex, so any key berm builds is a legal filename — an id, a program
         // name, and whatever a later kind of record is keyed by.
         self.root
             .join(records.as_str())

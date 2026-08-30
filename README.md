@@ -4,18 +4,27 @@
 [![Crates.io](https://img.shields.io/crates/v/berm.svg)](https://crates.io/crates/berm)
 [![Docs](https://img.shields.io/badge/docs-crabtalk.github.io-blue)](https://crabtalk.github.io/berm/)
 
-The runtime of harnesses.
+The OS for agent harnesses.
 
-A harness is one statically linked RV64 ELF. berm pins it by hash, compiles it
-once, and instantiates it per invocation — arguments go in through host calls,
-the result comes back out of guest memory, and nothing survives the call.
+Claude Code, Codex and OpenCode reach berm over MCP. What they install runs as
+a process, under a syscall table that is readable before it runs and fixed once
+it does.
+
+A program is one WebAssembly module. berm pins it by hash, compiles it once, and
+instantiates it per invocation — arguments go in through syscalls, the result
+comes back out through one, and nothing survives the call.
+
+The same source also builds for RISC-V, which berm runs under
+[rvtime](rvtime/) instead of wasmtime. That backend is experimental; which one a
+deploy reaches is read off the image's first four bytes, so a program is
+deployed the same way either way.
 
 ```rust
 let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
-berm.deploy("example", &elf)?;
+berm.deploy("example", &wasm)?;
 
 // The outer result is the host's — a missing tool, a trap. The inner one is
-// the harness reporting failure, which is a result the model should see.
+// the program reporting failure, which is a result the model should see.
 match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
     Ok(result) => println!("{result}"),
     Err(failure) => eprintln!("{failure}"),
@@ -23,45 +32,46 @@ match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
 ```
 
 What is deployed is reachable by name from anything deployed beside it. Beyond
-that a harness reaches the world only through the *system harnesses* it was
-given, and that list is the linker it is instantiated with — a call to anything else
-traps because nothing is registered for it, not because a check said no. berm
-ships none: what a filesystem is bounded by, and where bytes persist, are
-decisions about a host, and berm has no host.
+that a program reaches the world only through the *syscalls* it was given, and
+that table is the linker it is instantiated with — a call to anything else traps
+because nothing is registered for it, not because a check said no. berm ships
+none: what a filesystem is bounded by, and where bytes persist, are decisions
+about a host, and berm has no host.
 
-`Manifest::from_elf(elf)` reads what an image claims to be — its tools, their
-schemas, when to reach for them — without compiling or running it.
+`Manifest::from_image(bytes)` reads what an image claims to be — its tools,
+their schemas, when to reach for them, and what it will reach for itself —
+without compiling or running it.
 
-## Running harnesses
+## Running programs
 
-`bermd` is a long-running service that deploys harnesses and serves every one of
-them on a single MCP endpoint, with tools named `{harness}.{tool}`.
+`bermd` is a long-running service that deploys programs and serves every one of
+them on a single MCP endpoint, with tools named `{program}.{tool}`.
 
 ```sh
 bermd &
-berm deploy example ./harness.elf
+berm deploy example ./program.wasm
 berm ls
 ```
 
 See [`apps/service`](apps/service) for the control API and what a deployed
-harness can reach.
+program can reach.
 
-## Moving harnesses
+## Moving programs
 
-A harness is one file, so it travels as one OCI layer with no tarball around it
-— and because the layer is the ELF and nothing else, the digest a registry
+A program is one file, so it travels as one OCI layer with no tarball around it
+— and because the layer is the image and nothing else, the digest a registry
 addresses it by is the digest `berm ls` prints.
 
 ```sh
-berm push ghcr.io/org/example:v1 ./harness.elf
+berm push ghcr.io/org/example:v1 ./program.wasm
 berm deploy example ghcr.io/org/example:v1
 berm search "read a file"
 ```
 
 `deploy` takes a file or a reference. Finding one is a separate question, since
-no registry will tell you who published a harness: the list is a git repository,
+no registry will tell you who published a program: the list is a git repository,
 so `search` reads a clone of it with no service and no credential. See
-[Publishing a Harness](https://crabtalk.github.io/berm/book/berm/publishing.html).
+[Publishing a Program](https://crabtalk.github.io/berm/book/berm/publishing.html).
 
 ## Documentation
 
@@ -75,15 +85,17 @@ so `search` reads a clone of it with no service and no credential. See
 cargo test --workspace
 ```
 
-Rust 2024 edition, POSIX only. Building a harness additionally needs the guest
+Rust 2024 edition, POSIX only. Building a program additionally needs the guest
 target:
 
 ```sh
-rustup target add riscv64imac-unknown-none-elf
+rustup target add wasm32-unknown-unknown
 ```
 
-Guests must be linked with **`--emit-relocs`**; that is the first thing to check
-when one fails to load.
+For the experimental RISC-V backend, `rustup target add
+riscv64imac-unknown-none-elf` and build `berm` with `--features riscv`. Guests
+there must be linked with **`--emit-relocs`**, which is the first thing to check
+when one fails to load; `berm new --target riscv` writes that flag for you.
 
 ## License
 

@@ -1,13 +1,13 @@
-//! berm.app — a workbench for harnesses.
+//! berm.app — a workbench for programs.
 //!
 //! The app *is* bermd. It owns the [`Service`], binds the endpoint, and runs
 //! both on a tokio runtime beside gpui's, so launching this window starts the
 //! daemon: a `berm` CLI in a terminal and an agent's MCP client reach the same
-//! harnesses the window paints.
+//! programs the window paints.
 
 use anyhow::{Context as _, Result};
-use berm::Harness;
-use berm::system::call;
+use berm::Program;
+use berm::syscall::call;
 use berm_index::{Entry, Source};
 use bermd::{Policy, Service};
 use bezel::{
@@ -61,7 +61,7 @@ enum Engine {
     Failed(String),
 }
 
-/// Which half of a harness the pane is showing: what it claims to be, or what
+/// Which half of a program the pane is showing: what it claims to be, or what
 /// it does.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -69,7 +69,7 @@ enum Tab {
     Run,
 }
 
-/// What the pane is on: a harness this machine holds, or one the index lists.
+/// What the pane is on: a program this machine holds, or one the index lists.
 ///
 /// The entry is held whole rather than looked up, so editing the search does
 /// not empty the pane under the person reading it.
@@ -94,12 +94,12 @@ pub struct Workbench {
     rt: Runtime,
     engine: Engine,
     /// What the service was holding as of the last refresh.
-    harnesses: Vec<Arc<Harness>>,
-    /// By name, not index: a refresh renumbers the list, and a harness removed
+    programs: Vec<Arc<Program>>,
+    /// By name, not index: a refresh renumbers the list, and a program removed
     /// under the pane should empty it rather than hand the selection to a
     /// neighbour.
     selection: Option<Showing>,
-    /// The list of published harnesses, opened once — a `.git` default clones
+    /// The list of published programs, opened once — a `.git` default clones
     /// the first time, and doing that under a keystroke would race a second
     /// clone into the same directory.
     index: Option<Arc<Source>>,
@@ -126,7 +126,7 @@ pub struct Workbench {
     /// The image being deployed, while it is being deployed — a path from the
     /// sheet or a reference from the index, whichever asked.
     deploying: Option<String>,
-    /// Whether the header is asking about removing the selected harness.
+    /// Whether the header is asking about removing the selected program.
     confirming: bool,
     /// Why the last change to the deployed set was refused. One field for both
     /// deploy and removal: what a person needs is the reason, and which of the
@@ -187,7 +187,7 @@ impl Workbench {
         Self {
             rt,
             engine: Engine::Starting,
-            harnesses: Vec::new(),
+            programs: Vec::new(),
             selection: None,
             index: None,
             query,
@@ -213,23 +213,23 @@ impl Workbench {
         }
     }
 
-    /// The deployed harness the pane is on, if it is on one.
-    fn selected(&self) -> Option<&Arc<Harness>> {
+    /// The deployed program the pane is on, if it is on one.
+    fn selected(&self) -> Option<&Arc<Program>> {
         let Some(Showing::Deployed(name)) = &self.selection else {
             return None;
         };
-        self.harnesses
+        self.programs
             .iter()
             .find(|deployed| *deployed.name == **name)
     }
 
-    /// Show a harness, with the Run pane pointed at its first tool.
+    /// Show a program, with the Run pane pointed at its first tool.
     fn select(&mut self, name: &str, cx: &mut Context<Self>) {
         self.selection = Some(Showing::Deployed(name.to_owned()));
         self.tool = None;
         self.confirming = false;
         let first = self
-            .harnesses
+            .programs
             .iter()
             .find(|deployed| &*deployed.name == name)
             .and_then(|deployed| deployed.manifest().tools.first().cloned());
@@ -246,9 +246,9 @@ impl Workbench {
         let service = service.clone();
         let listing = self.rt.spawn(async move { service.list() });
         cx.spawn(async move |this, cx| {
-            let Ok(harnesses) = listing.await else { return };
+            let Ok(programs) = listing.await else { return };
             let _ = this.update(cx, |this, cx| {
-                this.harnesses = harnesses;
+                this.programs = programs;
                 cx.notify();
             });
         })

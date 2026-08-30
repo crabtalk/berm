@@ -1,7 +1,7 @@
 //! Parsing a reference, and refusing one that is not a name.
 //!
 //! The refusals matter as much as the parses. A repository becomes a path — an
-//! index holds one file per harness at `{registry}/{repository}.json` — so a
+//! index holds one file per program at `{registry}/{repository}.json` — so a
 //! name a registry served could otherwise be written outside it.
 
 use berm_oci::Reference;

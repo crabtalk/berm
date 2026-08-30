@@ -3,7 +3,7 @@
 use berm_api::{Manifest, ToolSpec};
 use serde::{Deserialize, Serialize};
 
-/// What an index records about a harness at one digest.
+/// What an index records about a program at one digest.
 ///
 /// Keyed by a digest, which is why the tools and usage beside it are safe to
 /// keep: the bytes at a digest can never change, so a copy of what they said
@@ -40,7 +40,7 @@ impl Entry {
         }
     }
 
-    /// The harness this is a version of — the reference without its tag, which
+    /// The program this is a version of — the reference without its tag, which
     /// is what one file in the index is named for.
     pub fn key(&self) -> &str {
         match self.reference.split_once('@') {
@@ -53,7 +53,7 @@ impl Entry {
     }
 
     /// Whether `term` appears in anything a person would search by. The tool
-    /// descriptions are here because "which harness reads files" is the
+    /// descriptions are here because "which program reads files" is the
     /// question being asked, and no tool is named after it.
     pub fn matches(&self, term: &str) -> bool {
         let term = term.to_lowercase();

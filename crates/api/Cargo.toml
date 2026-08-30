@@ -1,6 +1,6 @@
 [package]
 name = "berm-api"
-description = "What a harness says it is, and what bermd's control API speaks"
+description = "What a program says it is, and what bermd's control API speaks"
 edition.workspace = true
 version.workspace = true
 repository.workspace = true

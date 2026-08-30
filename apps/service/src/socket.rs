@@ -1,14 +1,14 @@
 //! Connections as a source of invocations.
 //!
-//! A harness opens one and names the tool its events reach. From then on the
+//! A program opens one and names the tool its events reach. From then on the
 //! connection is what starts invocations: the dial's outcome, each frame that
 //! arrives, and the close. Guest memory does not survive any of them, so a
-//! harness holding a conversation keeps it in `berm.get`/`berm.set` and reads
+//! program holding a conversation keeps it in `berm.get`/`berm.set` and reads
 //! it back on the next frame.
 //!
 //! What is open is written down, so a restart brings it back under the same id
-//! — a harness that stored one is still holding a name that works. A drop the
-//! harness is alive for is its own to answer: it gets the close and decides
+//! — a program that stored one is still holding a name that works. A drop the
+//! program is alive for is its own to answer: it gets the close and decides
 //! whether to dial again, because how long to wait is a fact about the service
 //! at the far end, and this daemon knows none of them.
 //!
@@ -17,7 +17,7 @@
 
 use crate::Service;
 use anyhow::{Context, Result, bail};
-use berm::{Callsite, Records, System, abi, wire};
+use berm::{Callsite, Records, Syscall, abi, wire};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -45,7 +45,7 @@ use tokio_tungstenite::{
 /// nothing. Each cap is `None` for no bound at all.
 #[derive(Clone, Default)]
 pub struct Policy {
-    /// Hosts a harness may dial.
+    /// Hosts a program may dial.
     pub allow: Vec<String>,
     pub max_frame: Option<usize>,
     pub max_connections: Option<usize>,
@@ -111,11 +111,11 @@ struct Record {
     owner: String,
     url: String,
     /// Where its events land.
-    harness: String,
+    program: String,
     tool: String,
     /// Sent on the handshake, and kept so a reopen after a restart presents
     /// them again. A credential put here is a credential on this host's disk,
-    /// the same as one a harness writes with `berm.set`.
+    /// the same as one a program writes with `berm.set`.
     #[serde(default)]
     headers: Vec<(String, String)>,
 }
@@ -130,8 +130,8 @@ pub(crate) struct Sockets {
 }
 
 struct Connection {
-    /// The id of a connection another harness opened resolves to nothing, the
-    /// way another harness's keys are unaddressable.
+    /// The id of a connection another program opened resolves to nothing, the
+    /// way another program's keys are unaddressable.
     owner: Arc<str>,
     /// Dropping this is what closes the connection: the task reading the far
     /// end sees its receiver end and shuts the socket down.
@@ -139,12 +139,12 @@ struct Connection {
 }
 
 impl Sockets {
-    fn owned_by(&self, harness: &str, id: u64) -> Result<Arc<Outbound>> {
+    fn owned_by(&self, program: &str, id: u64) -> Result<Arc<Outbound>> {
         let Ok(open) = self.open.lock() else {
             bail!("the connection table is poisoned");
         };
         match open.get(&id) {
-            Some(connection) if &*connection.owner == harness => Ok(connection.outbound.clone()),
+            Some(connection) if &*connection.owner == program => Ok(connection.outbound.clone()),
             // One message for both, so a probe cannot tell an id that is not
             // yours from one that does not exist.
             _ => bail!("no connection {id} is open"),
@@ -156,15 +156,15 @@ impl Sockets {
 ///
 /// `Weak` for the reason berm holds its own runtime that way: a connection
 /// task reaches back into the service that owns the table it lives in.
-pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> Vec<System> {
+pub(crate) fn syscalls(service: Weak<Service>, runtime: Handle) -> Vec<Syscall> {
     let (sending, closing) = (service.clone(), service.clone());
     vec![
-        System {
+        Syscall {
             name: abi::WS_OPEN.to_owned(),
             call: Arc::new(move |at: &Callsite<'_>, request: &[u8]| {
                 let fields = wire::fields(request)?;
                 let url = wire::text(&fields, 0, "url")?;
-                let harness = wire::text(&fields, 1, "harness")?;
+                let program = wire::text(&fields, 1, "program")?;
                 let tool = wire::text(&fields, 2, "tool")?;
 
                 // Whatever follows the three is header names and values in
@@ -190,9 +190,9 @@ pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> Vec<System> {
                     bail!("the service is shutting down, so {url} was not dialled");
                 };
                 let record = Record {
-                    owner: at.harness.to_owned(),
+                    owner: at.program.to_owned(),
                     url: url.to_owned(),
-                    harness: harness.to_owned(),
+                    program: program.to_owned(),
                     tool: tool.to_owned(),
                     headers,
                 };
@@ -202,7 +202,7 @@ pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> Vec<System> {
                     .into_bytes())
             }),
         },
-        System {
+        Syscall {
             name: abi::WS_SEND.to_owned(),
             call: Arc::new(move |at: &Callsite<'_>, request: &[u8]| {
                 let fields = wire::fields(request)?;
@@ -220,7 +220,7 @@ pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> Vec<System> {
                 // waited for room would wait for itself.
                 service
                     .sockets
-                    .owned_by(at.harness, id)?
+                    .owned_by(at.program, id)?
                     .try_send(frame(payload))
                     .map_err(|_| {
                         anyhow::anyhow!("connection {id} is closed or its queue is full")
@@ -228,15 +228,15 @@ pub(crate) fn system(service: Weak<Service>, runtime: Handle) -> Vec<System> {
                 Ok(Vec::new())
             }),
         },
-        System {
+        Syscall {
             name: abi::WS_CLOSE.to_owned(),
             call: Arc::new(move |at: &Callsite<'_>, request: &[u8]| {
                 let id = wire::text(&wire::fields(request)?, 0, "connection")?.parse()?;
                 let Some(service) = closing.upgrade() else {
                     bail!("the service is shutting down");
                 };
-                // Checked first, so one harness cannot close another's.
-                service.sockets.owned_by(at.harness, id)?;
+                // Checked first, so one program cannot close another's.
+                service.sockets.owned_by(at.program, id)?;
                 service.shut(id);
                 Ok(Vec::new())
             }),
@@ -248,7 +248,7 @@ impl Service {
     /// Register a connection, write it down, and start the task that runs it.
     ///
     /// `id` is `Some` only when bringing one back after a restart, where
-    /// keeping the number matters: a harness that stored it is still holding
+    /// keeping the number matters: a program that stored it is still holding
     /// it.
     fn dial(self: &Arc<Self>, record: Record, id: Option<u64>, runtime: &Handle) -> Result<u64> {
         self.permitted(&record.url)?;
@@ -313,7 +313,7 @@ impl Service {
 
     /// Dial everything that was open when this process last stopped.
     ///
-    /// One that will not come up is reported through its harness's own event,
+    /// One that will not come up is reported through its program's own event,
     /// the same as any other failed dial, so a far end that is down does not
     /// keep the service from starting.
     pub(crate) async fn reopen(self: &Arc<Self>) -> Result<()> {
@@ -339,7 +339,7 @@ impl Service {
         }
 
         // Past every id that came back, so a new connection cannot be handed a
-        // number a harness is still using.
+        // number a program is still using.
         self.sockets.next.fetch_max(highest, Ordering::Relaxed);
         Ok(())
     }
@@ -377,7 +377,7 @@ async fn connect(
 }
 
 /// The host a URL names, or `None` when it carries no scheme — which is what
-/// tells a dependency on a harness from one on somewhere to dial.
+/// tells a dependency on a program from one on somewhere to dial.
 pub(crate) fn host(url: &str) -> Option<&str> {
     let authority = url.split("://").nth(1)?.split('/').next()?;
     let authority = authority.rsplit('@').next().unwrap_or(authority);
@@ -385,7 +385,7 @@ pub(crate) fn host(url: &str) -> Option<&str> {
     (!host.is_empty()).then_some(host)
 }
 
-/// Text when the payload is UTF-8. Every API a harness is likely to hold a
+/// Text when the payload is UTF-8. Every API a program is likely to hold a
 /// connection to speaks JSON over text frames.
 fn frame(payload: &[u8]) -> Message {
     match str::from_utf8(payload) {
@@ -402,10 +402,10 @@ async fn run(
     mut outbound: Inbound,
     max_frame: Option<usize>,
 ) {
-    let (harness, tool) = (record.harness, record.tool);
+    let (program, tool) = (record.program, record.tool);
     let socket = match connect(&record.url, &record.headers, max_frame).await {
         Ok(socket) => {
-            deliver(&service, id, &harness, &tool, abi::WS_EVENT_OPEN, b"").await;
+            deliver(&service, id, &program, &tool, abi::WS_EVENT_OPEN, b"").await;
             socket
         }
         Err(error) => {
@@ -413,7 +413,7 @@ async fn run(
             deliver(
                 &service,
                 id,
-                &harness,
+                &program,
                 &tool,
                 abi::WS_EVENT_OPEN,
                 error.as_bytes(),
@@ -441,11 +441,11 @@ async fn run(
                     None => break,
                 };
                 // Awaited before the next frame is read, which is what keeps
-                // one connection from racing itself on its harness's own keys.
-                deliver(&service, id, &harness, &tool, abi::WS_EVENT_MESSAGE, &body).await;
+                // one connection from racing itself on its program's own keys.
+                deliver(&service, id, &program, &tool, abi::WS_EVENT_MESSAGE, &body).await;
             }
             message = outbound.recv() => {
-                // `None` is the harness having closed it, or the service going
+                // `None` is the program having closed it, or the service going
                 // away underneath.
                 let Some(message) = message else { break };
                 if let Err(error) = sink.send(message).await {
@@ -459,7 +459,7 @@ async fn run(
     deliver(
         &service,
         id,
-        &harness,
+        &program,
         &tool,
         abi::WS_EVENT_CLOSE,
         why.as_bytes(),
@@ -470,19 +470,19 @@ async fn run(
 
 /// Turn one event into an invocation. Gone if the service has shut down.
 ///
-/// The id rides along because a harness may hold several connections onto one
+/// The id rides along because a program may hold several connections onto one
 /// tool, and a frame it cannot attribute is one it cannot answer.
 async fn deliver(
     service: &Weak<Service>,
     id: u64,
-    harness: &str,
+    program: &str,
     tool: &str,
     event: &str,
     body: &[u8],
 ) {
     if let Some(service) = service.upgrade() {
         let args = wire::frame(&[event.as_bytes(), id.to_string().as_bytes(), body]);
-        service.dispatch(harness, tool, args).await;
+        service.dispatch(program, tool, args).await;
     }
 }
 

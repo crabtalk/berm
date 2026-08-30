@@ -1,12 +1,12 @@
 [package]
 name = "berm-oci"
-description = "Publishing and fetching harnesses as OCI artifacts"
+description = "Publishing and fetching programs as OCI artifacts"
 edition.workspace = true
 version.workspace = true
 repository.workspace = true
 license.workspace = true
 authors.workspace = true
-keywords = ["oci", "registry", "harness", "sandbox"]
+keywords = ["oci", "registry", "program", "sandbox"]
 categories = ["virtualization"]
 
 [dependencies]

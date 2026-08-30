@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
-use berm::system::call;
+use berm::syscall::call;
 use bermd::{Policy, Service};
 use clap::Parser;
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 
 #[derive(Parser)]
-#[command(version, about = "Deploys harnesses and serves their tools over MCP")]
+#[command(version, about = "Deploys programs and serves their tools over MCP")]
 struct Args {
     /// Address to listen on. Loopback by default: the MCP endpoint carries no
     /// authorization yet, so anything wider would be an open one.
@@ -17,7 +17,7 @@ struct Args {
     #[arg(long)]
     root: Option<PathBuf>,
 
-    /// How deep a chain of harnesses calling harnesses may go. `0` refuses the
+    /// How deep a chain of programs calling programs may go. `0` refuses the
     /// first one, which is composition off.
     ///
     /// The bound is on runaway composition, not on the stack: a level costs
@@ -25,9 +25,9 @@ struct Args {
     #[arg(long, default_value_t = call::DEFAULT_CALL_DEPTH)]
     max_call_depth: u32,
 
-    /// A host a harness may open a connection to. Repeat for each one.
+    /// A host a program may open a connection to. Repeat for each one.
     ///
-    /// Given none, no harness may dial at all.
+    /// Given none, no program may dial at all.
     #[arg(long = "ws-allow", value_name = "HOST")]
     ws_allow: Vec<String>,
 

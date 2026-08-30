@@ -2,7 +2,7 @@
 //!
 //! A guest reached from another guest's host call runs synchronously on the
 //! thread that entered the outer one, so the count is the thread's. It lives
-//! here because berm is what enters a guest: a system harness reads it off its
+//! here because berm is what enters a guest: a syscall reads it off its
 //! [`crate::Callsite`] rather than tracking entries it cannot see.
 
 use std::cell::Cell;

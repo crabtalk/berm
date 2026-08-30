@@ -1,4 +1,4 @@
-//! One MCP endpoint over every deployed harness.
+//! One MCP endpoint over every deployed program.
 
 use crate::Service;
 use rmcp::{
@@ -12,13 +12,13 @@ use rmcp::{
 };
 use std::sync::Arc;
 
-/// Kept to a sentence deliberately. Every harness carries its own usage, and a
+/// Kept to a sentence deliberately. Every program carries its own usage, and a
 /// server has one `instructions`; concatenating them would put a manual in
 /// front of the model on every turn, which is what the usage field refuses to
 /// be. They are published as resources instead.
-const INSTRUCTIONS: &str = "Tools are named `{harness}.{tool}`. Each harness publishes a \
-    `berm://{harness}/usage` resource describing when to reach for its tools and how they go \
-    together; read that before choosing among one harness's tools.";
+const INSTRUCTIONS: &str = "Tools are named `{program}.{tool}`. Each program publishes a \
+    `berm://{program}/usage` resource describing when to reach for its tools and how they go \
+    together; read that before choosing among one program's tools.";
 
 const USAGE_SCHEME: &str = "berm://";
 const USAGE_PATH: &str = "/usage";
@@ -94,17 +94,17 @@ impl ServerHandler for Mcp {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
-        let Some((harness, tool)) = request.name.split_once('.') else {
+        let Some((program, tool)) = request.name.split_once('.') else {
             return Err(McpError::invalid_params(
                 format!(
-                    "tool {:?} is not named `{{harness}}.{{tool}}`",
+                    "tool {:?} is not named `{{program}}.{{tool}}`",
                     request.name
                 ),
                 None,
             ));
         };
 
-        // A harness reads its arguments as the JSON its manifest advertised a
+        // A program reads its arguments as the JSON its manifest advertised a
         // schema for, so the object goes across as it arrived.
         let args = match &request.arguments {
             Some(arguments) => serde_json::to_vec(arguments)
@@ -112,9 +112,9 @@ impl ServerHandler for Mcp {
             None => Vec::new(),
         };
 
-        match self.service.call(harness, tool, args).await {
+        match self.service.call(program, tool, args).await {
             Ok(Ok(result)) => Ok(CallToolResult::success(vec![ContentBlock::text(result)])),
-            // The harness ran and reported failure. That is a tool result the
+            // The program ran and reported failure. That is a tool result the
             // model should see and react to, not a protocol error.
             Ok(Err(failure)) => Ok(CallToolResult::error(vec![ContentBlock::text(failure)])),
             Err(error) => Err(McpError::internal_error(format!("{error:#}"), None)),

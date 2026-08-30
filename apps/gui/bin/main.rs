@@ -1,8 +1,8 @@
 use berm_gui::Workbench;
 use bezel::{
     gpui::{
-        App, AppContext as _, Bounds, Menu, MenuItem, TitlebarOptions, WindowBounds, WindowOptions,
-        actions, point, px, size,
+        self, App, AppContext as _, Bounds, Menu, MenuItem, TitlebarOptions, WindowBounds,
+        WindowOptions, actions, point, px, size,
     },
     theme::{
         Theme,

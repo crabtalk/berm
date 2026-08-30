@@ -1,9 +1,9 @@
 //! Connections, and the invocations they start.
 //!
 //! [`open`] names the tool a connection's events reach. From then on the
-//! connection is what calls the harness: the dial's outcome, every frame that
+//! connection is what calls the program: the dial's outcome, every frame that
 //! arrives, and the close, each a fresh invocation of that tool. Guest memory
-//! survives none of them, so a harness holding a conversation keeps it in
+//! survives none of them, so a program holding a conversation keeps it in
 //! [`crate::get`]/[`crate::set`] and reads it back on the next frame.
 //!
 //! Whether a host serves these at all is its own decision, the same as
@@ -17,7 +17,7 @@ use alloc::string::{String, ToString};
 /// What a connection delivered, and which connection delivered it.
 ///
 /// The id is here because one tool may serve several connections, and a frame
-/// a harness cannot attribute is one it cannot answer.
+/// a program cannot attribute is one it cannot answer.
 pub struct Event<'a> {
     pub connection: u64,
     pub kind: Kind<'a>,
@@ -30,7 +30,7 @@ pub enum Kind<'a> {
     Open(&'a str),
     /// One frame.
     Message(&'a [u8]),
-    /// The far end went away, or the harness closed it.
+    /// The far end went away, or the program closed it.
     Close(&'a str),
 }
 
@@ -61,7 +61,7 @@ pub fn event(args: &[u8]) -> Option<Event<'_>> {
     })
 }
 
-/// Dial `url`, delivering everything that happens on it to `harness`.`tool`.
+/// Dial `url`, delivering everything that happens on it to `program`.`tool`.
 ///
 /// `headers` ride on the handshake, for a service that authenticates there.
 /// Pass `&[]` for one that does not, or that takes its token in the URL.
@@ -76,11 +76,11 @@ pub fn event(args: &[u8]) -> Option<Event<'_>> {
 /// the host refusing to dial at all.
 pub fn open(
     url: &str,
-    harness: &str,
+    program: &str,
     tool: &str,
     headers: &[(&str, &str)],
 ) -> Result<u64, CallError> {
-    let mut request = wire::request(&[url.as_bytes(), harness.as_bytes(), tool.as_bytes()]);
+    let mut request = wire::request(&[url.as_bytes(), program.as_bytes(), tool.as_bytes()]);
     for (name, value) in headers {
         wire::field(&mut request, name.as_bytes());
         wire::field(&mut request, value.as_bytes());

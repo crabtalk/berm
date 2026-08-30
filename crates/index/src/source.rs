@@ -62,7 +62,7 @@ impl Source {
                 let request = http.get(format!("{host}/berm")).query(&[("q", term)]);
                 read(host, request.send())?
                     .json()
-                    .context("the index returned something that is not a harness list")
+                    .context("the index returned something that is not a program list")
             }
         }
     }
@@ -83,7 +83,7 @@ impl Source {
         }
         read(host, request.send())?
             .json()
-            .context("the index returned something that is not a harness")
+            .context("the index returned something that is not a program")
     }
 }
 

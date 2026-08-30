@@ -4,17 +4,13 @@ use clap::{Parser, Subcommand};
 use std::{path::PathBuf, process::ExitCode};
 
 #[derive(Parser)]
-#[command(
-    name = "berm",
-    version,
-    about = "Deploy and inspect harnesses on bermd"
-)]
+#[command(name = "berm", version, about = "Deploy and inspect programs on bermd")]
 struct Args {
     /// Where bermd is listening.
     #[arg(long, global = true, default_value = "http://127.0.0.1:7777")]
     host: String,
 
-    /// Which harness index to read and publish to: a directory, a `.git` URL
+    /// Which program index to read and publish to: a directory, a `.git` URL
     /// to keep a copy of, or a service. `BERM_INDEX`, then the default list.
     #[arg(long, global = true)]
     index: Option<String>,
@@ -25,16 +21,21 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Scaffold a harness crate.
-    New { name: String },
-    /// List deployed harnesses.
+    /// Scaffold a program crate.
+    New {
+        name: String,
+        /// What to build it for. RISC-V is experimental.
+        #[arg(long, value_enum, default_value_t)]
+        target: cmd::new::Target,
+    },
+    /// List deployed programs.
     Ls,
     /// Deploy an image, from a file or a registry, replacing whatever holds
     /// the name.
     Deploy { name: String, image: String },
-    /// Run one of a harness's tools.
+    /// Run one of a program's tools.
     Run {
-        harness: String,
+        program: String,
         tool: String,
         /// The argument object. Read from stdin when omitted.
         arguments: Option<String>,
@@ -43,14 +44,14 @@ enum Command {
     Push { reference: String, image: PathBuf },
     /// List an already-pushed image in an index.
     Publish { reference: String },
-    /// Find a published harness.
+    /// Find a published program.
     Search {
         #[arg(default_value = "")]
         term: String,
     },
-    /// Show a harness's tools and their arguments.
+    /// Show a program's tools and their arguments.
     Inspect { name: String },
-    /// Remove a harness.
+    /// Remove a program.
     Rm { name: String },
 }
 
@@ -59,7 +60,7 @@ fn main() -> Result<ExitCode> {
     let client = Client::new(args.host);
 
     match &args.command {
-        Command::New { name } => cmd::new::run(name)?,
+        Command::New { name, target } => cmd::new::run(name, *target)?,
         Command::Ls => cmd::ls::run(&client)?,
         Command::Deploy { name, image } => cmd::deploy::run(&client, name, image)?,
         Command::Push { reference, image } => cmd::push::run(reference, image)?,
@@ -70,10 +71,10 @@ fn main() -> Result<ExitCode> {
         // The one command whose exit code carries a result rather than a
         // verdict on berm.
         Command::Run {
-            harness,
+            program,
             tool,
             arguments,
-        } => return cmd::run::run(&client, harness, tool, arguments.as_deref()),
+        } => return cmd::run::run(&client, program, tool, arguments.as_deref()),
     }
     Ok(ExitCode::SUCCESS)
 }

@@ -5,7 +5,7 @@
 	// load.
 	//
 	// Purely decorative: behind content, no pointer events, out of the
-	// accessibility tree. It is RV64 because that is what a harness is, but no
+	// accessibility tree. It is RV64 because that is what a program is, but no
 	// encoding here decodes to the mnemonic beside it.
 	let { rows = 20, seed = 'berm' } = $props();
 

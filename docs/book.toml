@@ -1,6 +1,6 @@
 [book]
 title = "berm"
-description = "A sandbox for harnesses, and the RISC-V compiler underneath it"
+description = "A sandbox for programs, and the RISC-V compiler underneath it"
 authors = ["clearloop"]
 language = "en"
 src = "src"

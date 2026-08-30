@@ -1,6 +1,6 @@
 [package]
 name = "berm-codegen"
-description = "Proc-macro codegen for Crabtalk harnesses"
+description = "Proc-macro codegen for Crabtalk programs"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

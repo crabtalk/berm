@@ -1,6 +1,6 @@
 [package]
 name = "berm"
-description = "Sandboxed harness host — runs guest ELFs under rvtime"
+description = "The operating system for agent harnesses — runs guest programs under wasmtime or rvtime"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,21 +8,26 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["aot"]
-jit = ["rvtime/jit"]
-aot = ["rvtime/aot"]
+# What a program is built for. rvtime is experimental: it runs a statically
+# linked RV64 ELF, which is what any language with a RISC-V target can already
+# produce.
+default = ["wasm"]
+wasm = ["wasmtime"]
+riscv = ["rvtime/aot"]
+# rvtime's other backend, compiling into memory rather than an object file.
+riscv-jit = ["rvtime/jit"]
 
 [dependencies]
 anyhow.workspace = true
 berm-api.workspace = true
 berm-codegen.workspace = true
 hex.workspace = true
-object.workspace = true
 sha2.workspace = true
-rvtime.workspace = true
+rvtime = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
+wasmtime = { workspace = true, optional = true }
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

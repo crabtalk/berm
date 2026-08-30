@@ -1,7 +1,7 @@
-//! One declaration, two expansions — `harnesses!` from the guest, `host!` from
+//! One declaration, two expansions — `syscalls!` from the guest, `host!` from
 //! the host.
 //!
-//! A system harness is native host code behind a name. Both ends of that name
+//! A syscall is native host code behind a name. Both ends of that name
 //! have to agree on the framing, and hand-writing them is how they drift: the
 //! guest builds `[path]` and the host reads `fields[0]`, in different crates,
 //! kept in step by memory. Here they come from one grammar.
@@ -62,7 +62,7 @@ enum Reply {
 
 /// The closed set of field types.
 ///
-/// Closed on purpose: every system harness that exists is served by it, and
+/// Closed on purpose: every syscall that exists is served by it, and
 /// anything richer frames its own payload, which is what `protocol` does with
 /// protobuf.
 #[derive(Clone, Copy, PartialEq)]
@@ -121,7 +121,7 @@ impl Parse for Module {
             calls.push(inner.parse()?);
         }
         if calls.is_empty() {
-            return Err(syn::Error::new(name.span(), "a harness needs a call"));
+            return Err(syn::Error::new(name.span(), "a program needs a call"));
         }
 
         Ok(Self {
@@ -301,7 +301,7 @@ impl Ty {
                     .ok()
                     .and_then(|text| text.parse().ok())
                     .ok_or(::berm_lang::CallError::Failed(::alloc::string::String::from(
-                        "the host sent a number this harness cannot read",
+                        "the host sent a number this program cannot read",
                     )))?
             },
             Ty::Pairs => unreachable!("a reply is never pairs"),
@@ -328,7 +328,7 @@ impl Declaration {
         quote!(#(#modules)*)
     }
 
-    /// The stub a harness calls.
+    /// The stub a program calls.
     fn guest(&self, module: &Module, call: &Call) -> TokenStream {
         let wire = format!("{}.{}.{}", self.namespace, module.name, call.name);
         let ident = &call.name;
@@ -410,7 +410,7 @@ impl Declaration {
                         else {
                             return ::core::result::Result::Err(
                                 ::berm_lang::CallError::Failed(::alloc::string::String::from(
-                                    "the host framed a reply this harness cannot read",
+                                    "the host framed a reply this program cannot read",
                                 )),
                             );
                         };
@@ -445,9 +445,9 @@ impl Declaration {
 
     /// The constructor a host serves a name with.
     ///
-    /// It takes the implementation and returns the registrable `System`, so
+    /// It takes the implementation and returns the registrable `Syscall`, so
     /// the fields the guest built are read back by generated code rather than
-    /// by an index written out per call — which is where a system harness
+    /// by an index written out per call — which is where a syscall
     /// actually goes wrong.
     fn host(&self, module: &Module, call: &Call) -> TokenStream {
         let wire = format!("{}.{}.{}", self.namespace, module.name, call.name);
@@ -611,8 +611,8 @@ impl Declaration {
             pub fn #ident(
                 serve: impl Fn(#(#takes),*) -> ::berm::anyhow::Result<#returns>
                     + Send + Sync + 'static,
-            ) -> ::berm::System {
-                ::berm::System {
+            ) -> ::berm::Syscall {
+                ::berm::Syscall {
                     name: ::std::string::String::from(#konst),
                     call: ::std::sync::Arc::new(move |_: &::berm::Callsite<'_>, request: &[u8]| {
                         let fields = ::berm::wire::fields(request)?;

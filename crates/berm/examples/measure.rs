@@ -1,18 +1,17 @@
-//! What a harness invocation costs.
+//! What a program invocation costs.
 //!
-//! RFC 0205 puts store-per-invocation on the critical path for every tool
+//! RFC 0205 puts an instance per invocation on the critical path for every tool
 //! call, so this measures the parts that decide whether that holds: compiling
-//! an ELF cold and warm, and one full invocation — instantiate, argument
+//! an image cold and warm, and one full invocation — instantiate, argument
 //! transfer, guest call, result read, teardown.
 //!
 //! ```sh
-//! cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
+//! cargo build --release -p berm-fixture --target wasm32-unknown-unknown
 //! cargo run --release --example measure -p berm
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, Harness, storage};
-use rvtime::{Config, Engine};
+use berm::{Berm, Config, Engine, Program, storage};
 use std::{
     fs,
     path::PathBuf,
@@ -20,13 +19,23 @@ use std::{
     time::{Duration, Instant},
 };
 
-const GUEST: &str = "target/riscv64imac-unknown-none-elf/release/fixture";
+/// Whichever image the backend this was built with can run.
+#[cfg(feature = "wasm")]
+const GUEST: (&str, &str) = (
+    "target/wasm32-unknown-unknown/release/fixture.wasm",
+    "wasm32-unknown-unknown",
+);
+#[cfg(not(feature = "wasm"))]
+const GUEST: (&str, &str) = (
+    "target/riscv64imac-unknown-none-elf/release/fixture",
+    "riscv64imac-unknown-none-elf",
+);
 const ROUNDS: usize = 1000;
 
 fn main() -> Result<()> {
     // Only the guest's own log; cranelift is chatty at info.
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::new("warn,harness=info"))
+        .with_env_filter(tracing_subscriber::EnvFilter::new("warn,program=info"))
         .init();
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -35,49 +44,44 @@ fn main() -> Result<()> {
         .context("no workspace root")?
         .to_path_buf();
 
-    let elf = fs::read(root.join(GUEST)).with_context(|| {
-        format!("build the guest first: cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf ({GUEST})")
+    let (guest, target) = GUEST;
+    let elf = fs::read(root.join(guest)).with_context(|| {
+        format!("build the guest first: cargo build --release -p berm-fixture --target {target} ({guest})")
     })?;
     println!("guest: {} bytes", elf.len());
 
     let cache = std::env::temp_dir().join("berm-measure");
     let _ = fs::remove_dir_all(&cache);
 
-    let kept = if cfg!(feature = "aot") {
-        "artifact"
-    } else {
-        "cache"
-    };
-
     let cold = time(|| compile(&cache, &elf))?;
-    println!("compile (cold {kept}):{cold:>12.3?}");
+    println!("compile (cold cache):{cold:>12.3?}");
 
     let warm = time(|| compile(&cache, &elf))?;
-    println!("compile (warm {kept}):{warm:>12.3?}");
+    println!("compile (warm cache):{warm:>12.3?}");
 
-    let harness = compile(&cache, &elf)?;
-    println!("manifest:              {:?}", harness.manifest());
+    let program = compile(&cache, &elf)?;
+    println!("manifest:              {:?}", program.manifest());
 
     println!(
         "heap probe:            {:?}",
-        harness.call("probe", b"".to_vec())?
+        program.call("probe", b"".to_vec())?
     );
 
     // A payload in the range a real tool call carries.
     let args = format!(r#"{{"query":"{}"}}"#, "x".repeat(256));
-    let echoed = harness
+    let echoed = program
         .call("echo", args.as_bytes())?
         .map_err(anyhow::Error::msg)?;
     assert!(echoed.contains(&args), "round trip lost the payload");
     println!(
         "failure path:          {:?}",
-        harness.call("boom", b"".to_vec())?.unwrap_err()
+        program.call("boom", b"".to_vec())?.unwrap_err()
     );
 
     let mut chatty = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
         let start = Instant::now();
-        let _ = harness.call("chatty", b"".to_vec())?;
+        let _ = program.call("chatty", b"".to_vec())?;
         chatty.push(start.elapsed());
     }
     chatty.sort();
@@ -86,7 +90,7 @@ fn main() -> Result<()> {
     let mut samples = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
         let start = Instant::now();
-        let _ = harness.call("echo", args.as_bytes())?;
+        let _ = program.call("echo", args.as_bytes())?;
         samples.push(start.elapsed());
     }
     samples.sort();
@@ -99,7 +103,7 @@ fn main() -> Result<()> {
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
             let start = Instant::now();
-            let _ = harness.call(tool, args.to_vec())?;
+            let _ = program.call(tool, args.to_vec())?;
             samples.push(start.elapsed());
         }
         samples.sort();
@@ -143,43 +147,15 @@ fn main() -> Result<()> {
         samples.iter().sum::<Duration>() / ROUNDS as u32
     );
 
-    // Instantiate maps a guest address space per invocation. If that cost
-    // tracked the configured size, a harness wanting room would pay for it on
-    // every call.
-    println!("p50 by guest memory size:");
-    for mib in [16u64, 64, 256, 1024] {
-        let mut config = Config::new();
-        config.cache_dir(&cache).memory_size(mib * 1024 * 1024);
-        let engine = Engine::new(&config)?;
-        let berm = Berm::new(&engine, 0, vec![], storage::Memory::new());
-        let harness = berm.deploy("fixture", &elf)?;
-
-        let mut samples = Vec::with_capacity(ROUNDS);
-        for _ in 0..ROUNDS {
-            let start = Instant::now();
-            let _ = harness.call("echo", args.as_bytes())?;
-            samples.push(start.elapsed());
-        }
-        samples.sort();
-        println!("  {mib:>5} MiB:          {:>10.3?}", samples[ROUNDS / 2]);
-    }
-
     Ok(())
 }
 
 /// Compiling a guest, reusing whatever the previous run left behind.
-///
-/// Which "whatever" that is depends on how this was built: the incremental
-/// cache holds generated code per function, an artifact holds the whole
-/// compiled object. Only one is in play at a time, since enabling `aot` is
-/// what selects it.
-fn compile(dir: &std::path::Path, elf: &[u8]) -> Result<Arc<Harness>> {
-    let mut config = Config::new();
-
-    config.cache_dir(dir);
-
-    let engine = Engine::new(&config)?;
-    Berm::new(&engine, 0, vec![], storage::Memory::new()).deploy("fixture", elf)
+fn compile(dir: &std::path::Path, image: &[u8]) -> Result<Arc<Program>> {
+    let engine = Engine::new(&Config {
+        cache_dir: Some(dir.to_path_buf()),
+    })?;
+    Berm::new(&engine, 0, vec![], storage::Memory::new()).deploy("fixture", image)
 }
 
 fn time<T>(f: impl FnOnce() -> Result<T>) -> Result<Duration> {

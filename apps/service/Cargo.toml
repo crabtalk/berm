@@ -1,12 +1,12 @@
 [package]
 name = "bermd"
-description = "A long-running service that deploys harnesses and serves their tools over MCP"
+description = "A long-running service that deploys programs and serves their tools over MCP"
 edition.workspace = true
 version.workspace = true
 repository.workspace = true
 license.workspace = true
 authors.workspace = true
-keywords = ["mcp", "sandbox", "riscv", "harness", "daemon"]
+keywords = ["mcp", "sandbox", "riscv", "program", "daemon"]
 categories = ["virtualization"]
 
 [[bin]]
@@ -14,9 +14,11 @@ name = "bermd"
 path = "bin/main.rs"
 
 [features]
-default = ["aot"]
-jit = ["berm/jit"]
-aot = ["berm/aot"]
+# Passed through to berm, which is where the two backends live.
+default = ["wasm"]
+wasm = ["berm/wasm"]
+riscv = ["berm/riscv"]
+riscv-jit = ["berm/riscv-jit"]
 
 [dependencies]
 anyhow.workspace = true

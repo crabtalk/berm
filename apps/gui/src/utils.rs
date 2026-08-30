@@ -16,7 +16,7 @@ pub fn short(digest: &str) -> &str {
     &hex[..DIGEST_SHORT.min(hex.len())]
 }
 
-/// A published harness as a person reads it: the name its author gave the
+/// A published program as a person reads it: the name its author gave the
 /// image, and the version it was pushed under.
 pub fn split(entry: &Entry) -> (&str, &str) {
     let key = entry.key();

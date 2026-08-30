@@ -1,10 +1,10 @@
-//! This harness's own bytes, surviving its invocations.
+//! This program's own bytes, surviving its invocations.
 //!
 //! Guest memory does not cross an invocation — every call gets a fresh one —
-//! so anything a harness needs next time goes here.
+//! so anything a program needs next time goes here.
 //!
-//! Neither door names a harness. The keyspace is whichever one is asking, which
-//! the host reads off the call itself, so another harness's keys are not
+//! Neither door names a program. The keyspace is whichever one is asking, which
+//! the host reads off the call itself, so another program's keys are not
 //! refused: there is nothing to say to reach them.
 //!
 //! Whether a host serves these at all is its own decision, the same as
@@ -15,7 +15,7 @@
 use crate::abi::{self, host, host::CallError, wire};
 use alloc::{string::String, vec::Vec};
 
-/// Read `key`, or `None` if this harness has never written it.
+/// Read `key`, or `None` if this program has never written it.
 ///
 /// ```ignore
 /// let seen = berm_lang::get("last-run")?.unwrap_or_default();

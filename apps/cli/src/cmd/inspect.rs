@@ -1,8 +1,8 @@
-//! `berm inspect` — what a harness claims to be.
+//! `berm inspect` — what a program claims to be.
 
 use crate::Client;
 use anyhow::Result;
-use berm_api::{Harness, ToolSpec};
+use berm_api::{Program, ToolSpec};
 use serde_json::Value;
 
 pub fn run(client: &Client, name: &str) -> Result<()> {
@@ -10,14 +10,14 @@ pub fn run(client: &Client, name: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn show(harness: &Harness) {
-    println!("{}", harness.name);
-    println!("  digest  {}", harness.digest);
-    if !harness.usage.is_empty() {
-        println!("  usage   {}", harness.usage);
+pub fn show(program: &Program) {
+    println!("{}", program.name);
+    println!("  digest  {}", program.digest);
+    if !program.usage.is_empty() {
+        println!("  usage   {}", program.usage);
     }
-    for dep in &harness.deps {
-        let answered = if harness.unresolved.contains(dep) {
+    for dep in &program.deps {
+        let answered = if program.unresolved.contains(dep) {
             "  (nothing answers to it here)"
         } else {
             ""
@@ -25,7 +25,7 @@ pub fn show(harness: &Harness) {
         println!("  dep     {dep}{answered}");
     }
 
-    for tool in &harness.tools {
+    for tool in &program.tools {
         println!();
         println!("  {}", tool.name);
         println!("    {}", tool.description);

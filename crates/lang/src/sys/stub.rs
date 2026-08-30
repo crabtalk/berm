@@ -1,11 +1,11 @@
 //! What a host call does when there is no host.
 //!
-//! Off RISC-V this crate is an ordinary library, so a harness author can build
+//! Off RISC-V this crate is an ordinary library, so a program author can build
 //! and unit test their handlers natively rather than cross-compiling to see
 //! anything at all. The calls a test can reasonably answer — the argument blob,
 //! the log, the failure channel — are served from [`crate::test`]'s state.
-//! Anything else panics naming the system harness, because a test that reached a
-//! real system harness should say so rather than read a plausible zero.
+//! Anything else panics naming the syscall, because a test that reached a
+//! real syscall should say so rather than read a plausible zero.
 
 use crate::abi;
 use std::{cell::RefCell, string::String, vec::Vec};
@@ -18,14 +18,16 @@ std::thread_local! {
 pub(crate) struct Host {
     pub args: Vec<u8>,
     pub logged: Vec<String>,
+    /// What the tool answered with, whichever door it used.
+    pub done: Option<Vec<u8>>,
     pub failure: Option<String>,
-    /// What the last system harness call answered with. Staged exactly as a
+    /// What the last syscall call answered with. Staged exactly as a
     /// real host stages it, so the pull in [`crate::abi::host::call`] is the
     /// same code under a test as in a guest.
     pub result: Vec<u8>,
-    /// What a test has arranged another harness to answer: the harness, the
+    /// What a test has arranged another program to answer: the program, the
     /// tool, the outcome bits, and the bytes. A short list rather than a map
-    /// because a harness calls a handful of things, not a thousand.
+    /// because a program calls a handful of things, not a thousand.
     pub answers: Vec<(String, String, u64, Vec<u8>)>,
 }
 
@@ -34,6 +36,7 @@ impl Host {
         Self {
             args: Vec::new(),
             logged: Vec::new(),
+            done: None,
             failure: None,
             result: Vec::new(),
             answers: Vec::new(),
@@ -68,6 +71,10 @@ pub fn call2(number: u64, a0: u64, a1: u64) -> u64 {
             with(|host| host.logged.push(read(a0, a1)));
             0
         }
+        abi::HOST_DONE => {
+            with(|host| host.done = Some(bytes(a0, a1)));
+            0
+        }
         abi::HOST_FAIL => {
             with(|host| host.failure = Some(read(a0, a1)));
             0
@@ -79,17 +86,17 @@ pub fn call2(number: u64, a0: u64, a1: u64) -> u64 {
             unsafe { core::ptr::copy_nonoverlapping(host.result.as_ptr(), a0 as *mut u8, taken) };
             host.result.len() as u64
         }),
-        // Another harness, if the test arranged what it answers. The request is
-        // decoded here rather than matched whole so a test names the harness and
+        // Another program, if the test arranged what it answers. The request is
+        // decoded here rather than matched whole so a test names the program and
         // the tool, not a byte sequence.
         abi::HOST_CALL => {
             let request = unsafe { core::slice::from_raw_parts(a0 as *const u8, a1 as usize) };
             let Some(fields) = crate::abi::wire::fields(request) else {
                 no_host(number)
             };
-            let (harness, tool) = match fields.as_slice() {
-                [harness, tool, ..] => (
-                    String::from_utf8_lossy(harness).into_owned(),
+            let (program, tool) = match fields.as_slice() {
+                [program, tool, ..] => (
+                    String::from_utf8_lossy(program).into_owned(),
                     String::from_utf8_lossy(tool).into_owned(),
                 ),
                 _ => no_host(number),
@@ -97,7 +104,7 @@ pub fn call2(number: u64, a0: u64, a1: u64) -> u64 {
             let staged = with(|host| {
                 host.answers
                     .iter()
-                    .find(|(a, b, ..)| *a == harness && *b == tool)
+                    .find(|(a, b, ..)| *a == program && *b == tool)
                     .map(|(.., outcome, bytes)| (*outcome, bytes.clone()))
             });
             match staged {
@@ -107,7 +114,7 @@ pub fn call2(number: u64, a0: u64, a1: u64) -> u64 {
                     length | outcome
                 }),
                 None => panic!(
-                    "nothing arranged for {harness}.{tool}; call berm_lang::test::answer first"
+                    "nothing arranged for {program}.{tool}; call berm_lang::test::answer first"
                 ),
             }
         }
@@ -117,9 +124,12 @@ pub fn call2(number: u64, a0: u64, a1: u64) -> u64 {
 
 /// Read a `(ptr, len)` pair the caller passed. Off-target these are real
 /// addresses in this process.
+fn bytes(ptr: u64, len: u64) -> Vec<u8> {
+    unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) }.to_vec()
+}
+
 fn read(ptr: u64, len: u64) -> String {
-    let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    String::from_utf8_lossy(bytes).into_owned()
+    String::from_utf8_lossy(&bytes(ptr, len)).into_owned()
 }
 
 #[cold]

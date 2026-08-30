@@ -72,18 +72,18 @@ impl Workbench {
     }
 
     /// Whether these exact bytes are already here. By digest rather than by
-    /// name, because a name is this machine's and the bytes are the harness.
+    /// name, because a name is this machine's and the bytes are the program.
     fn installed(&self, entry: &Entry) -> bool {
         let digest = entry
             .digest
             .strip_prefix("sha256:")
             .unwrap_or(&entry.digest);
-        self.harnesses
+        self.programs
             .iter()
             .any(|deployed| deployed.digest == digest)
     }
 
-    /// One published harness in the rail.
+    /// One published program in the rail.
     pub(crate) fn result(
         &self,
         entry: &Entry,
@@ -131,7 +131,7 @@ impl Workbench {
             .into_any_element()
     }
 
-    /// The one button that makes a published harness real, and what it says
+    /// The one button that makes a published program real, and what it says
     /// while it is not a button.
     fn get(&self, entry: &Entry, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let note = |copy: &'static str| {
@@ -161,7 +161,7 @@ impl Workbench {
             .into_any_element()
     }
 
-    /// A published harness read from the index: the same tools the pane shows
+    /// A published program read from the index: the same tools the pane shows
     /// for a deployed one, from a listing rather than from an image.
     pub(crate) fn published(
         &self,

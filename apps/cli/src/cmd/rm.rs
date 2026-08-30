@@ -1,4 +1,4 @@
-//! `berm rm` — take a harness out of service.
+//! `berm rm` — take a program out of service.
 
 use crate::Client;
 use anyhow::Result;

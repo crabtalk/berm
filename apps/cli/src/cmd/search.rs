@@ -21,9 +21,9 @@ pub fn run(index: Option<&str>, term: &str) -> Result<()> {
         .map(|entry| entry.reference.len())
         .max()
         .unwrap_or(0)
-        .max("HARNESS".len());
+        .max("PROGRAM".len());
 
-    println!("{:<width$}  {:<SHORT$}  TOOLS", "HARNESS", "DIGEST");
+    println!("{:<width$}  {:<SHORT$}  TOOLS", "PROGRAM", "DIGEST");
     for entry in &entries {
         println!(
             "{:<width$}  {:<SHORT$}  {}",

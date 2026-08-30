@@ -1,9 +1,9 @@
-# Publishing a Harness
+# Publishing a Program
 
-A harness is one file, so it travels as one OCI layer with no tarball around it.
+A program is one file, so it travels as one OCI layer with no tarball around it.
 
 ```sh
-berm push ghcr.io/org/example:v1 ./target/riscv64imac-unknown-none-elf/release/example
+berm push ghcr.io/org/example:v1 ./target/wasm32-unknown-unknown/release/example.wasm
 berm deploy example ghcr.io/org/example:v1
 ```
 
@@ -18,26 +18,26 @@ no credentials, and still restores from `--root` on start without a network.
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
-  "artifactType": "application/vnd.berm.harness.v1",
+  "artifactType": "application/vnd.berm.program.v1",
   "config": { "mediaType": "application/vnd.berm.manifest.v1+json", "digest": "sha256:…" },
-  "layers": [ { "mediaType": "application/vnd.berm.harness.v1", "digest": "sha256:…" } ]
+  "layers": [ { "mediaType": "application/vnd.berm.program.v1", "digest": "sha256:…" } ]
 }
 ```
 
 The config blob is the [`.berm.abi`](./manifest.md) section carried out of the
-ELF byte for byte, so what a registry serves cannot disagree with what the image
+image byte for byte, so what a registry serves cannot disagree with what the image
 holds. It is also what makes a listing cheap: the tools, their schemas and the
-usage are one small blob, and reading them never means pulling the harness.
+usage are one small blob, and reading them never means pulling the program.
 
-Nothing about the harness is repeated in annotations. Only
+Nothing about the program is repeated in annotations. Only
 `org.opencontainers.image.source` and `.revision` are set, from
 `GITHUB_REPOSITORY` and `GITHUB_SHA` when a build has them, which is what makes
 GHCR show a package against its repository.
 
 ## One digest
 
-Because the layer is the ELF and nothing else, the layer's digest is sha256 of
-the ELF — the same hash `berm ls` reports, carrying the registry's `sha256:`
+Because the layer is the image and nothing else, the layer's digest is sha256 of
+the image — the same hash `berm ls` reports, carrying the registry's `sha256:`
 prefix:
 
 ```console
@@ -55,7 +55,7 @@ rather than by the model.
 
 ## What push refuses
 
-`berm push` reads the manifest out of the ELF before it uploads anything, which
+`berm push` reads the manifest out of the image before it uploads anything, which
 means a broken image is refused by whoever built it rather than at deploy on
 someone else's machine. Reading it never runs the guest.
 
@@ -69,9 +69,9 @@ permissions:
   packages: write
 
 steps:
-  - run: cargo build --release --target riscv64imac-unknown-none-elf
+  - run: cargo build --release --target wasm32-unknown-unknown
   - run: berm push ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
-           target/riscv64imac-unknown-none-elf/release/example
+           target/wasm32-unknown-unknown/release/example.wasm
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -81,9 +81,9 @@ is not read.
 
 ## Being found
 
-Pushing makes a harness fetchable, not findable. Nothing can enumerate the
-harnesses on a registry — GitHub's Packages API refuses to list even public
-packages without a token — so an index has to be told a harness exists.
+Pushing makes a program fetchable, not findable. Nothing can enumerate the
+programs on a registry — GitHub's Packages API refuses to list even public
+packages without a token — so an index has to be told a program exists.
 
 ```sh
 berm publish ghcr.io/org/example:v1
@@ -95,7 +95,7 @@ berm search "read a file"
 `publish` records a reference and nothing else. The index pulls the artifact
 itself, anonymously, and fills in the digest, tools and usage from the config
 blob — so a listing describes what a registry will actually serve rather than
-what a publisher claimed, and a harness nobody can pull cannot be listed.
+what a publisher claimed, and a program nobody can pull cannot be listed.
 
 Entries are keyed by digest, which is what makes them safe to keep: the bytes at
 a digest never change, so a recorded description of them cannot go stale.
@@ -103,7 +103,7 @@ Re-pushing a tag adds an entry rather than rewriting one.
 
 ## The list is a git repository
 
-One JSON Lines file per harness, one line per version — so a copy of an index is
+One JSON Lines file per program, one line per version — so a copy of an index is
 a clone, and searching your copy needs no service, no credential and no network.
 `berm search` keeps that copy for you under `~/.berm/index`, cloning it the
 first time and not touching the network again:

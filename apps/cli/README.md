@@ -4,7 +4,7 @@ The command-line client for [bermd](../service).
 
 ```sh
 berm new example
-berm push ghcr.io/org/example:v1 ./harness.elf
+berm push ghcr.io/org/example:v1 ./program.elf
 berm publish ghcr.io/org/example:v1
 berm search "read a file"
 berm deploy example ghcr.io/org/example:v1
@@ -17,7 +17,7 @@ berm rm example
 anything else is pulled and checked against the digest the registry advertised.
 
 `new`, `push`, `publish` and `search` are the subcommands that do not talk to
-bermd. `new` writes a harness crate pinning the `berm-lang` that shipped with
+bermd. `new` writes a program crate pinning the `berm-lang` that shipped with
 this binary; `push` uploads an image to a registry.
 
 `publish` and `search` reach an index — `https://github.com/crabtalk/berm-index.git`

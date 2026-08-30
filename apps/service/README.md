@@ -1,10 +1,10 @@
 # bermd
 
-A long-running service that deploys harnesses and serves their tools over MCP.
+A long-running service that deploys programs and serves their tools over MCP.
 
-An invocation is ephemeral — berm instantiates a harness per call and nothing
+An invocation is ephemeral — berm instantiates a program per call and nothing
 survives it. What the service holds is everything around that: the deployed set,
-the modules compiled from it, and the engine's code cache. A harness is compiled
+the modules compiled from it, and the engine's code cache. A program is compiled
 once, at deploy, so an invocation pays only instantiation.
 
 ```sh
@@ -17,9 +17,9 @@ The control API is resource-shaped, for the reason dockerd's is: the clients are
 a UI, a CLI, and `curl`.
 
 ```sh
-curl -X PUT --data-binary @harness.elf http://127.0.0.1:7777/harnesses/example
-curl http://127.0.0.1:7777/harnesses
-curl -X DELETE http://127.0.0.1:7777/harnesses/example
+curl -X PUT --data-binary @program.elf http://127.0.0.1:7777/programs/example
+curl http://127.0.0.1:7777/programs
+curl -X DELETE http://127.0.0.1:7777/programs/example
 ```
 
 An image is compiled before it is stored, so a broken one is refused by the
@@ -33,24 +33,24 @@ proves the path works and is not something to leave deployed.
 ```sh
 cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
 curl -X PUT --data-binary @target/riscv64imac-unknown-none-elf/release/fixture \
-  http://127.0.0.1:7777/harnesses/fixture
+  http://127.0.0.1:7777/programs/fixture
 ```
 
 ## MCP
 
-Every deployed harness appears on one endpoint at `/mcp`, its tools named
-`{harness}.{tool}` — the same dotted rule the guest ABI already uses for host
+Every deployed program appears on one endpoint at `/mcp`, its tools named
+`{program}.{tool}` — the same dotted rule the guest ABI already uses for host
 call names. Deploying and undeploying emit `notifications/tools/list_changed`,
 because the tool set moves under clients already holding a list.
 
-A harness's `usage` is published as a `berm://{harness}/usage` resource rather
+A program's `usage` is published as a `berm://{program}/usage` resource rather
 than folded into the server's `instructions`, which a model pays for on every
 turn.
 
-## What a harness can reach
+## What a program can reach
 
 Its arguments, the log, its own stored keys, the clock, a callback timer, any
-connection this daemon was configured to let it dial, and any other harness
+connection this daemon was configured to let it dial, and any other program
 deployed beside it. There is no wiring step: what is deployed is reachable by
 name, the way containers on one network reach each other.
 
@@ -66,16 +66,16 @@ let forecast = berm_lang::call("inner", "echo", r#"{"query":"hi"}"#)?;
 The name is read at the call, so an image is not built against a particular
 deploy: the same one works wherever it lands, and deploying it twice under two
 names makes it reachable as both. A name nothing answers to gives
-`CallError::Refused`, which a harness can tell apart from `CallError::Failed` —
+`CallError::Refused`, which a program can tell apart from `CallError::Failed` —
 the target ran and said no.
 
 `--max-call-depth` bounds how far a chain may nest, 4 by default; `0` refuses
 the first nested call.
 
 That reach stops at the daemon. Everything outside it — files, commands, the
-network — is a system harness the embedder registers, and bermd registers none.
+network — is a syscall the embedder registers, and bermd registers none.
 The bound worth minding is therefore what an image *is*, not which of your
-harnesses it can call: read what one claims before deploying it.
+programs it can call: read what one claims before deploying it.
 
 ```sh
 berm inspect ghcr.io/org/example:v1

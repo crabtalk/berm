@@ -1,7 +1,7 @@
-//! `#[harness]` — turns a module of plain functions into a loadable harness.
+//! `#[program]` — turns a module of plain functions into a loadable program.
 //!
-//! The exports an ELF needs are ceremony: an entry point that keeps the linker
-//! from discarding the image, a heap handshake, a description the host reads at
+//! The exports an image needs are ceremony: an entry point that keeps the
+//! linker from discarding it, a heap handshake, a description the host reads at
 //! registration, and dispatch from a tool index back to a function. None of it
 //! is the author's problem, so none of it is in their source.
 
@@ -11,13 +11,13 @@ use syn::{
     Expr, ExprLit, Item, ItemFn, ItemMod, Lit, LitStr, Token, parse::Parse, parse_macro_input,
 };
 
-mod harnesses;
 mod schema;
+mod syscalls;
 
-/// Declare the system harnesses a harness may call, emitting a stub for each.
+/// Declare the syscalls a program may call, emitting a stub for each.
 ///
 /// ```ignore
-/// berm_lang::harnesses! {
+/// berm_lang::syscalls! {
 ///     namespace = "berm";
 ///     mod fs {
 ///         /// Read a file whole.
@@ -30,18 +30,18 @@ mod schema;
 /// Each side writes it in its own crate, and drift is caught on the first call:
 /// a renamed call hashes to a number nothing is registered for.
 #[proc_macro]
-pub fn harnesses(input: TokenStream) -> TokenStream {
-    parse_macro_input!(input as harnesses::Declaration)
-        .expand(harnesses::Side::Guest)
+pub fn syscalls(input: TokenStream) -> TokenStream {
+    parse_macro_input!(input as syscalls::Declaration)
+        .expand(syscalls::Side::Guest)
         .into()
 }
 
-/// The other side of [`harnesses!`]: one constructor per name, taking the
-/// implementation and returning the `System` that serves it.
+/// The other side of [`syscalls!`]: one constructor per name, taking the
+/// implementation and returning the `Syscall` that serves it.
 #[proc_macro]
 pub fn hosts(input: TokenStream) -> TokenStream {
-    parse_macro_input!(input as harnesses::Declaration)
-        .expand(harnesses::Side::Host)
+    parse_macro_input!(input as syscalls::Declaration)
+        .expand(syscalls::Side::Host)
         .into()
 }
 
@@ -50,7 +50,7 @@ pub fn hosts(input: TokenStream) -> TokenStream {
 /// This is paid on every invocation, not once: the buffers live in `.bss`,
 /// which the host zeroes each time it instantiates the guest. Measured against
 /// the reference guest, 64 KiB costs a few microseconds per call over 16 KiB, and 4 KiB
-/// buys nothing back. `buffer = N` overrides it for a harness that needs room.
+/// buys nothing back. `buffer = N` overrides it for a program that needs room.
 const DEFAULT_BUFFER: usize = 16 * 1024;
 
 /// JSON Schema for a tool that declares no parameters.
@@ -63,10 +63,10 @@ const TOOL_PREFIX: &str = "berm_tool_";
 struct Config {
     buffer: usize,
     usage: String,
-    /// What this harness reaches for at runtime, as the author declares it.
+    /// What this program reaches for at runtime, as the author declares it.
     deps: Vec<String>,
     /// Kept only to re-emit as an `include_str!`, so editing the file
-    /// rebuilds the harness.
+    /// rebuilds the program.
     usage_file: Option<syn::LitStr>,
 }
 
@@ -103,7 +103,7 @@ impl Parse for Config {
                     })?;
                     usage_file = Some(path);
                 }
-                // Declared, never inferred: a target the harness computes at
+                // Declared, never inferred: a target the program computes at
                 // the call is invisible to anything reading the image, so a
                 // scan of this crate would report a list that is quietly short.
                 "deps" => {
@@ -149,7 +149,7 @@ struct Tool {
 }
 
 /// Where a tool's schema comes from. The handler always receives the raw
-/// blob — parsing is the author's choice, and not every harness wants a JSON
+/// blob — parsing is the author's choice, and not every program wants a JSON
 /// parser linked into it.
 enum Args {
     /// No declared shape; the schema is an open object.
@@ -158,10 +158,10 @@ enum Args {
     Struct(syn::Ident),
 }
 
-/// Declare a harness from a module of tool functions.
+/// Declare a program from a module of tool functions.
 ///
 /// ```ignore
-/// #[harness]
+/// #[program]
 /// mod tools {
 ///     use berm_lang::{Failed, Out};
 ///
@@ -177,7 +177,7 @@ enum Args {
 /// description the model reads, and `#[params("…")]` carries a JSON Schema for
 /// its arguments.
 #[proc_macro_attribute]
-pub fn harness(args: TokenStream, item: TokenStream) -> TokenStream {
+pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
     let config = parse_macro_input!(args as Config);
     let mut module = parse_macro_input!(item as ItemMod);
 
@@ -195,7 +195,7 @@ pub fn harness(args: TokenStream, item: TokenStream) -> TokenStream {
 
     // One export per tool, so the host resolves it the way it resolves any
     // other symbol. An index would couple the two sides by declaration order
-    // for no gain — rvtime looks entries up by name already.
+    // for no gain — both backends look entries up by name already.
     let exports = tools.iter().map(|tool| {
         let ident = &tool.ident;
         let symbol = syn::Ident::new(&format!("{TOOL_PREFIX}{}", tool.name), ident.span());
@@ -204,7 +204,7 @@ pub fn harness(args: TokenStream, item: TokenStream) -> TokenStream {
         quote! {
             #[doc = #doc]
             #[unsafe(no_mangle)]
-            pub extern "C" fn #symbol() -> ::berm_lang::Buf {
+            pub extern "C" fn #symbol() {
                 let arguments = unsafe { &mut *::core::ptr::addr_of_mut!(_CRABTALK_ARGS) };
                 let length = ::berm_lang::abi::read_args(arguments);
                 if length > _CRABTALK_BUFFER {
@@ -234,7 +234,7 @@ pub fn harness(args: TokenStream, item: TokenStream) -> TokenStream {
     });
 
     // The macro read the usage file itself, which cargo cannot see. This
-    // makes the dependency visible so editing it rebuilds the harness.
+    // makes the dependency visible so editing it rebuilds the program.
     let usage_rebuild = config.usage_file.as_ref().map(|path| {
         quote! {
             const _CRABTALK_USAGE: &str =
@@ -251,20 +251,27 @@ pub fn harness(args: TokenStream, item: TokenStream) -> TokenStream {
         static mut _CRABTALK_ARGS: [u8; _CRABTALK_BUFFER] = [0; _CRABTALK_BUFFER];
         static mut _CRABTALK_OUT: [u8; _CRABTALK_BUFFER] = [0; _CRABTALK_BUFFER];
 
-        /// What this harness is, as a section rather than an export: the host
-        /// reads it out of the ELF without compiling or running anything, so
-        /// learning what a harness claims never means executing it.
+        /// What this program is, as a section rather than an export: the host
+        /// reads it out of the image without compiling or running anything, so
+        /// learning what a program claims never means executing it.
+        ///
+        /// One attribute for both targets — an ELF section and a wasm custom
+        /// section are what `link_section` emits for each.
         #[used]
-        #[cfg_attr(target_arch = "riscv64", unsafe(link_section = ".berm.abi"))]
+        #[cfg_attr(
+            any(target_arch = "wasm32", target_arch = "riscv64"),
+            unsafe(link_section = ".berm.abi")
+        )]
         static _CRABTALK_ABI: [u8; #description_len] = *#description_bytes;
 
-        /// A harness is a binary, and off the guest's target a binary needs a
+        /// A program is a binary, and off a guest target a binary needs a
         /// `main` — which is what lets `cargo test` build one natively.
-        #[cfg(not(target_arch = "riscv64"))]
+        #[cfg(not(any(target_arch = "wasm32", target_arch = "riscv64")))]
         fn main() {}
 
         /// The ELF entry point. Never called: it exists so `--gc-sections`
-        /// keeps the exports, which nothing else in the image references.
+        /// keeps the exports, which nothing else in the image references. wasm
+        /// needs no equivalent — an exported function is a root there.
         /// Off the guest's target the C runtime owns `_start`, and defining a
         /// second one fails the native test link on ELF platforms.
         #[cfg(target_arch = "riscv64")]
@@ -292,7 +299,7 @@ fn collect(module: &mut ItemMod) -> syn::Result<Vec<Tool>> {
     let Some((_, items)) = module.content.as_mut() else {
         return Err(syn::Error::new_spanned(
             &module.ident,
-            "#[harness] needs a module with a body, not a `mod foo;` declaration",
+            "#[program] needs a module with a body, not a `mod foo;` declaration",
         ));
     };
 
@@ -308,7 +315,7 @@ fn collect(module: &mut ItemMod) -> syn::Result<Vec<Tool>> {
     if tools.is_empty() {
         return Err(syn::Error::new_spanned(
             &module.ident,
-            "a harness needs at least one `pub fn` to expose as a tool",
+            "a program needs at least one `pub fn` to expose as a tool",
         ));
     }
 
@@ -327,7 +334,7 @@ fn collect(module: &mut ItemMod) -> syn::Result<Vec<Tool>> {
         // The struct is an interface declaration: read for its shape, never
         // constructed. Saying so beats an author silencing the warning.
         item.attrs.push(syn::parse_quote!(#[allow(dead_code)]));
-        // Reached through the SDK rather than named directly, so a harness
+        // Reached through the SDK rather than named directly, so a program
         // depends on one crate and cannot pick a serde the derive disagrees
         // with. This is why the author writes neither line.
         item.attrs
@@ -453,7 +460,7 @@ fn describe(config: &Config, tools: &[Tool]) -> String {
         .join(",");
 
     format!(
-        r#"{{"abi_version":0,"tools":[{tools}],"usage":"{}","deps":[{deps}]}}"#,
+        r#"{{"abi_version":1,"tools":[{tools}],"usage":"{}","deps":[{deps}]}}"#,
         escape(&config.usage),
     )
 }

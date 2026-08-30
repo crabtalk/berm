@@ -1,7 +1,7 @@
-//! What a harness says it is: its usage, its tools, their arguments.
+//! What a program says it is: its usage, its tools, their arguments.
 
 use crate::{Showing, TITLEBAR, Tab, Workbench, utils};
-use berm::Harness;
+use berm::Program;
 use berm_api::ToolSpec;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
@@ -26,7 +26,7 @@ impl Workbench {
                 .justify_center()
                 .child(theme.empty_state(
                     icons::WIDGET,
-                    "No harness selected",
+                    "No program selected",
                     "Pick one on the left to read its tools.",
                 ))
                 .into_any_element();
@@ -48,7 +48,7 @@ impl Workbench {
             .into_any_element()
     }
 
-    fn header(&self, deployed: &Arc<Harness>, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn header(&self, deployed: &Arc<Program>, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex_none()
             .px(px(28.0))
@@ -101,7 +101,7 @@ impl Workbench {
             .into_any_element()
     }
 
-    /// What a harness offers, whether it is deployed or only listed: `of` is
+    /// What a program offers, whether it is deployed or only listed: `of` is
     /// what its tools are named under, which is a name here and a reference in
     /// the index.
     pub(crate) fn tools(
@@ -149,14 +149,14 @@ impl Workbench {
 
     fn tool(
         &self,
-        harness: &str,
+        program: &str,
         tool: &ToolSpec,
         first: bool,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // Named the way MCP names it, which is also the key the open set uses.
-        let key = format!("{harness}.{}", tool.name);
+        let key = format!("{program}.{}", tool.name);
         let open = self.expanded.contains(&key);
         let schema = serde_json::to_string_pretty(&tool.parameters).unwrap_or_default();
 

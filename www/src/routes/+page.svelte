@@ -6,7 +6,7 @@
 	import Disasm from '$lib/Disasm.svelte';
 	import { author, description, repo } from '$lib/meta.js';
 
-	const title = 'berm — a sandbox for harnesses';
+	const title = 'berm — the OS for agent harnesses';
 
 	// Marked by hand and rendered with `{@html}`, so a `pre` never inherits the
 	// template's indentation and Svelte never reads a brace in the source as an
@@ -28,10 +28,10 @@
 <span class="mark">${digest}</span>  ./fixture`;
 
 	const running = `<span class="c">$</span> bermd &amp;
-<span class="c">$</span> berm deploy example ./harness.elf
+<span class="c">$</span> berm deploy example ./program.elf
 <span class="c">$</span> berm ls`;
 
-	const moving = `<span class="c">$</span> berm push ghcr.io/org/example:v1 ./harness.elf
+	const moving = `<span class="c">$</span> berm push ghcr.io/org/example:v1 ./program.elf
 <span class="c">$</span> berm publish ghcr.io/org/example:v1
 <span class="c">$</span> berm search <span class="s">"read a file"</span>`;
 
@@ -40,15 +40,15 @@
 	const pillars = [
 		{
 			title: 'Pinned by hash',
-			body: 'A harness is one statically linked RV64 ELF. berm compiles it once and instantiates it per invocation — arguments go in through host calls, the result comes back out of guest memory, and the instance is gone.'
+			body: 'A program is one statically linked RV64 ELF. berm compiles it once and instantiates it per invocation — arguments go in through syscalls, the result comes back out of guest memory, and the instance is gone.'
 		},
 		{
 			title: 'The linker is the boundary',
-			body: 'A harness reaches the world only through the system harnesses it was given, and that list is the Linker it was instantiated with. A call to anything else traps because nothing is registered for it, not because a check said no.'
+			body: 'A program reaches the world only through the syscalls it was given, and that list is the Linker it was instantiated with. A call to anything else traps because nothing is registered for it, not because a check said no.'
 		},
 		{
 			title: 'berm has no host',
-			body: 'berm ships no system harnesses at all. What a filesystem is bounded by, and where bytes persist, are decisions about a host — so they belong to whoever is building one.'
+			body: 'berm ships no syscalls at all. What a filesystem is bounded by, and where bytes persist, are decisions about a host — so they belong to whoever is building one.'
 		},
 		{
 			title: 'Read it without running it',
@@ -92,7 +92,7 @@
 		<h1>Nothing survives the call.</h1>
 
 		<p class="lede">
-			A sandbox for harnesses. One statically linked RV64 ELF, pinned by hash, compiled once,
+			The OS for agent harnesses. One statically linked RV64 ELF, pinned by hash, compiled once,
 			and instantiated per invocation.
 		</p>
 
@@ -124,7 +124,7 @@
 	<div class="prose">
 		<h2>Two results, and they mean different things.</h2>
 		<p>
-			The outer result is the host's — a missing tool, a trap. The inner one is the harness
+			The outer result is the host's — a missing tool, a trap. The inner one is the program
 			reporting failure, which is a result the model should see.
 		</p>
 	</div>
@@ -156,7 +156,7 @@
 		</div>
 	</div>
 	<p class="note">
-		A harness travels as one OCI layer with no tarball around it, so the digest a registry
+		A program travels as one OCI layer with no tarball around it, so the digest a registry
 		addresses it by is <code>shasum</code> of the file on your disk.
 	</p>
 </section>
@@ -175,8 +175,8 @@
 <section class="cli">
 	<div class="column">
 		<h2>Running</h2>
-		<p><code>bermd</code> serves every deployed harness on one MCP endpoint, with tools named
-			<code>{'{harness}'}.{'{tool}'}</code>.</p>
+		<p><code>bermd</code> serves every deployed program on one MCP endpoint, with tools named
+			<code>{'{program}'}.{'{tool}'}</code>.</p>
 		<div class="code-block">
 			<pre><code>{@html running}</code></pre>
 			<button class="copy" type="button" aria-label="Copy commands">
@@ -188,7 +188,7 @@
 	<div class="column">
 		<h2>Moving</h2>
 		<p>
-			Pushing makes a harness fetchable, not findable. The list is a git repository, so
+			Pushing makes a program fetchable, not findable. The list is a git repository, so
 			<code>search</code> reads a clone of it with no service and no credential.
 		</p>
 		<div class="code-block">
