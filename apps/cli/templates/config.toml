@@ -1,4 +1,0 @@
-# Not optional: the relocations are what identify indirect-call targets. Set
-# per target rather than as `build.target`, so `cargo test` still runs natively.
-[target.riscv64imac-unknown-none-elf]
-rustflags = ["-Clink-arg=--emit-relocs"]

@@ -1,8 +1,8 @@
 //! __NAME__ — a berm program.
 
-// `no_std` and `no_main` are the guest's shape. Off its target this is an
+// `no_std` and `no_main` are the guest's shape. Off a guest target this is an
 // ordinary library, so `cargo test` runs the tools below natively.
-#![cfg_attr(target_arch = "riscv64", no_std, no_main)]
+#![cfg_attr(any(target_arch = "wasm32", target_arch = "riscv64"), no_std, no_main)]
 
 // Needed the moment this program declares one it calls: `berm_lang::programs!`
 // expands to owned types reached through `alloc`, which is not in the prelude.
