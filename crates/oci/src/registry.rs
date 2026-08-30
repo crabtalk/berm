@@ -114,8 +114,8 @@ impl Registry {
 
     /// Upload the manifest blob, the image, and the artifact manifest naming
     /// both. Returns the image's digest, which is the layer's.
-    pub fn push(&self, reference: &str, elf: &[u8], manifest: &[u8]) -> Result<String> {
-        let image = self.upload(elf)?;
+    pub fn push(&self, reference: &str, program: &[u8], manifest: &[u8]) -> Result<String> {
+        let image = self.upload(program)?;
         let config = self.upload(manifest)?;
 
         let artifact = json!({
@@ -123,7 +123,7 @@ impl Registry {
             "mediaType": OCI_MANIFEST,
             "artifactType": PROGRAM,
             "config": { "mediaType": MANIFEST, "digest": config, "size": manifest.len() },
-            "layers": [ { "mediaType": PROGRAM, "digest": image, "size": elf.len() } ],
+            "layers": [ { "mediaType": PROGRAM, "digest": image, "size": program.len() } ],
             "annotations": annotations(),
         });
 

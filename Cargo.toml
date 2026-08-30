@@ -55,7 +55,7 @@ gpui_platform = { package = "bezel-gpui-platform", version = "0.3.3", features =
 ] }
 libc = "0.2"
 linked_list_allocator = "0.10"
-object = "0.40"
+object = { version = "0.40", features = ["wasm"] }
 proc-macro2 = "1"
 quote = "1"
 reqwest = { version = "0.13", default-features = false }

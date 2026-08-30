@@ -12,8 +12,12 @@ use serde::{Deserialize, Serialize};
 /// mean.
 pub const ABI_VERSION: u32 = 0;
 
-/// ELF section carrying the manifest. A section rather than an export, so
+/// The section carrying the manifest. A section rather than an export, so
 /// reading what a program claims to be never means running it.
+///
+/// One name for both formats: an ELF section and a wasm custom section are
+/// each what `#[link_section]` emits for the target, and each is what
+/// [`Manifest::section`] reads back.
 pub const ABI_SECTION: &str = ".berm.abi";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -39,21 +43,22 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    /// Read what an ELF claims to be, without compiling or running it.
+    /// Read what an image claims to be, without compiling or running it.
     ///
     /// This is what the section is *for* (RFC 0205): learning a program's tools,
     /// deps, and usage must not mean instantiating it. An embedder assembling a
     /// prompt or listing a registry needs exactly this and nothing else.
-    pub fn from_elf(elf: &[u8]) -> Result<Self> {
-        let json = str::from_utf8(Self::section(elf)?).context("program manifest is not UTF-8")?;
+    pub fn from_image(image: &[u8]) -> Result<Self> {
+        let json =
+            str::from_utf8(Self::section(image)?).context("program manifest is not UTF-8")?;
         Self::parse(json)
     }
 
-    /// The section's bytes as they sit in the ELF. A publisher carries these
+    /// The section's bytes as they sit in the image. A publisher carries these
     /// verbatim, so what a registry serves cannot disagree with what the image
     /// holds.
-    pub fn section(elf: &[u8]) -> Result<&[u8]> {
-        let file = object::File::parse(elf).context("program is not a readable ELF")?;
+    pub fn section(image: &[u8]) -> Result<&[u8]> {
+        let file = object::File::parse(image).context("program is not a readable image")?;
         file.section_by_name(ABI_SECTION)
             .with_context(|| format!("program has no {ABI_SECTION} section"))?
             .data()

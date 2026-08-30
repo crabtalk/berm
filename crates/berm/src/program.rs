@@ -153,7 +153,7 @@ impl Program {
         // dispatch, on a model's turn, as a missing symbol. The symbol table
         // and the manifest are both in hand here, so disagreement is caught
         // before the program is ever offered.
-        let manifest = Manifest::from_elf(elf)?;
+        let manifest = Manifest::from_image(elf)?;
         for tool in &manifest.tools {
             if !tools.contains_key(&tool.name) {
                 bail!(

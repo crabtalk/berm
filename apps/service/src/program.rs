@@ -6,14 +6,14 @@ use berm::Program;
 use std::sync::Arc;
 
 impl Service {
-    /// Compile `elf`, store it, and make its tools reachable under `name`.
+    /// Compile `image`, store it, and make its tools reachable under `name`.
     ///
     /// Compile, then store, then publish — berm does the first two in that
     /// order, so a rejected image leaves no record that would fail again on
     /// every restart, and a tool that is served is one a restart brings back.
-    pub async fn deploy(&self, name: &str, elf: Vec<u8>) -> Result<Arc<Program>> {
+    pub async fn deploy(&self, name: &str, image: Vec<u8>) -> Result<Arc<Program>> {
         validate(name)?;
-        let program = self.compile(name.to_owned(), Arc::new(elf)).await?;
+        let program = self.compile(name.to_owned(), Arc::new(image)).await?;
 
         // Said rather than refused: a program deployed before the one it
         // calls is ordinary, and the call reports it again if it stays that
@@ -63,9 +63,9 @@ impl Service {
     }
 
     /// Compile an image into the runtime, off the async workers.
-    async fn compile(&self, name: String, elf: Arc<Vec<u8>>) -> Result<Arc<Program>> {
+    async fn compile(&self, name: String, image: Arc<Vec<u8>>) -> Result<Arc<Program>> {
         let berm = self.berm.clone();
-        tokio::task::spawn_blocking(move || berm.deploy(&name, &elf))
+        tokio::task::spawn_blocking(move || berm.deploy(&name, &image))
             .await
             .context("compilation panicked")?
     }

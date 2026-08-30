@@ -45,7 +45,7 @@ pub fn router(service: Arc<Service>) -> Router {
 }
 
 impl Service {
-    /// What berm read out of the ELF, on the wire, and what of it this service
+    /// What berm read out of the image, on the wire, and what of it this service
     /// has nothing to answer with.
     fn describe(&self, deployed: &Arc<Program>) -> Wire {
         let manifest = deployed.manifest();
@@ -80,18 +80,19 @@ async fn inspect(
     }
 }
 
-/// Deploy the ELF in the body under `name`. `PUT` because the name is the
+/// Deploy the image in the body under `name`. `PUT` because the name is the
 /// address and redeploying the same name replaces what is there.
 async fn deploy(
     State(service): State<Arc<Service>>,
     Path(name): Path<String>,
-    elf: Bytes,
+    image: Bytes,
 ) -> Result<Json<Wire>, Refused> {
     let deployed = service
-        .deploy(&name, elf.to_vec())
+        .deploy(&name, image.to_vec())
         .await
-        // A rejected image is the client's ELF, not the service's fault: a bad
-        // name, an unreadable ELF, a manifest that disagrees with its exports.
+        // A rejected image is the client's, not the service's fault: a bad
+        // name, an unreadable image, a manifest that disagrees with its
+        // exports.
         .map_err(|error| Refused(StatusCode::BAD_REQUEST, format!("{error:#}")))?;
     Ok(Json(service.describe(&deployed)))
 }

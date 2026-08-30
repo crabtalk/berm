@@ -30,8 +30,8 @@ impl Client {
             .context("bermd returned something that is not a program")
     }
 
-    pub fn deploy(&self, name: &str, elf: Vec<u8>) -> Result<Program> {
-        http::read(&self.host, self.http.put(self.url(name)).body(elf).send())?
+    pub fn deploy(&self, name: &str, image: Vec<u8>) -> Result<Program> {
+        http::read(&self.host, self.http.put(self.url(name)).body(image).send())?
             .json()
             .context("bermd returned something that is not a program")
     }
