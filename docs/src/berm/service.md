@@ -83,7 +83,7 @@ guest address space.
 
 That reach stops at the daemon. A program still touches the world outside only
 through syscalls its host registered, and `bermd` registers none — so
-what matters before deploying an image is what the image *is*. `Manifest::from_elf`
+what matters before deploying an image is what the image *is*. `Manifest::from_image`
 reads a program's tools and usage without compiling or running it, which is what
 `berm inspect` shows you.
 

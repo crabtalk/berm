@@ -4,7 +4,7 @@
 number, a register, or a pointer pair.
 
 ```rust,ignore
-#![cfg_attr(target_arch = "riscv64", no_std, no_main)]
+#![cfg_attr(any(target_arch = "wasm32", target_arch = "riscv64"), no_std, no_main)]
 
 extern crate alloc;
 
@@ -64,21 +64,25 @@ host sees a tool that ran and failed, and hands the message back as a result.
 `berm new` writes the crate, so none of the ceremony below has to be typed:
 
 ```sh
-rustup target add riscv64imac-unknown-none-elf
+rustup target add wasm32-unknown-unknown
 berm new my-program
 cd my-program
-cargo build --release --target riscv64imac-unknown-none-elf
+cargo build --release --target wasm32-unknown-unknown
 ```
 
-Two things it sets up are worth knowing, because a reader who does not will
-delete one of them. `.cargo/config.toml` carries `--emit-relocs`, which is not
-optional: the relocations are what identify indirect-call targets. And the tools
-live in `src/lib.rs` under a three-line `src/bin/main.rs` that does nothing but
-`extern crate` them, because cargo emits an image for a bin target and an
-archive for a lib — the library alone never gets linked, and the binary alone
-cannot be reached from `tests/`.
+`berm new --target riscv` scaffolds for the experimental RISC-V backend instead.
+The source is the same either way; what changes is the triple and one linker
+flag. That flag is worth knowing about, because a reader who does not will
+delete it: a RISC-V scaffold's `.cargo/config.toml` carries `--emit-relocs`,
+and the relocations are what identify indirect-call targets. A wasm scaffold
+needs no such file.
 
-Off that target the crate is an ordinary library, so tools can be unit tested
+What both share is that the tools live in `src/lib.rs` under a three-line
+`src/bin/main.rs` that does nothing but `extern crate` them, because cargo emits
+an image for a bin target and an archive for a lib — the library alone never
+gets linked, and the binary alone cannot be reached from `tests/`.
+
+Off a guest target the crate is an ordinary library, so tools can be unit tested
 natively instead of cross-compiling to run anything at all. `berm_lang::test`
 stands in for the host: it holds the argument blob and collects what a program
 logged. A call reaching a syscall that has no stand-in panics naming it,

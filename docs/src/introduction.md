@@ -7,14 +7,15 @@ hash, compiles it once, instantiates it per invocation, and hands it only the
 syscalls it was given. `bermd` deploys programs and serves their tools over MCP,
 which is how Claude Code, Codex and OpenCode reach them.
 
-**[rvtime](./rvtime/introduction.md)** is the RISC-V compiler underneath — load
-an ELF, generate native code for it with Cranelift, call its exported functions,
-and let it call back.
+**[rvtime](./rvtime/introduction.md)** is the RISC-V compiler underneath one of
+berm's two backends — load an ELF, generate native code for it with Cranelift,
+call its exported functions, and let it call back. berm's other backend is
+wasmtime, and it is the one a program is built for; rvtime is experimental.
 
-The split is load-bearing rather than tidy. rvtime knows about ELFs, registers,
-and traps; berm knows about tools, manifests, and arguments. Every convention
-that makes a guest a berm *program* lives on the berm side, which is what leaves
-rvtime usable for a guest that is not one.
+The split is load-bearing rather than tidy. A backend knows about images,
+registers, and traps; berm knows about tools, manifests, and arguments. Every
+convention that makes a guest a berm *program* lives on the berm side, which is
+what leaves rvtime usable for a guest that is not one.
 
 ## How to read this
 

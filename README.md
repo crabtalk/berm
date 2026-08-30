@@ -10,13 +10,18 @@ Claude Code, Codex and OpenCode reach berm over MCP. What they install runs as
 a process, under a syscall table that is readable before it runs and fixed once
 it does.
 
-A program is one statically linked RV64 ELF. berm pins it by hash, compiles it
-once, and instantiates it per invocation — arguments go in through syscalls, the
-result comes back out of guest memory, and nothing survives the call.
+A program is one WebAssembly module. berm pins it by hash, compiles it once, and
+instantiates it per invocation — arguments go in through syscalls, the result
+comes back out through one, and nothing survives the call.
+
+The same source also builds for RISC-V, which berm runs under
+[rvtime](rvtime/) instead of wasmtime. That backend is experimental; which one a
+deploy reaches is read off the image's first four bytes, so a program is
+deployed the same way either way.
 
 ```rust
 let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
-berm.deploy("example", &elf)?;
+berm.deploy("example", &wasm)?;
 
 // The outer result is the host's — a missing tool, a trap. The inner one is
 // the program reporting failure, which is a result the model should see.
@@ -33,9 +38,9 @@ because nothing is registered for it, not because a check said no. berm ships
 none: what a filesystem is bounded by, and where bytes persist, are decisions
 about a host, and berm has no host.
 
-`Manifest::from_elf(elf)` reads what an image claims to be — its tools, their
-schemas, when to reach for them, and what it will reach for itself — without
-compiling or running it.
+`Manifest::from_image(bytes)` reads what an image claims to be — its tools,
+their schemas, when to reach for them, and what it will reach for itself —
+without compiling or running it.
 
 ## Running programs
 
@@ -44,7 +49,7 @@ them on a single MCP endpoint, with tools named `{program}.{tool}`.
 
 ```sh
 bermd &
-berm deploy example ./program.elf
+berm deploy example ./program.wasm
 berm ls
 ```
 
@@ -54,11 +59,11 @@ program can reach.
 ## Moving programs
 
 A program is one file, so it travels as one OCI layer with no tarball around it
-— and because the layer is the ELF and nothing else, the digest a registry
+— and because the layer is the image and nothing else, the digest a registry
 addresses it by is the digest `berm ls` prints.
 
 ```sh
-berm push ghcr.io/org/example:v1 ./program.elf
+berm push ghcr.io/org/example:v1 ./program.wasm
 berm deploy example ghcr.io/org/example:v1
 berm search "read a file"
 ```
@@ -84,11 +89,13 @@ Rust 2024 edition, POSIX only. Building a program additionally needs the guest
 target:
 
 ```sh
-rustup target add riscv64imac-unknown-none-elf
+rustup target add wasm32-unknown-unknown
 ```
 
-Guests must be linked with **`--emit-relocs`**; that is the first thing to check
-when one fails to load.
+For the experimental RISC-V backend, `rustup target add
+riscv64imac-unknown-none-elf` and build `berm` with `--features riscv`. Guests
+there must be linked with **`--emit-relocs`**, which is the first thing to check
+when one fails to load; `berm new --target riscv` writes that flag for you.
 
 ## License
 

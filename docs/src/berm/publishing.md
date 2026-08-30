@@ -3,7 +3,7 @@
 A program is one file, so it travels as one OCI layer with no tarball around it.
 
 ```sh
-berm push ghcr.io/org/example:v1 ./target/riscv64imac-unknown-none-elf/release/example
+berm push ghcr.io/org/example:v1 ./target/wasm32-unknown-unknown/release/example.wasm
 berm deploy example ghcr.io/org/example:v1
 ```
 
@@ -25,7 +25,7 @@ no credentials, and still restores from `--root` on start without a network.
 ```
 
 The config blob is the [`.berm.abi`](./manifest.md) section carried out of the
-ELF byte for byte, so what a registry serves cannot disagree with what the image
+image byte for byte, so what a registry serves cannot disagree with what the image
 holds. It is also what makes a listing cheap: the tools, their schemas and the
 usage are one small blob, and reading them never means pulling the program.
 
@@ -36,8 +36,8 @@ GHCR show a package against its repository.
 
 ## One digest
 
-Because the layer is the ELF and nothing else, the layer's digest is sha256 of
-the ELF — the same hash `berm ls` reports, carrying the registry's `sha256:`
+Because the layer is the image and nothing else, the layer's digest is sha256 of
+the image — the same hash `berm ls` reports, carrying the registry's `sha256:`
 prefix:
 
 ```console
@@ -55,7 +55,7 @@ rather than by the model.
 
 ## What push refuses
 
-`berm push` reads the manifest out of the ELF before it uploads anything, which
+`berm push` reads the manifest out of the image before it uploads anything, which
 means a broken image is refused by whoever built it rather than at deploy on
 someone else's machine. Reading it never runs the guest.
 
@@ -69,9 +69,9 @@ permissions:
   packages: write
 
 steps:
-  - run: cargo build --release --target riscv64imac-unknown-none-elf
+  - run: cargo build --release --target wasm32-unknown-unknown
   - run: berm push ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
-           target/riscv64imac-unknown-none-elf/release/example
+           target/wasm32-unknown-unknown/release/example.wasm
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```

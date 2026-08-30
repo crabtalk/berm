@@ -61,6 +61,12 @@ jobs:
       - run: cargo clippy --workspace --all-targets
       - run: cargo clippy -p rvtime-compiler -p rvtime --no-default-features --features rvtime-compiler/jit,rvtime/jit --all-targets
 
+      # The backend the default features leave out, and the build that has
+      # both. Each arm of the sniff is only compiled when its feature is on, so
+      # neither is checked by the run above.
+      - run: cargo clippy -p berm -p bermd --no-default-features --features riscv --all-targets
+      - run: cargo clippy -p berm --features riscv --all-targets
+
   # The examples are documentation: the book includes them by reference rather
   # than pasting them, so running them here is what keeps the docs honest.
   docs:
@@ -95,7 +101,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: riscv64imac-unknown-none-elf
+          targets: wasm32-unknown-unknown,riscv64imac-unknown-none-elf
           components: clippy
       - uses: Swatinem/rust-cache@v2
 
@@ -117,15 +123,26 @@ jobs:
           done
 
       # Proves what only a real build can: that the macro's exports survive
-      # --gc-sections, that --emit-relocs reached the linker, and that the
-      # manifest section is where the host looks for it.
-      - name: build the reference guest
-        run: cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
+      # the linker's garbage collection, that --emit-relocs reached it on
+      # RISC-V, and that the manifest section is where the host looks for it in
+      # each format.
+      - name: build the reference guest for both targets
+        run: |
+          cargo build --release -p berm-fixture --target wasm32-unknown-unknown
+          cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
 
-      - name: run it under berm
-        run: cargo run --release --example measure -p berm
-
-      # A program calling a program, which only a real guest can show: the
-      # call, a refusal, and a target that ran and said no.
-      - name: nest one program inside another
-        run: cargo run --release --example nesting -p berm
+      # The same program source, run under each backend. Both are exercised
+      # here rather than in `test` because neither can run without a guest that
+      # a cross-compile produced.
+      - name: run it under each backend
+        run: |
+          for backend in wasm riscv; do
+            echo "::group::$backend"
+            cargo run --release --example measure -p berm \
+              --no-default-features --features "$backend"
+            # A program calling a program, which only a real guest can show:
+            # the call, a refusal, and a target that ran and said no.
+            cargo run --release --example nesting -p berm \
+              --no-default-features --features "$backend"
+            echo "::endgroup::"
+          done

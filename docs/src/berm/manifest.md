@@ -3,14 +3,18 @@
 What a program says it is: its ABI version, its tools, when to reach for them,
 and what it reaches for itself.
 
-The manifest is JSON, carried in a `.berm.abi` section of the ELF rather than
+The manifest is JSON, carried in a `.berm.abi` section of the image rather than
 behind an export. That placement is the point — reading what an image claims
-must not mean running it. `Manifest::from_elf` parses the section with nothing
+must not mean running it. `Manifest::from_image` parses the section with nothing
 compiled and nothing executed, which is what an embedder assembling a prompt, or
 a service listing a registry, actually needs.
 
+One name covers both formats: an ELF section and a wasm custom section are each
+what `#[link_section]` emits for the target, and each is what the same reader
+finds.
+
 ```rust,ignore
-let manifest = Manifest::from_elf(&elf)?;
+let manifest = Manifest::from_image(&bytes)?;
 for tool in &manifest.tools {
     println!("{}: {}", tool.name, tool.description);
 }
@@ -55,7 +59,7 @@ model.
 A manifest built against a different `abi_version` is refused outright, rather
 than dispatched into a syscall its author did not mean.
 
-A manifest that declares a tool the ELF does not export is also refused. The
+A manifest that declares a tool the image does not export is also refused. The
 symbol table and the manifest are both in hand at load, so the disagreement is
 caught there instead of surfacing mid-conversation as a missing symbol. Exports
 are matched by the `berm_tool_` prefix.
