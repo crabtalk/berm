@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="A sandbox for harnesses, and the RISC-V compiler underneath it">
+        <meta name="description" content="A sandbox for programs, and the RISC-V compiler underneath it">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-98fc8db5.js";
+            window.path_to_searchindex_js = "../searchindex-d1cc97c6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-4d41d46a.js"></script>
+        <script src="../toc-dd57e04f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -181,47 +181,50 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="the-manifest"><a class="header" href="#the-manifest">The Manifest</a></h1>
-<p>What a harness says it is: its ABI version, its tools, when to reach for them,
+<p>What a program says it is: its ABI version, its tools, when to reach for them,
 and what it reaches for itself.</p>
-<p>The manifest is JSON, carried in a <code>.berm.abi</code> section of the ELF rather than
+<p>The manifest is JSON, carried in a <code>.berm.abi</code> section of the image rather than
 behind an export. That placement is the point — reading what an image claims
-must not mean running it. <code>Manifest::from_elf</code> parses the section with nothing
+must not mean running it. <code>Manifest::from_image</code> parses the section with nothing
 compiled and nothing executed, which is what an embedder assembling a prompt, or
 a service listing a registry, actually needs.</p>
-<pre><code class="language-rust ignore">let manifest = Manifest::from_elf(&amp;elf)?;
+<p>One name covers both formats: an ELF section and a wasm custom section are each
+what <code>#[link_section]</code> emits for the target, and each is what the same reader
+finds.</p>
+<pre><code class="language-rust ignore">let manifest = Manifest::from_image(&amp;bytes)?;
 for tool in &amp;manifest.tools {
     println!("{}: {}", tool.name, tool.description);
 }</code></pre>
 <p>A <code>ToolSpec</code> carries the tool’s name, the description a model reads, and a JSON
-Schema for its arguments. The <code>#[harness]</code> macro writes all three at compile
+Schema for its arguments. The <code>#[program]</code> macro writes all three at compile
 time from the module it expands.</p>
 <h2 id="usage"><a class="header" href="#usage">Usage</a></h2>
 <p><code>Manifest::usage</code> is the question no single tool’s description answers: when to
-reach for this harness at all, and how its tools go together. An embedder puts
+reach for this program at all, and how its tools go together. An embedder puts
 it in front of a model <em>before</em> it chooses between them, so it is paid on every
-turn — a few lines, not a manual. <code>#[harness(usage_file = "…")]</code> reads it from a
+turn — a few lines, not a manual. <code>#[program(usage_file = "…")]</code> reads it from a
 file at compile time when it outgrows an attribute.</p>
 <h2 id="dependencies"><a class="header" href="#dependencies">Dependencies</a></h2>
-<p><code>#[harness(deps = ["weather", "wss://slack.com"])]</code> is what an image says it
-will reach for once it runs — harnesses it calls by name, and hosts it dials,
+<p><code>#[program(deps = ["weather", "wss://slack.com"])]</code> is what an image says it
+will reach for once it runs — programs it calls by name, and hosts it dials,
 told apart by whether one carries a scheme. These are runtime and resolved
 wherever the image lands: nothing here is fetched, installed, or compiled in,
 which is what separates them from the crate’s own <code>[dependencies]</code>.</p>
 <p>Declared by the author rather than found by reading the image, because a target
-the harness computes at the call is invisible to any scan — a list built that
+the program computes at the call is invisible to any scan — a list built that
 way would be quietly short, and the runtime <code>Refused</code> would still be needed
 underneath it.</p>
 <p>Nothing is refused for an unmet dependency. <code>berm deploy</code> says so and carries
 on, and <code>berm inspect</code> marks the ones this service answers to nothing for.
-Refusing would make deploy order significant, and a restart brings harnesses
+Refusing would make deploy order significant, and a restart brings programs
 back in whatever order the filesystem lists them — two that name each other
 could then never come up at all.</p>
 <h2 id="two-checks-at-load"><a class="header" href="#two-checks-at-load">Two checks at load</a></h2>
 <p><code>Berm::deploy</code> refuses an image on two grounds before it can ever be offered to a
 model.</p>
 <p>A manifest built against a different <code>abi_version</code> is refused outright, rather
-than dispatched into a system harness its author did not mean.</p>
-<p>A manifest that declares a tool the ELF does not export is also refused. The
+than dispatched into a syscall its author did not mean.</p>
+<p>A manifest that declares a tool the image does not export is also refused. The
 symbol table and the manifest are both in hand at load, so the disagreement is
 caught there instead of surfacing mid-conversation as a missing symbol. Exports
 are matched by the <code>berm_tool_</code> prefix.</p>
@@ -233,7 +236,7 @@ use it next.</p>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../berm/writing-a-harness.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../berm/writing-a-program.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -247,7 +250,7 @@ use it next.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../berm/writing-a-harness.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../berm/writing-a-program.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

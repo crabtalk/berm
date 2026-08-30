@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="A sandbox for harnesses, and the RISC-V compiler underneath it">
+        <meta name="description" content="A sandbox for programs, and the RISC-V compiler underneath it">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-98fc8db5.js";
+            window.path_to_searchindex_js = "../searchindex-d1cc97c6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-4d41d46a.js"></script>
+        <script src="../toc-dd57e04f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -181,67 +181,67 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="running-the-service"><a class="header" href="#running-the-service">Running the Service</a></h1>
-<p><code>bermd</code> is a long-running service that deploys harnesses and serves their tools
+<p><code>bermd</code> is a long-running service that deploys programs and serves their tools
 over MCP.</p>
 <p>An invocation is ephemeral, but three things around it are not: the deployed
 set, the modules compiled from it, and the engine’s code cache. That is what the
-service exists to hold. A harness is compiled once, at deploy, so an invocation
+service exists to hold. A program is compiled once, at deploy, so an invocation
 pays only instantiation.</p>
 <pre><code class="language-sh">bermd &amp;
-berm deploy example ./harness.elf
+berm deploy example ./program.elf
 berm ls
 </code></pre>
 <h2 id="deploying"><a class="header" href="#deploying">Deploying</a></h2>
 <p>The control API is resource-shaped — <code>GET</code>, <code>PUT</code> and <code>DELETE</code> on
-<code>/harnesses/{name}</code> — for the reason dockerd’s is: the clients are a UI, a CLI,
-and <code>curl</code>, and a harness is a resource.</p>
+<code>/programs/{name}</code> — for the reason dockerd’s is: the clients are a UI, a CLI,
+and <code>curl</code>, and a program is a resource.</p>
 <p>An image is compiled <em>before</em> it is stored. A rejected one therefore leaves
 nothing behind, rather than a file that fails again on every restart. What is
 stored is restored on the next start, and one unloadable image is reported and
 skipped rather than taking the service down with it.</p>
-<p>There is no container here, so there is nothing to start or stop: a harness is
+<p>There is no container here, so there is nothing to start or stop: a program is
 deployed or it is not, and dockerd’s lifecycle verbs have nothing to attach to.</p>
 <h2 id="one-endpoint"><a class="header" href="#one-endpoint">One endpoint</a></h2>
-<p>Every deployed harness appears on a single MCP endpoint at <code>/mcp</code>, with tools
-named <code>{harness}.{tool}</code> — the same dotted rule the guest ABI already uses for
-host call names, so <code>fs.read</code> reads the way it does inside a harness.</p>
-<p>One endpoint rather than one per harness, for the reason dockerd has one socket
+<p>Every deployed program appears on a single MCP endpoint at <code>/mcp</code>, with tools
+named <code>{program}.{tool}</code> — the same dotted rule the guest ABI already uses for
+host call names, so <code>fs.read</code> reads the way it does inside a program.</p>
+<p>One endpoint rather than one per program, for the reason dockerd has one socket
 rather than one per container. It costs two things, both cheap: names have to be
-namespaced, and harness names may not contain a dot, because dispatch splits on
+namespaced, and program names may not contain a dot, because dispatch splits on
 the first one.</p>
 <p>Deploying and undeploying emit <code>notifications/tools/list_changed</code>. The tool set
-moves under clients that are already holding a list, which per-harness endpoints
+moves under clients that are already holding a list, which per-program endpoints
 would have made someone else’s problem.</p>
 <h2 id="usage-and-why-it-is-a-resource"><a class="header" href="#usage-and-why-it-is-a-resource">Usage, and why it is a resource</a></h2>
 <p>MCP gives a server one <code>instructions</code> string. A manifest carries one <code>usage</code> per
-harness. Folding every harness’s usage into <code>instructions</code> would put a manual in
+program. Folding every program’s usage into <code>instructions</code> would put a manual in
 front of the model on every turn — which is the one thing
 <a href="./manifest.html#usage">usage</a> is defined not to be.</p>
-<p>So <code>instructions</code> stays a sentence, and each harness publishes its usage as a
-<code>berm://{harness}/usage</code> resource. A model reads it when choosing among one
-harness’s tools, and pays nothing for the harnesses it is not considering.</p>
-<h2 id="what-a-deployed-harness-can-reach"><a class="header" href="#what-a-deployed-harness-can-reach">What a deployed harness can reach</a></h2>
-<p>Its arguments, the log, and any other harness on the same daemon.</p>
+<p>So <code>instructions</code> stays a sentence, and each program publishes its usage as a
+<code>berm://{program}/usage</code> resource. A model reads it when choosing among one
+program’s tools, and pays nothing for the programs it is not considering.</p>
+<h2 id="what-a-deployed-program-can-reach"><a class="header" href="#what-a-deployed-program-can-reach">What a deployed program can reach</a></h2>
+<p>Its arguments, the log, and any other program on the same daemon.</p>
 <p>There is no wiring step and no per-pair permission. What is deployed is
 reachable by name, which is the reach containers on one network have of each
 other, bounded the same way: by what the operator chose to run.</p>
 <pre><code class="language-rust">let result = berm_lang::call("inner", "echo", r#"{"query":"hi"}"#)?;</code></pre>
-<p><code>bermd</code> serves this as one system harness, <code>berm.call</code>, and the target is a
+<p><code>bermd</code> serves this as one syscall, <code>berm.call</code>, and the target is a
 field in the request rather than part of the call number. So an image is never
 built against a particular deploy — the same bytes work wherever they land, and
 deploying them twice under two names makes them reachable as both.</p>
 <p>A name nothing answers to is <code>CallError::Refused</code>: nothing ran. The target
 running and reporting failure is <code>CallError::Failed</code>. That is the same split the
-control API draws between a status and an <code>Output::Failed</code>, and a harness can
+control API draws between a status and an <code>Output::Failed</code>, and a program can
 act on it — falling back when something is not deployed, say.</p>
 <p><code>--max-call-depth</code> bounds the chain, 4 by default, <code>0</code> refusing the first nested
 call. The bound is on runaway composition rather than on the stack, which a
 level costs around 720 bytes of; what a level does cost is 64 MiB of reserved
 guest address space.</p>
-<p>That reach stops at the daemon. A harness still touches the world outside only
-through system harnesses its host registered, and <code>bermd</code> registers none — so
-what matters before deploying an image is what the image <em>is</em>. <code>Manifest::from_elf</code>
-reads a harness’s tools and usage without compiling or running it, which is what
+<p>That reach stops at the daemon. A program still touches the world outside only
+through syscalls its host registered, and <code>bermd</code> registers none — so
+what matters before deploying an image is what the image <em>is</em>. <code>Manifest::from_image</code>
+reads a program’s tools and usage without compiling or running it, which is what
 <code>berm inspect</code> shows you.</p>
 <p>The endpoint carries no authorization and binds loopback by default.</p>
 

@@ -3,12 +3,12 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Publishing a Harness - berm</title>
+        <title>Publishing a Program - berm</title>
 
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="A sandbox for harnesses, and the RISC-V compiler underneath it">
+        <meta name="description" content="A sandbox for programs, and the RISC-V compiler underneath it">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-98fc8db5.js";
+            window.path_to_searchindex_js = "../searchindex-d1cc97c6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-4d41d46a.js"></script>
+        <script src="../toc-dd57e04f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -180,9 +180,9 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="publishing-a-harness"><a class="header" href="#publishing-a-harness">Publishing a Harness</a></h1>
-<p>A harness is one file, so it travels as one OCI layer with no tarball around it.</p>
-<pre><code class="language-sh">berm push ghcr.io/org/example:v1 ./target/riscv64imac-unknown-none-elf/release/example
+                        <h1 id="publishing-a-program"><a class="header" href="#publishing-a-program">Publishing a Program</a></h1>
+<p>A program is one file, so it travels as one OCI layer with no tarball around it.</p>
+<pre><code class="language-sh">berm push ghcr.io/org/example:v1 ./target/wasm32-unknown-unknown/release/example.wasm
 berm deploy example ghcr.io/org/example:v1
 </code></pre>
 <p><code>deploy</code> takes a file or a reference, not two commands: a path that exists is
@@ -193,22 +193,22 @@ no credentials, and still restores from <code>--root</code> on start without a n
 <pre><code class="language-json">{
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
-  "artifactType": "application/vnd.berm.harness.v1",
+  "artifactType": "application/vnd.berm.program.v1",
   "config": { "mediaType": "application/vnd.berm.manifest.v1+json", "digest": "sha256:…" },
-  "layers": [ { "mediaType": "application/vnd.berm.harness.v1", "digest": "sha256:…" } ]
+  "layers": [ { "mediaType": "application/vnd.berm.program.v1", "digest": "sha256:…" } ]
 }
 </code></pre>
 <p>The config blob is the <a href="./manifest.html"><code>.berm.abi</code></a> section carried out of the
-ELF byte for byte, so what a registry serves cannot disagree with what the image
+image byte for byte, so what a registry serves cannot disagree with what the image
 holds. It is also what makes a listing cheap: the tools, their schemas and the
-usage are one small blob, and reading them never means pulling the harness.</p>
-<p>Nothing about the harness is repeated in annotations. Only
+usage are one small blob, and reading them never means pulling the program.</p>
+<p>Nothing about the program is repeated in annotations. Only
 <code>org.opencontainers.image.source</code> and <code>.revision</code> are set, from
 <code>GITHUB_REPOSITORY</code> and <code>GITHUB_SHA</code> when a build has them, which is what makes
 GHCR show a package against its repository.</p>
 <h2 id="one-digest"><a class="header" href="#one-digest">One digest</a></h2>
-<p>Because the layer is the ELF and nothing else, the layer’s digest is sha256 of
-the ELF — the same hash <code>berm ls</code> reports, carrying the registry’s <code>sha256:</code>
+<p>Because the layer is the image and nothing else, the layer’s digest is sha256 of
+the image — the same hash <code>berm ls</code> reports, carrying the registry’s <code>sha256:</code>
 prefix:</p>
 <pre><code class="language-console">$ berm push 127.0.0.1:5000/berm/fixture:v1 ./fixture
 127.0.0.1:5000/berm/fixture:v1
@@ -221,7 +221,7 @@ $ shasum -a256 ./fixture
 goes anywhere, so a registry that serves the wrong bytes is caught by the deploy
 rather than by the model.</p>
 <h2 id="what-push-refuses"><a class="header" href="#what-push-refuses">What push refuses</a></h2>
-<p><code>berm push</code> reads the manifest out of the ELF before it uploads anything, which
+<p><code>berm push</code> reads the manifest out of the image before it uploads anything, which
 means a broken image is refused by whoever built it rather than at deploy on
 someone else’s machine. Reading it never runs the guest.</p>
 <h2 id="from-a-workflow"><a class="header" href="#from-a-workflow">From a workflow</a></h2>
@@ -231,18 +231,18 @@ there is no action to install.</p>
   packages: write
 
 steps:
-  - run: cargo build --release --target riscv64imac-unknown-none-elf
+  - run: cargo build --release --target wasm32-unknown-unknown
   - run: berm push ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
-           target/riscv64imac-unknown-none-elf/release/example
+           target/wasm32-unknown-unknown/release/example.wasm
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 </code></pre>
 <p>Locally, <code>GITHUB_TOKEN=$(gh auth token)</code> does the same. <code>~/.docker/config.json</code>
 is not read.</p>
 <h2 id="being-found"><a class="header" href="#being-found">Being found</a></h2>
-<p>Pushing makes a harness fetchable, not findable. Nothing can enumerate the
-harnesses on a registry — GitHub’s Packages API refuses to list even public
-packages without a token — so an index has to be told a harness exists.</p>
+<p>Pushing makes a program fetchable, not findable. Nothing can enumerate the
+programs on a registry — GitHub’s Packages API refuses to list even public
+packages without a token — so an index has to be told a program exists.</p>
 <pre><code class="language-sh">berm publish ghcr.io/org/example:v1
 berm search "read a file"
 </code></pre>
@@ -250,12 +250,12 @@ berm search "read a file"
 <p><code>publish</code> records a reference and nothing else. The index pulls the artifact
 itself, anonymously, and fills in the digest, tools and usage from the config
 blob — so a listing describes what a registry will actually serve rather than
-what a publisher claimed, and a harness nobody can pull cannot be listed.</p>
+what a publisher claimed, and a program nobody can pull cannot be listed.</p>
 <p>Entries are keyed by digest, which is what makes them safe to keep: the bytes at
 a digest never change, so a recorded description of them cannot go stale.
 Re-pushing a tag adds an entry rather than rewriting one.</p>
 <h2 id="the-list-is-a-git-repository"><a class="header" href="#the-list-is-a-git-repository">The list is a git repository</a></h2>
-<p>One JSON Lines file per harness, one line per version — so a copy of an index is
+<p>One JSON Lines file per program, one line per version — so a copy of an index is
 a clone, and searching your copy needs no service, no credential and no network.
 <code>berm search</code> keeps that copy for you under <code>~/.berm/index</code>, cloning it the
 first time and not touching the network again:</p>

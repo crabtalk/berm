@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="A sandbox for harnesses, and the RISC-V compiler underneath it">
+        <meta name="description" content="A sandbox for programs, and the RISC-V compiler underneath it">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-98fc8db5.js";
+            window.path_to_searchindex_js = "searchindex-d1cc97c6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-4d41d46a.js"></script>
+        <script src="toc-dd57e04f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,18 +182,20 @@
                     <main>
                         <h1 id="berm"><a class="header" href="#berm">berm</a></h1>
 <p>Two things ship from this repository, and this book covers both.</p>
-<p><strong><a href="./berm/overview.html">berm</a></strong> is a sandbox for harnesses: it pins a guest by
-hash, compiles it once, instantiates it per invocation, and hands it only what
-it was given. <code>bermd</code> deploys harnesses and serves their tools over MCP.</p>
-<p><strong><a href="./rvtime/introduction.html">rvtime</a></strong> is the RISC-V compiler underneath — load
-an ELF, generate native code for it with Cranelift, call its exported functions,
-and let it call back.</p>
-<p>The split is load-bearing rather than tidy. rvtime knows about ELFs, registers,
-and traps; berm knows about tools, manifests, and arguments. Every convention
-that makes a guest a <em>harness</em> lives on the berm side, which is what leaves
-rvtime usable for a guest that is not one.</p>
+<p><strong><a href="./berm/overview.html">berm</a></strong> is the OS for agent harnesses: it pins a guest by
+hash, compiles it once, instantiates it per invocation, and hands it only the
+syscalls it was given. <code>bermd</code> deploys programs and serves their tools over MCP,
+which is how Claude Code, Codex and OpenCode reach them.</p>
+<p><strong><a href="./rvtime/introduction.html">rvtime</a></strong> is the RISC-V compiler underneath one of
+berm’s two backends — load an ELF, generate native code for it with Cranelift,
+call its exported functions, and let it call back. berm’s other backend is
+wasmtime, and it is the one a program is built for; rvtime is experimental.</p>
+<p>The split is load-bearing rather than tidy. A backend knows about images,
+registers, and traps; berm knows about tools, manifests, and arguments. Every
+convention that makes a guest a berm <em>program</em> lives on the berm side, which is
+what leaves rvtime usable for a guest that is not one.</p>
 <h2 id="how-to-read-this"><a class="header" href="#how-to-read-this">How to read this</a></h2>
-<p>Start with berm to write or run a harness. Its five chapters cover what the
+<p>Start with berm to write or run a program. Its five chapters cover what the
 sandbox guarantees, how to write a guest against it, what an image declares
 about itself, how one travels between machines, and how the service serves it.</p>
 <p>Read rvtime to change the compiler, or when something surprises you and the
