@@ -109,5 +109,11 @@ async fn main() -> Result<()> {
 
     let addr = args.addr;
     tracing::info!("listening on http://{addr}, mcp at http://{addr}/mcp");
-    service.serve(listener).await
+    // A daemon in a terminal is what Ctrl+C is for, so this is the process that
+    // gets to take SIGINT.
+    service
+        .serve(listener, async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await
 }

@@ -8,7 +8,7 @@ use bezel::{
     theme::Theme,
     ui::{
         icons,
-        widgets::{self, Content, Layout, Scaffolding},
+        widgets::{Content, Layout, Scaffolding},
     },
 };
 use std::sync::Arc;
@@ -25,7 +25,7 @@ impl Workbench {
                 .items_center()
                 .justify_center()
                 .child(theme.empty_state(
-                    icons::WIDGET,
+                    icons::layout::LayoutGrid,
                     "No program selected",
                     "Pick one on the left to read its tools.",
                 ))
@@ -184,7 +184,7 @@ impl Workbench {
                 theme
                     .collapsible_header("arguments", open)
                     .id(SharedString::from(key.clone()))
-                    .hover(widgets::collapsible_header_hover)
+                    .hover(utils::hover(theme))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if !this.expanded.remove(&key) {
                             this.expanded.insert(key.clone());

@@ -144,7 +144,7 @@ impl Workbench {
             .py(px(10.0))
             .cursor_pointer()
             .when(selected, |row| row.bg(theme.element_active))
-            .hover(widgets::card_row_hover)
+            .hover(utils::hover(theme))
             .child(widgets::status_dot(theme.success))
             .child(
                 div()

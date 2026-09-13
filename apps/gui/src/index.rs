@@ -5,7 +5,7 @@ use berm_index::Entry;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
     theme::Theme,
-    ui::widgets::{self, ButtonStyle, Buttons, Layout, Scaffolding},
+    ui::widgets::{ButtonStyle, Buttons, Layout, Scaffolding},
 };
 use std::time::Duration;
 
@@ -105,7 +105,7 @@ impl Workbench {
             .py(px(10.0))
             .cursor_pointer()
             .when(selected, |row| row.bg(theme.element_active))
-            .hover(widgets::card_row_hover)
+            .hover(utils::hover(theme))
             .child(
                 div()
                     .min_w_0()

@@ -35,7 +35,13 @@ guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.8", de
 # crates-io
 anyhow = "1.0"
 axum = "0.8"
-bezel = "=0.1.1"
+# Named rather than inherited: 0.1.11 emptied `default`, and a bezel without
+# these registers no font, leaving the window on the system stack.
+bezel = { version = "=0.1.11", features = [
+    "geist-sans",
+    "geist-mono",
+    "geist-weights",
+] }
 cc = "1.4"
 clap = { version = "4", features = ["derive"] }
 cranelift = { version = "0.134.3", features = [
@@ -49,7 +55,7 @@ cranelift-object = "0.134.3"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 # The one thing the facade does not re-export. `gpui::Application` builds only
 # from a platform, and this is where the platform comes from.
-gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.3", features = [
+gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.10", features = [
     "font-kit",
 ] }
 libc = "0.2"

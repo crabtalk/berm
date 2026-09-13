@@ -89,16 +89,24 @@ impl Service {
         Ok(service)
     }
 
-    /// Serve on an already-bound listener.
+    /// Serve on an already-bound listener until `shutdown` resolves.
     ///
     /// Binding is the caller's because its failure — the port is taken, by a
     /// second berm holding the same root — is the one startup error that has to
     /// be known *before* anything claims to be serving.
-    pub async fn serve(self: Arc<Self>, listener: TcpListener) -> Result<()> {
+    ///
+    /// Shutdown is the caller's for a sharper reason: waiting on `SIGINT` here
+    /// would install a handler over the whole process, and tokio never puts the
+    /// default back. A daemon wants exactly that; the workbench embedding this
+    /// serves a window too, and would have had its endpoint quietly torn down
+    /// by a Ctrl+C its window never heard about.
+    pub async fn serve(
+        self: Arc<Self>,
+        listener: TcpListener,
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<()> {
         axum::serve(listener, api::router(self))
-            .with_graceful_shutdown(async {
-                let _ = tokio::signal::ctrl_c().await;
-            })
+            .with_graceful_shutdown(shutdown)
             .await
             .context("server failed")
     }
