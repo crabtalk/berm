@@ -4,18 +4,34 @@
 //! any key a guest can build is a legal one. A directory per program is what
 //! makes the isolation visible on disk as well as on the wire.
 
-use crate::utils;
+use crate::{Service, database, utils};
 use anyhow::{Context, Result};
 use berm::{Syscall, Write, syscall::store};
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Weak,
 };
 
-/// `berm.get` and `berm.set`, reading files under `root`.
-pub(crate) fn syscalls(root: &Path) -> Vec<Syscall> {
+/// `berm.get` and `berm.set`, reading files under `root`, or the program's
+/// own database when it keeps one.
+pub(crate) fn syscalls(root: &Path, service: Weak<Service>) -> Vec<Syscall> {
     let root = root.to_owned();
-    store::programs(move |program, key| std::future::ready(read(&root, &program, &key)))
+    store::programs(move |program, key| {
+        let (root, service) = (root.clone(), service.upgrade());
+        async move {
+            let kept = service.as_ref().and_then(|service| {
+                service
+                    .get(&program)
+                    .filter(|deployed| database::keeps(deployed))
+                    .map(|_| service.databases.get(&program))
+            });
+            match kept {
+                Some(database) => database?.get(key).await,
+                None => read(&root, &program, &key),
+            }
+        }
+    })
 }
 
 /// Write what a chain left under `root`.

@@ -94,6 +94,9 @@ struct Config {
     /// Kept only to re-emit as an `include_str!`, so editing the file
     /// rebuilds the program.
     usage_file: Option<syn::LitStr>,
+    /// The database's migrations directory, relative to the crate, and each
+    /// `*.sql` file in it by name.
+    database: Option<(syn::LitStr, Vec<(String, String)>)>,
 }
 
 impl Parse for Config {
@@ -104,6 +107,7 @@ impl Parse for Config {
         let mut programs = Vec::new();
         let mut syscalls = Vec::new();
         let mut secrets = Vec::new();
+        let mut database = None;
 
         while !input.is_empty() {
             let key: syn::Ident = input.parse()?;
@@ -134,6 +138,36 @@ impl Parse for Config {
                 // Declared, never inferred: a target the program computes at
                 // the call is invisible to anything reading the image, so a
                 // scan of this crate would report a list that is quietly short.
+                // A directory of `*.sql` migrations, applied in name order.
+                // Read here for the same reason `usage_file` is.
+                "database" => {
+                    let path: syn::LitStr = input.parse()?;
+                    let root = std::env::var("CARGO_MANIFEST_DIR").map_err(|_| {
+                        syn::Error::new(key.span(), "database needs CARGO_MANIFEST_DIR")
+                    })?;
+                    let dir = std::path::Path::new(&root).join(path.value());
+                    let unreadable = |e: std::io::Error| {
+                        syn::Error::new(path.span(), format!("{}: {e}", dir.display()))
+                    };
+                    let mut migrations = Vec::new();
+                    for entry in std::fs::read_dir(&dir).map_err(unreadable)? {
+                        let file = entry.map_err(unreadable)?.path();
+                        if file.extension().is_none_or(|extension| extension != "sql") {
+                            continue;
+                        }
+                        let name = file
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .ok_or_else(|| {
+                                syn::Error::new(path.span(), "a migration name is not UTF-8")
+                            })?
+                            .to_owned();
+                        let sql = std::fs::read_to_string(&file).map_err(unreadable)?;
+                        migrations.push((name, sql));
+                    }
+                    migrations.sort();
+                    database = Some((path, migrations));
+                }
                 "programs" => programs = strings(input)?,
                 "secrets" => secrets = strings(input)?,
                 // `{ "berm.get", "berm.http.fetch" = ["example.com"] }`: each
@@ -166,7 +200,7 @@ impl Parse for Config {
                     return Err(syn::Error::new(
                         key.span(),
                         format!(
-                            "unknown argument: {other} (expected `buffer`, `usage_file`, `programs`, `syscalls` or `secrets`)"
+                            "unknown argument: {other} (expected `buffer`, `usage_file`, `database`, `programs`, `syscalls` or `secrets`)"
                         ),
                     ));
                 }
@@ -177,10 +211,17 @@ impl Parse for Config {
             }
         }
 
+        // A program keeping a database calls `berm.sql`, and says so like any
+        // other syscall.
+        if database.is_some() && !syscalls.iter().any(|(name, _)| name == "berm.sql") {
+            syscalls.push(("berm.sql".to_owned(), Vec::new()));
+        }
+
         Ok(Config {
             buffer,
             usage,
             usage_file,
+            database,
             programs,
             syscalls,
             secrets,
@@ -315,10 +356,22 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
+    // Each migration was read by the macro too.
+    let database_rebuild = config.database.iter().flat_map(|(dir, migrations)| {
+        migrations.iter().map(move |(name, _)| {
+            let path = format!("{}/{name}", dir.value());
+            quote! {
+                const _: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", #path));
+            }
+        })
+    });
+
     quote! {
         #module
 
         #usage_rebuild
+
+        #(#database_rebuild)*
 
         const _CRABTALK_BUFFER: usize = #buffer;
         static mut _CRABTALK_ARGS: [u8; _CRABTALK_BUFFER] = [0; _CRABTALK_BUFFER];
@@ -662,8 +715,24 @@ fn describe(config: &Config, tools: &[Tool], events: &[Event]) -> String {
         .collect::<Vec<_>>()
         .join(",");
 
+    let database = match &config.database {
+        Some((_, migrations)) => format!(
+            r#","database":{{"migrations":[{}]}}"#,
+            migrations
+                .iter()
+                .map(|(name, sql)| format!(
+                    r#"{{"name":"{}","sql":"{}"}}"#,
+                    escape(name),
+                    escape(sql)
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        None => String::new(),
+    };
+
     format!(
-        r#"{{"abi_version":3,"version":"{}","tools":[{specs}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}],"logs":[{logs}]}},"events":[{events}]}}"#,
+        r#"{{"abi_version":3,"version":"{}","tools":[{specs}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}],"logs":[{logs}]}},"events":[{events}]{database}}}"#,
         escape(&std::env::var("CARGO_PKG_VERSION").unwrap_or_default()),
         escape(&config.usage),
     )

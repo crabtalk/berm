@@ -105,6 +105,16 @@ pub const HOST_HTTP_FETCH: u64 = hash(HTTP_FETCH);
 /// until it reaches the host in [`crate::Changes`].
 pub const HOST_EMIT: u64 = hash("berm.emit");
 
+/// What a host registers to serve [`HOST_SQL`].
+pub const SQL: &str = "berm.sql";
+
+/// Run one SQL statement against this program's own database.
+/// `(ptr, len) -> staged length`
+///
+/// Request fields are the statement and its parameters as a JSON array. The
+/// reply is JSON: `{"columns": [..], "rows": [[..]], "written": n}`.
+pub const HOST_SQL: u64 = hash(SQL);
+
 /// What a host registers to serve [`HOST_GET`] and [`HOST_SET`].
 pub const GET: &str = "berm.get";
 pub const SET: &str = "berm.set";

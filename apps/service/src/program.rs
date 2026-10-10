@@ -1,6 +1,6 @@
 //! Deploying, restoring, and invoking.
 
-use crate::{Service, logs, store};
+use crate::{Service, database, logs, store};
 use anyhow::{Context, Result, bail};
 use berm::Program;
 use berm_api::Break;
@@ -16,6 +16,18 @@ impl Service {
     pub async fn deploy(&self, name: &str, image: Vec<u8>) -> Result<(Arc<Program>, Vec<Break>)> {
         validate(name)?;
         let replaced = self.get(name);
+        // Migrated before the image is compiled: a failed migration refuses
+        // the deploy, and the program it replaces goes on serving.
+        if let Some(database) = berm::Manifest::from_image(&image)?.database {
+            let applied = self
+                .databases
+                .get(name)?
+                .migrate(database.migrations)
+                .await?;
+            if !applied.is_empty() {
+                tracing::info!(name, "migrated: {}", applied.join(", "));
+            }
+        }
         let program = self.compile(name.to_owned(), Arc::new(image)).await?;
 
         // Said rather than refused, as `unresolved` is.
@@ -69,10 +81,31 @@ impl Service {
         let Some(program) = self.get(program) else {
             bail!("no program named {program:?} is deployed");
         };
+        // A call into a program keeping a database holds its writer and runs in
+        // one transaction, committed with the program's own writes.
+        let query = program
+            .manifest()
+            .tools
+            .iter()
+            .any(|spec| spec.name == tool && spec.query);
+        let writing = match database::keeps(&program) && !query {
+            true => Some(self.databases.get(&program.name)?.write().await?),
+            false => None,
+        };
         // bermd authenticates no one, so no chain it starts has a caller.
         let outcome = program.call(None, tool, args).await?;
         logs::append(&self.root, &outcome.changes.logs)?;
-        store::commit(&self.root, &outcome.changes.writes)?;
+        let (own, rest): (Vec<_>, Vec<_>) = outcome
+            .changes
+            .writes
+            .into_iter()
+            .partition(|write| write.program == program.name);
+        store::commit(&self.root, &rest)?;
+        match writing {
+            Some(writing) if outcome.result.is_ok() => writing.commit(own, Vec::new()).await?,
+            Some(_) => {}
+            None => store::commit(&self.root, &own)?,
+        }
         if !outcome.changes.logs.is_empty() {
             self.deliver();
         }

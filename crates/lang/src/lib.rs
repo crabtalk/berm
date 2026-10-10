@@ -56,6 +56,7 @@ pub mod http;
 pub mod json;
 mod logs;
 mod out;
+mod sql;
 mod store;
 pub mod test;
 pub mod tool;
@@ -80,6 +81,8 @@ pub use emit::event as __event;
 pub use emit::{Event, emit};
 #[cfg(feature = "args")]
 pub use logs::{Delivery, Logged};
+#[cfg(feature = "alloc")]
+pub use sql::sql;
 #[cfg(feature = "alloc")]
 pub use store::{get, set};
 

@@ -47,6 +47,8 @@ pub use syscall::call::{Calls, Resolve};
 
 pub mod abi;
 mod bound;
+#[cfg(feature = "sqlite")]
+pub mod database;
 mod engine;
 mod journal;
 mod program;

@@ -22,6 +22,7 @@ pub mod after;
 pub mod call;
 mod emit;
 pub mod http;
+pub mod sql;
 pub mod store;
 
 /// One of the ABI's own doors: request bytes at `(ptr, len)` in, a staged

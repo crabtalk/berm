@@ -48,6 +48,23 @@ pub struct Manifest {
     /// The typed logs it emits.
     #[serde(default)]
     pub events: Vec<EventSpec>,
+    /// The SQLite database it keeps, when it keeps one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<Database>,
+}
+
+/// A program's own SQLite database: the migrations that build it, in order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Database {
+    pub migrations: Vec<Migration>,
+}
+
+/// One migration. A host applies each once, in order, and refuses a program
+/// whose migrations no longer begin with the ones it applied.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Migration {
+    pub name: String,
+    pub sql: String,
 }
 
 /// One typed log a program emits, from an `#[event]` struct. Emitted under the

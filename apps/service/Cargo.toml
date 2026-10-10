@@ -16,7 +16,7 @@ path = "bin/main.rs"
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
-berm.workspace = true
+berm = { workspace = true, features = ["sqlite"] }
 berm-api.workspace = true
 clap.workspace = true
 rmcp.workspace = true

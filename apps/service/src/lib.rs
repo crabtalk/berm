@@ -22,6 +22,7 @@ use tokio::{
 };
 
 mod api;
+mod database;
 mod deliver;
 mod deps;
 mod files;
@@ -52,6 +53,8 @@ pub struct Service {
     pub(crate) wakes: timer::Wakes,
     /// What each program may have substituted into its requests.
     pub(crate) secrets: secrets::Secrets,
+    /// Each program's own SQLite database, for those that keep one.
+    pub(crate) databases: database::Databases,
     /// Where each chain's writes and logs are committed.
     root: PathBuf,
     /// Held for one delivery pass, so a subscriber is never handed the same
@@ -77,19 +80,39 @@ impl Service {
         let secrets = secrets::Secrets::open(&root);
         let fetch = http::syscall(secrets.clone())?;
         let service = Arc::new_cyclic(|me| {
-            let mut syscalls = store::syscalls(&root);
+            let mut syscalls = store::syscalls(&root, me.clone());
             syscalls.push(timer::syscalls(me.clone(), runtime));
             syscalls.push(fetch);
+            syscalls.push(database::syscall(me.clone()));
+            // A call into a program keeping a database runs in that database's
+            // own transaction, which a nested call cannot join.
+            let deployed: Weak<Self> = me.clone();
+            let calls = Calls {
+                depth,
+                resolve: Arc::new(move |_, target: &str, _| {
+                    if deployed
+                        .upgrade()
+                        .and_then(|service| service.get(target))
+                        .is_some_and(|program| database::keeps(&program))
+                    {
+                        anyhow::bail!(
+                            "{target} keeps a database, and a nested call cannot reach it"
+                        );
+                    }
+                    Ok(target.to_owned())
+                }),
+            };
             Self {
                 berm: Berm::new(
                     &engine,
-                    Calls::by_name(depth),
+                    calls,
                     syscalls,
                     Arc::new(files::Files::open(&root)),
                 ),
                 changed: broadcast::channel(CHANGE_BACKLOG).0,
                 wakes: timer::Wakes::default(),
                 secrets,
+                databases: database::Databases::new(&root),
                 root: root.clone(),
                 delivering: Mutex::new(()),
                 me: me.clone(),
