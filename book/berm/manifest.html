@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="A sandbox for programs, and the RISC-V compiler underneath it">
+        <meta name="description" content="The OS for agent harnesses">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d1cc97c6.js";
+            window.path_to_searchindex_js = "../searchindex-d65add4b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-dd57e04f.js"></script>
+        <script src="../toc-487b46c0.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -188,9 +188,8 @@ behind an export. That placement is the point — reading what an image claims
 must not mean running it. <code>Manifest::from_image</code> parses the section with nothing
 compiled and nothing executed, which is what an embedder assembling a prompt, or
 a service listing a registry, actually needs.</p>
-<p>One name covers both formats: an ELF section and a wasm custom section are each
-what <code>#[link_section]</code> emits for the target, and each is what the same reader
-finds.</p>
+<p>The section is a wasm custom section, which is what <code>#[link_section]</code> emits on
+<code>wasm32</code>.</p>
 <pre><code class="language-rust ignore">let manifest = Manifest::from_image(&amp;bytes)?;
 for tool in &amp;manifest.tools {
     println!("{}: {}", tool.name, tool.description);
@@ -205,17 +204,30 @@ it in front of a model <em>before</em> it chooses between them, so it is paid on
 turn — a few lines, not a manual. <code>#[program(usage_file = "…")]</code> reads it from a
 file at compile time when it outgrows an attribute.</p>
 <h2 id="dependencies"><a class="header" href="#dependencies">Dependencies</a></h2>
-<p><code>#[program(deps = ["weather", "wss://slack.com"])]</code> is what an image says it
-will reach for once it runs — programs it calls by name, and hosts it dials,
-told apart by whether one carries a scheme. These are runtime and resolved
-wherever the image lands: nothing here is fetched, installed, or compiled in,
-which is what separates them from the crate’s own <code>[dependencies]</code>.</p>
+<pre><code class="language-rust ignore">#[berm_lang::program(
+    programs = ["weather"],
+    syscalls = { "berm.get", "berm.http.fetch" = ["api.example.com"] },
+    secrets = ["example"],
+)]</code></pre>
+<p>is what an image says it will reach for once it runs: programs it calls by
+name, syscalls it makes beyond the ABI’s own, each beside what it reaches
+through that call, and secrets it names as <code>{secret:NAME}</code> in a header. The
+manifest carries them as
+<code>"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...]}</code>.</p>
+<p><code>berm.http.fetch</code> holds a program to them: a host it does not declare, or a
+secret it does not declare, is refused before anything is sent. A declared
+secret is substituted by the host for the chain’s caller, and the guest never
+holds its value. These are runtime
+and resolved wherever the image lands: nothing here is fetched, installed, or
+compiled in, which is what separates them from the crate’s own
+<code>[dependencies]</code>.</p>
 <p>Declared by the author rather than found by reading the image, because a target
 the program computes at the call is invisible to any scan — a list built that
 way would be quietly short, and the runtime <code>Refused</code> would still be needed
 underneath it.</p>
 <p>Nothing is refused for an unmet dependency. <code>berm deploy</code> says so and carries
-on, and <code>berm inspect</code> marks the ones this service answers to nothing for.
+on, and <code>berm inspect</code> marks the programs not deployed and the syscalls nothing
+registers. What a served syscall reaches through it is that syscall’s to grant.
 Refusing would make deploy order significant, and a restart brings programs
 back in whatever order the filesystem lists them — two that name each other
 could then never come up at all.</p>

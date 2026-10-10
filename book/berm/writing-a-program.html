@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="A sandbox for programs, and the RISC-V compiler underneath it">
+        <meta name="description" content="The OS for agent harnesses">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d1cc97c6.js";
+            window.path_to_searchindex_js = "../searchindex-d65add4b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-dd57e04f.js"></script>
+        <script src="../toc-487b46c0.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,8 +182,8 @@
                     <main>
                         <h1 id="writing-a-program"><a class="header" href="#writing-a-program">Writing a Program</a></h1>
 <p><code>berm-lang</code> is the guest side. It owns the ABI, so an author never sees a call
-number, a register, or a pointer pair.</p>
-<pre><code class="language-rust ignore">#![cfg_attr(any(target_arch = "wasm32", target_arch = "riscv64"), no_std, no_main)]
+number or a pointer pair.</p>
+<pre><code class="language-rust ignore">#![cfg_attr(target_arch = "wasm32", no_std, no_main)]
 
 extern crate alloc;
 
@@ -237,13 +237,7 @@ berm new my-program
 cd my-program
 cargo build --release --target wasm32-unknown-unknown
 </code></pre>
-<p><code>berm new --target riscv</code> scaffolds for the experimental RISC-V backend instead.
-The source is the same either way; what changes is the triple and one linker
-flag. That flag is worth knowing about, because a reader who does not will
-delete it: a RISC-V scaffold’s <code>.cargo/config.toml</code> carries <code>--emit-relocs</code>,
-and the relocations are what identify indirect-call targets. A wasm scaffold
-needs no such file.</p>
-<p>What both share is that the tools live in <code>src/lib.rs</code> under a three-line
+<p>The tools live in <code>src/lib.rs</code> under a three-line
 <code>src/bin/main.rs</code> that does nothing but <code>extern crate</code> them, because cargo emits
 an image for a bin target and an archive for a lib — the library alone never
 gets linked, and the binary alone cannot be reached from <code>tests/</code>.</p>

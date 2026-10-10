@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="A sandbox for programs, and the RISC-V compiler underneath it">
+        <meta name="description" content="The OS for agent harnesses">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d1cc97c6.js";
+            window.path_to_searchindex_js = "../searchindex-d65add4b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-dd57e04f.js"></script>
+        <script src="../toc-487b46c0.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -187,7 +187,7 @@ comes back out through one, and nothing survives the call.</p>
 <pre><code class="language-rust ignore">let berm = Berm::new(&amp;engine, call::DEFAULT_CALL_DEPTH, vec![]);
 berm.deploy("example", &amp;wasm)?;
 
-match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
+match berm.call(None, "example", "echo", br#"{"query":"hello"}"#.to_vec()).await? {
     Ok(result) =&gt; println!("{result}"),
     Err(failure) =&gt; eprintln!("{failure}"),
 }</code></pre>
@@ -211,31 +211,9 @@ check ran and said no. There is no check to write, and none to forget.</p>
 takes, where bytes persist — each is a decision about a host, and berm has no
 host. An embedder passes <code>System</code> values to <code>Berm::new</code>, and that list is the
 whole of what a guest can reach.</p>
-<p>The same argument appears one layer down in
-<a href="../rvtime/design/host-calls.html">Host Calls</a>: rvtime ships no standard function
-set for the same reason.</p>
-<h2 id="two-backends-one-abi"><a class="header" href="#two-backends-one-abi">Two backends, one ABI</a></h2>
-<p>berm compiles a WebAssembly module under wasmtime, and a statically linked RV64
-ELF under <a href="../rvtime/introduction.html">rvtime</a>. Which one a deploy reaches is
-read off the image’s first four bytes — the image already says what it is, and a
-second answer beside it is one that can disagree.</p>
-<p>RISC-V is experimental. What it buys is that any language with a RISC-V target
-is a program without needing a wasm story of its own.</p>
-<p>The two answer the same ABI: the same syscall names hashed to the same numbers,
-the same length-prefixed framing, the same <code>berm_tool_*</code> exports, the same
-<code>.berm.abi</code> section. Every syscall is written once, against berm’s own <code>Guest</code>
-trait, and a backend carries it across its own boundary and supplies nothing
-else. Only the transport differs — an <code>ecall</code> with the number in <code>a7</code> on one,
-one imported function taking it as an argument on the other.</p>
-<h2 id="where-a-backend-stops-and-berm-starts"><a class="header" href="#where-a-backend-stops-and-berm-starts">Where a backend stops and berm starts</a></h2>
-<p>rvtime and wasmtime load an image, generate native code for it, and call it.
-Neither has any idea what a program is — no tools, no manifest, no arguments, no
-JSON.</p>
-<p>berm is the layer that decides those things: that a tool is an export named
-<code>berm_tool_*</code>, that an image describes itself in a <code>.berm.abi</code> section, that
-arguments arrive as a blob the guest pulls in rather than as registers. Those
-are conventions, and keeping them out of the backends is what lets rvtime be
-used for something that is not a program at all.</p>
+<h2 id="where-wasmtime-stops-and-berm-starts"><a class="header" href="#where-wasmtime-stops-and-berm-starts">Where wasmtime stops and berm starts</a></h2>
+<p>wasmtime loads an image, generates native code for it, and calls it. It has no idea what a program is — no tools, no manifest, no arguments, no JSON.</p>
+<p>berm is the layer that decides those things: that a tool is an export named <code>berm_tool_*</code>, that an image describes itself in a <code>.berm.abi</code> section, and that arguments arrive as a blob the guest pulls in. Every syscall is the same number, request and staged reply, carried by one import, <code>berm.syscall</code>.</p>
 
                     </main>
 
