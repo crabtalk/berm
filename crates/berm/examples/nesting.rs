@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
         &engine,
         Calls {
             depth: call::DEFAULT_CALL_DEPTH,
-            resolve: Arc::new(|at, target| {
+            resolve: Arc::new(|at, target, _| {
                 let (owner, _) = at
                     .program
                     .split_once('/')

@@ -18,9 +18,9 @@ use std::sync::{Arc, Weak};
 /// one chain reserves — 64 MiB a level.
 pub const DEFAULT_CALL_DEPTH: u32 = 4;
 
-/// The deployed name a call's target reaches, asked with the calling site. An
-/// `Err` refuses the call.
-pub type Resolve = Arc<dyn Fn(&Callsite, &str) -> Result<String> + Send + Sync>;
+/// The deployed name a call's target reaches, asked with the calling site and
+/// the tool called. An `Err` refuses the call.
+pub type Resolve = Arc<dyn Fn(&Callsite, &str, &str) -> Result<String> + Send + Sync>;
 
 /// How `berm.call` reaches programs.
 #[derive(Clone)]
@@ -35,7 +35,7 @@ impl Calls {
     pub fn by_name(depth: u32) -> Self {
         Self {
             depth,
-            resolve: Arc::new(|_, target| Ok(target.to_owned())),
+            resolve: Arc::new(|_, target, _| Ok(target.to_owned())),
         }
     }
 }
@@ -77,7 +77,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                 // dropped before the guest below runs: holding it across a
                 // nested call would block the next deploy for as long as that
                 // call takes.
-                let deployed = resolve(&at, program)
+                let deployed = resolve(&at, program, tool)
                     .map_err(|error| Refused(format!("{program}.{tool}: {error:#}")))?;
                 let target = {
                     let Ok(programs) = runtime.programs.try_read() else {
