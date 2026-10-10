@@ -24,6 +24,7 @@ impl Service {
         }
 
         let _ = self.changed.send(());
+        self.deliver();
         Ok(program)
     }
 
@@ -61,6 +62,9 @@ impl Service {
         let outcome = program.call(None, tool, args).await?;
         logs::append(&self.root, &outcome.changes.logs)?;
         store::commit(&self.root, &outcome.changes.writes)?;
+        if !outcome.changes.logs.is_empty() {
+            self.deliver();
+        }
         Ok(outcome.result)
     }
 

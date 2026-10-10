@@ -29,7 +29,7 @@
 //! host to commit as one.
 
 use anyhow::Result;
-pub use berm_api::{Deps, Manifest, ToolSpec};
+pub use berm_api::{Delivery, Deps, Logged, Manifest, Subscription, ToolSpec};
 pub use engine::{Config, Engine};
 use journal::Journal;
 pub use journal::{Changes, Log, Write};

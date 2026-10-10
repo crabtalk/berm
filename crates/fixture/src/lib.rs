@@ -14,6 +14,7 @@
 //! it, `wait` makes one host call a host can make slow, and `fetch` makes one
 //! HTTP request to a host its manifest declares. `note` writes and emits, and
 //! `relay` calls `note` on `inner`, to show what a failed call takes with it.
+//! `seen` takes the `note` logs of whatever is deployed as `fixture`.
 //! `crates/berm/examples/measure.rs` and `load.rs` read the numbers off them,
 //! and `tests/tools.rs` is the only exercise the SDK's host-side `test::call`
 //! gets.
@@ -231,6 +232,21 @@ mod tools {
             Ok(None) => out.write(b"unset"),
             Err(_) => return Err(Failed),
         }
+        Ok(())
+    }
+
+    /// Takes the `note` logs of `fixture` and keeps the last one's `seq` and
+    /// data under `seen`.
+    #[logs("fixture" = ["note"])]
+    pub fn seen(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let delivery: berm_lang::Delivery = berm_lang::tool::parse(args, out)?;
+        let Some(last) = delivery.logs.last() else {
+            return Ok(());
+        };
+        let mut said = alloc::string::String::new();
+        let _ = core::fmt::Write::write_fmt(&mut said, format_args!("{} {}", last.seq, last.data));
+        berm_lang::tool::syscall(berm_lang::set("seen", said.as_bytes()), out)?;
+        out.write(said.as_bytes());
         Ok(())
     }
 

@@ -45,7 +45,13 @@ is what an image says it will reach for once it runs: programs it calls by
 name, syscalls it makes beyond the ABI's own, each beside what it reaches
 through that call, and secrets it names as `{secret:NAME}` in a header. The
 manifest carries them as
-`"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...]}`.
+`"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...], "logs": [...]}`.
+
+A tool subscribes to another program's logs with `#[logs("hn" = ["item"])]`,
+listed under `logs` as `{"program": "hn", "topics": ["item"], "tool": "..."}`.
+The host calls that tool with a `Delivery` of the logs it has not had yet,
+oldest first. A log is delivered when it carries any listed topic; no topics
+takes every log.
 
 `berm.http.fetch` holds a program to them: a host it does not declare, or a
 secret it does not declare, is refused before anything is sent. A declared

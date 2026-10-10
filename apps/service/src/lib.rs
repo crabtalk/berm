@@ -11,10 +11,18 @@
 
 use anyhow::{Context, Result};
 use berm::{Berm, Config, Engine, Program};
-use std::{path::PathBuf, sync::Arc};
-use tokio::{net::TcpListener, runtime::Handle, sync::broadcast};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Weak},
+};
+use tokio::{
+    net::TcpListener,
+    runtime::Handle,
+    sync::{Mutex, broadcast},
+};
 
 mod api;
+mod deliver;
 mod deps;
 mod files;
 mod http;
@@ -46,6 +54,12 @@ pub struct Service {
     pub(crate) secrets: secrets::Secrets,
     /// Where each chain's writes and logs are committed.
     root: PathBuf,
+    /// Held for one delivery pass, so a subscriber is never handed the same
+    /// logs by two at once.
+    delivering: Mutex<()>,
+    /// This service, as a delivery pass outliving the call that started it
+    /// holds it.
+    me: Weak<Self>,
 }
 
 impl Service {
@@ -77,6 +91,8 @@ impl Service {
                 wakes: timer::Wakes::default(),
                 secrets,
                 root: root.clone(),
+                delivering: Mutex::new(()),
+                me: me.clone(),
             }
         });
         // Images first: a wake names a program, which has to be deployed
@@ -86,6 +102,7 @@ impl Service {
             .await
             .context("restoring panicked")??;
         service.rearm().await?;
+        service.deliver();
         Ok(service)
     }
 

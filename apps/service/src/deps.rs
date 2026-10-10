@@ -6,8 +6,8 @@ use berm_api::Deps;
 
 impl Service {
     /// The declared dependencies nothing here answers to: programs not
-    /// deployed, syscalls nothing registers, and secrets `secrets.toml` does
-    /// not grant the program. What a served syscall reaches through it is that
+    /// deployed, syscalls nothing registers, secrets `secrets.toml` does not
+    /// grant the program, and subscriptions to programs not deployed. What a served syscall reaches through it is that
     /// syscall's to grant; an unreadable `secrets.toml` grants nothing.
     ///
     /// Reported, never refused. Refusing would make deploy order significant,
@@ -36,6 +36,12 @@ impl Service {
                     .cloned()
                     .collect()
             },
+            logs: deps
+                .logs
+                .iter()
+                .filter(|logs| self.get(&logs.program).is_none())
+                .cloned()
+                .collect(),
         }
     }
 }

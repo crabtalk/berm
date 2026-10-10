@@ -51,6 +51,7 @@ mod call;
 mod emit;
 mod heap;
 pub mod http;
+mod logs;
 mod out;
 mod store;
 pub mod test;
@@ -71,6 +72,8 @@ pub use out::Out;
 pub use call::{CallError, after, call};
 #[cfg(feature = "alloc")]
 pub use emit::emit;
+#[cfg(feature = "args")]
+pub use logs::{Delivery, Logged};
 #[cfg(feature = "alloc")]
 pub use store::{get, set};
 

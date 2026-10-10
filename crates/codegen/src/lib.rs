@@ -184,6 +184,8 @@ struct Tool {
     description: String,
     parameters: String,
     args: Args,
+    /// Programs whose logs this tool takes, each beside the topics it takes.
+    logs: Vec<(String, Vec<String>)>,
 }
 
 /// Where a tool's schema comes from. The handler always receives the raw
@@ -213,7 +215,8 @@ enum Args {
 ///
 /// Every `pub fn` in the module becomes a tool. Its doc comment is the
 /// description the model reads, and `#[params("…")]` carries a JSON Schema for
-/// its arguments.
+/// its arguments. `#[logs("hn" = ["item"])]` subscribes it to a program's logs,
+/// delivered as its arguments; without `= [...]` it takes every topic.
 #[proc_macro_attribute]
 pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
     let config = parse_macro_input!(args as Config);
@@ -371,16 +374,40 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     let description = docs(&function.attrs);
     let args = args_of(function)?;
     let mut parameters = None;
+    let mut logs: Vec<(String, Vec<String>)> = Vec::new();
 
     for attribute in &function.attrs {
         if attribute.path().is_ident("params") {
             parameters = Some(attribute.parse_args::<LitStr>()?.value());
         }
+        if attribute.path().is_ident("logs") {
+            let (program, topics) =
+                attribute.parse_args_with(|input: syn::parse::ParseStream| {
+                    let program: LitStr = input.parse()?;
+                    let topics = match input.peek(Token![=]) {
+                        true => {
+                            input.parse::<Token![=]>()?;
+                            strings(input)?
+                        }
+                        false => Vec::new(),
+                    };
+                    Ok((program, topics))
+                })?;
+            if logs.iter().any(|(seen, _)| *seen == program.value()) {
+                return Err(syn::Error::new(
+                    program.span(),
+                    "program subscribed twice; list every topic in one #[logs]",
+                ));
+            }
+            logs.push((program.value(), topics));
+        }
     }
 
-    // `params` exists for this macro to read; leaving it would reach the
-    // compiler as an unknown attribute.
-    function.attrs.retain(|a| !a.path().is_ident("params"));
+    // `params` and `logs` exist for this macro to read; leaving them would
+    // reach the compiler as unknown attributes.
+    function
+        .attrs
+        .retain(|a| !a.path().is_ident("params") && !a.path().is_ident("logs"));
 
     if description.is_empty() {
         return Err(syn::Error::new_spanned(
@@ -395,6 +422,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         description,
         args,
         parameters: parameters.unwrap_or_else(|| DEFAULT_PARAMETERS.to_owned()),
+        logs,
     })
 }
 
@@ -446,7 +474,7 @@ pub(crate) fn docs(attrs: &[syn::Attribute]) -> String {
 
 /// Build the description JSON at compile time.
 fn describe(config: &Config, tools: &[Tool]) -> String {
-    let tools = tools
+    let specs = tools
         .iter()
         .map(|t| {
             format!(
@@ -474,9 +502,23 @@ fn describe(config: &Config, tools: &[Tool]) -> String {
         .map(|(name, reached)| format!(r#""{}":[{}]"#, escape(name), list(reached)))
         .collect::<Vec<_>>()
         .join(",");
+    let logs = tools
+        .iter()
+        .flat_map(|tool| {
+            tool.logs.iter().map(|(program, topics)| {
+                format!(
+                    r#"{{"program":"{}","topics":[{}],"tool":"{}"}}"#,
+                    escape(program),
+                    list(topics),
+                    escape(&tool.name)
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(",");
 
     format!(
-        r#"{{"abi_version":3,"tools":[{tools}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}]}}}}"#,
+        r#"{{"abi_version":3,"tools":[{specs}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}],"logs":[{logs}]}}}}"#,
         escape(&config.usage),
     )
 }

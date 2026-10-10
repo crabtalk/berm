@@ -56,16 +56,57 @@ pub struct Deps {
     /// the guest never holds.
     #[serde(default)]
     pub secrets: Vec<String>,
+    /// Programs whose logs it reads, and the tool each is delivered to.
+    #[serde(default)]
+    pub logs: Vec<Subscription>,
 }
 
 impl Deps {
     pub fn is_empty(&self) -> bool {
-        self.programs.is_empty() && self.syscalls.is_empty() && self.secrets.is_empty()
+        self.programs.is_empty()
+            && self.syscalls.is_empty()
+            && self.secrets.is_empty()
+            && self.logs.is_empty()
     }
 }
 
-/// `inner, berm.http.fetch (example.com), secret openai` — every program,
-/// every syscall with what it reaches, then every secret.
+/// One program's logs, delivered to one tool as a [`Delivery`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Subscription {
+    pub program: String,
+    /// A log is delivered when it carries any of these. Empty takes every log.
+    #[serde(default)]
+    pub topics: Vec<String>,
+    pub tool: String,
+}
+
+impl Subscription {
+    /// Whether a log carrying `topics` is delivered.
+    pub fn matches(&self, topics: &[String]) -> bool {
+        self.topics.is_empty() || topics.iter().any(|topic| self.topics.contains(topic))
+    }
+}
+
+/// What a subscribed tool is called with: logs of one program, oldest first.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Delivery {
+    pub program: String,
+    pub logs: Vec<Logged>,
+}
+
+/// One log as delivered.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Logged {
+    /// Its position in the program's logs, counting from 1. The host assigns
+    /// it at commit.
+    pub seq: u64,
+    pub topics: Vec<String>,
+    pub data: String,
+}
+
+/// `inner, berm.http.fetch (example.com), secret openai, logs hn (item) to
+/// ingest` — every program, every syscall with what it reaches, every secret,
+/// then every subscription.
 impl std::fmt::Display for Deps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut items = self.programs.clone();
@@ -78,6 +119,15 @@ impl std::fmt::Display for Deps {
                 }),
         );
         items.extend(self.secrets.iter().map(|name| format!("secret {name}")));
+        items.extend(self.logs.iter().map(|logs| match logs.topics.is_empty() {
+            true => format!("logs {} to {}", logs.program, logs.tool),
+            false => format!(
+                "logs {} ({}) to {}",
+                logs.program,
+                logs.topics.join(", "),
+                logs.tool
+            ),
+        }));
         f.write_str(&items.join(", "))
     }
 }
