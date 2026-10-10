@@ -45,11 +45,11 @@ async fn main() -> Result<()> {
     let committed = Committed::default();
     let reading = committed.clone();
     let mut syscalls = store::programs(move |program, key| {
-        Ok(reading
+        std::future::ready(Ok(reading
             .lock()
             .expect("committed")
-            .get(&(program.to_owned(), key.to_owned()))
-            .cloned())
+            .get(&(program.to_string(), key))
+            .cloned()))
     });
     syscalls.push(after::programs(|_, _| async { Ok(()) }));
     let berm = Berm::new(

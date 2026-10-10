@@ -15,7 +15,7 @@ use std::{
 /// `berm.get` and `berm.set`, reading files under `root`.
 pub(crate) fn syscalls(root: &Path) -> Vec<Syscall> {
     let root = root.to_owned();
-    store::programs(move |program, key| read(&root, program, key))
+    store::programs(move |program, key| std::future::ready(read(&root, &program, &key)))
 }
 
 /// Write what a chain left under `root`.
