@@ -148,7 +148,7 @@ impl Registry {
     /// One blob, checked against the digest it is addressed by — before the
     /// bytes go anywhere. A registry serving the wrong thing is the case this
     /// exists for, and it is cheap to rule out.
-    fn blob(&self, want: &str) -> Result<Vec<u8>> {
+    pub fn blob(&self, want: &str) -> Result<Vec<u8>> {
         let bytes = send(self.request(Method::GET, self.url("blobs", want)))?
             .bytes()
             .context("cannot read the blob")?
