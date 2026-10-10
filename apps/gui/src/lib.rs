@@ -9,7 +9,7 @@ use anyhow::{Context as _, Result};
 use berm::Program;
 use berm::syscall::call;
 use berm_index::{Entry, Source};
-use bermd::{Policy, Service};
+use bermd::Service;
 use bezel::{
     gpui::{
         AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, ScrollHandle, Window, div,
@@ -390,13 +390,7 @@ impl Render for Workbench {
 /// port is known before anything claims to be serving.
 async fn start() -> Result<(Arc<Service>, SocketAddr)> {
     let home = std::env::var("HOME").context("HOME is not set")?;
-    // The workbench exposes no network policy, so it grants none.
-    let service = Service::new(
-        PathBuf::from(home).join(".berm"),
-        call::DEFAULT_CALL_DEPTH,
-        Policy::default(),
-    )
-    .await?;
+    let service = Service::new(PathBuf::from(home).join(".berm"), call::DEFAULT_CALL_DEPTH).await?;
     let listener = TcpListener::bind(ADDR)
         .await
         .with_context(|| format!("failed to bind {ADDR}"))?;

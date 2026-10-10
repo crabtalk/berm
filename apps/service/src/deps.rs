@@ -1,6 +1,6 @@
 //! What a program said it would reach, against what this service answers to.
 
-use crate::{Service, socket};
+use crate::Service;
 use berm_api::Manifest;
 
 impl Service {
@@ -18,12 +18,9 @@ impl Service {
             .collect()
     }
 
-    /// A scheme means somewhere to dial, which the allowlist decides. Anything
-    /// else is a program name, which the deployed set does.
+    /// A dep with a scheme names somewhere to reach, which nothing here
+    /// serves. Anything else is a program name, which the deployed set answers.
     fn answers_to(&self, dep: &str) -> bool {
-        match socket::host(dep) {
-            Some(host) => self.policy.allow.iter().any(|allowed| allowed == host),
-            None => self.get(dep).is_some(),
-        }
+        !dep.contains("://") && self.get(dep).is_some()
     }
 }

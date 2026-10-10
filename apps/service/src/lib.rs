@@ -19,13 +19,10 @@ mod deps;
 mod files;
 mod mcp;
 mod program;
-mod socket;
 mod source;
 mod store;
 mod timer;
 mod utils;
-
-pub use socket::Policy;
 
 /// How many deploys may go unread by a session before it misses one. A missed
 /// notification costs a stale tool list until the next change, not a wrong one.
@@ -34,36 +31,29 @@ const CHANGE_BACKLOG: usize = 16;
 pub struct Service {
     /// The programs this service is running, and the records behind them.
     /// berm holds both; what is left here is everything it has no opinion
-    /// about — who is told when the set changes, and what a guest may dial.
+    /// about — who is told when the set changes.
     berm: Arc<Berm>,
     /// Fires when the deployed set changes. Connected MCP sessions turn this
     /// into `notifications/tools/list_changed`, because the tool set mutates
     /// under clients that are already holding a list.
     changed: broadcast::Sender<()>,
-    /// Connections programs have open, and the source of every invocation
-    /// they start.
-    pub(crate) sockets: socket::Sockets,
-    /// What a guest may reach the network for, held here because reopening a
-    /// connection after a restart reads the same bounds the dial did.
-    pub(crate) policy: Policy,
     /// What each program has asked to be called back for.
     pub(crate) wakes: timer::Wakes,
 }
 
 impl Service {
     /// Open `root`, restoring whatever was deployed before this process.
-    pub async fn new(root: PathBuf, depth: u32, policy: Policy) -> Result<Arc<Self>> {
+    pub async fn new(root: PathBuf, depth: u32) -> Result<Arc<Self>> {
         let engine = Engine::new(&Config {
             cache_dir: Some(root.join("cache")),
         })
         .context("failed to start the compiler")?;
 
-        // Cyclic for the reason `Berm` is: the socket doors reach back into
-        // the service holding the table they write to.
+        // Cyclic for the reason `Berm` is: the timer door reaches back into
+        // the service holding the table it writes to.
         let runtime = Handle::current();
         let service = Arc::new_cyclic(|me| {
             let mut syscalls = store::syscalls(&root);
-            syscalls.extend(socket::syscalls(me.clone(), runtime.clone()));
             syscalls.push(timer::syscalls(me.clone(), runtime));
             Self {
                 berm: Berm::new(
@@ -73,18 +63,15 @@ impl Service {
                     Arc::new(files::Files::open(&root)),
                 ),
                 changed: broadcast::channel(CHANGE_BACKLOG).0,
-                sockets: socket::Sockets::default(),
                 wakes: timer::Wakes::default(),
-                policy,
             }
         });
-        // Images first: a connection's events name a program, which has to be
-        // deployed before the first frame lands on it.
+        // Images first: a wake names a program, which has to be deployed
+        // before it fires.
         let restoring = service.clone();
         tokio::task::spawn_blocking(move || restoring.berm.restore())
             .await
             .context("restoring panicked")??;
-        service.reopen().await?;
         service.rearm().await?;
         Ok(service)
     }

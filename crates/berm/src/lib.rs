@@ -113,7 +113,7 @@ impl Berm {
     }
 
     /// Where this runtime's records live, for whatever else a host keeps
-    /// beside the images — the connections and wakes it drives itself.
+    /// beside the images — the wakes it drives itself.
     pub fn storage(&self) -> &Arc<dyn Storage> {
         &self.storage
     }

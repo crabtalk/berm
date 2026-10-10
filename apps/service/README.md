@@ -49,9 +49,8 @@ turn.
 
 ## What a program can reach
 
-Its arguments, the log, its own stored keys, the clock, a callback timer, any
-connection this daemon was configured to let it dial, and any other program
-deployed beside it. There is no wiring step: what is deployed is reachable by
+Its arguments, the log, its own stored keys, the clock, a callback timer, and
+any other program deployed beside it. There is no wiring step: what is deployed is reachable by
 name, the way containers on one network reach each other.
 
 ```sh

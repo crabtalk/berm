@@ -52,7 +52,6 @@ cranelift = { version = "0.134.3", features = [
 ] }
 cranelift-codegen = { version = "0.134.3", features = ["incremental-cache"] }
 cranelift-object = "0.134.3"
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 # The one thing the facade does not re-export. `gpui::Application` builds only
 # from a platform, and this is where the platform comes from.
 gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.10", features = [
@@ -91,14 +90,6 @@ tokio = { version = "1", features = [
     "signal",
     "sync",
     "time",
-] }
-# rustls to match what reqwest already pulls. A second TLS stack is a second
-# set of root certificates, and the one that fails is whichever you did not
-# configure.
-tokio-tungstenite = { version = "0.30", default-features = false, features = [
-    "connect",
-    "handshake",
-    "rustls-tls-native-roots",
 ] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

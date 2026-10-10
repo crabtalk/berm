@@ -53,7 +53,6 @@ pub mod abi;
 mod call;
 mod heap;
 mod out;
-pub mod socket;
 mod store;
 pub mod test;
 pub mod tool;
