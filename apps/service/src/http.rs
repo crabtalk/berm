@@ -1,8 +1,10 @@
 //! `berm.http.fetch`, sent straight from this process.
 //!
-//! berm has already refused any host the program's manifest does not declare.
-//! bermd holds no secrets, so a request naming one is refused too.
+//! berm has already refused any host or secret the program's manifest does not
+//! declare. A secret is substituted from what [`Secrets`] grants the program
+//! for the request's host.
 
+use crate::secrets::Secrets;
 use anyhow::{Context, Result, bail};
 use berm::{
     Callsite, Syscall,
@@ -14,7 +16,7 @@ use std::time::Instant;
 /// heap.
 const MAX_BODY: usize = 16 << 20;
 
-pub(crate) fn syscall() -> Result<Syscall> {
+pub(crate) fn syscall(secrets: Secrets) -> Result<Syscall> {
     // A redirect is answered to the guest as one, so a host the manifest
     // declares cannot hand the request on to one it does not.
     let client = reqwest::Client::builder()
@@ -26,7 +28,9 @@ pub(crate) fn syscall() -> Result<Syscall> {
             let client = client.clone();
             async move { send(&client, at.deadline, request).await }
         },
-        |_: Callsite, _: String, _: String| std::future::ready(Ok(None)),
+        move |at: Callsite, name: String, host: String| {
+            std::future::ready(secrets.grant(&at.program, &name, &host))
+        },
     ))
 }
 

@@ -18,7 +18,7 @@ impl Service {
         // Said rather than refused: a program deployed before the one it
         // calls is ordinary, and the call reports it again if it stays that
         // way.
-        let unresolved = self.unresolved(program.manifest());
+        let unresolved = self.unresolved(&program);
         if !unresolved.is_empty() {
             tracing::warn!(name, "nothing here answers to {unresolved}");
         }

@@ -20,6 +20,7 @@ mod files;
 mod http;
 mod mcp;
 mod program;
+mod secrets;
 mod source;
 mod store;
 mod timer;
@@ -40,6 +41,8 @@ pub struct Service {
     changed: broadcast::Sender<()>,
     /// What each program has asked to be called back for.
     pub(crate) wakes: timer::Wakes,
+    /// What each program may have substituted into its requests.
+    pub(crate) secrets: secrets::Secrets,
 }
 
 impl Service {
@@ -54,7 +57,8 @@ impl Service {
         // Cyclic for the reason `Berm` is: the timer door reaches back into
         // the service holding the table it writes to.
         let runtime = Handle::current();
-        let fetch = http::syscall()?;
+        let secrets = secrets::Secrets::open(&root);
+        let fetch = http::syscall(secrets.clone())?;
         let service = Arc::new_cyclic(|me| {
             let mut syscalls = store::syscalls(&root);
             syscalls.push(timer::syscalls(me.clone(), runtime));
@@ -68,6 +72,7 @@ impl Service {
                 ),
                 changed: broadcast::channel(CHANGE_BACKLOG).0,
                 wakes: timer::Wakes::default(),
+                secrets,
             }
         });
         // Images first: a wake names a program, which has to be deployed

@@ -51,9 +51,8 @@ turn.
 
 Its arguments, the log, its own stored keys, the clock, a callback timer, HTTP
 to the hosts its manifest declares under `berm.http.fetch`, and any other
-program deployed beside it. bermd holds no secrets, so a request naming
-`{secret:NAME}` is refused. There is no wiring step: what is deployed is reachable by
-name, the way containers on one network reach each other.
+program deployed beside it. There is no wiring step: what is deployed is
+reachable by name, the way containers on one network reach each other.
 
 ```sh
 berm deploy inner ./inner.elf
@@ -73,13 +72,23 @@ the target ran and said no.
 `--max-call-depth` bounds how far a chain may nest, 4 by default; `0` refuses
 the first nested call.
 
-That reach stops at the daemon. Everything outside it — files, commands, the
-network — is a syscall the embedder registers, and bermd registers none.
-The bound worth minding is therefore what an image *is*, not which of your
-programs it can call: read what one claims before deploying it.
+Outside the daemon, a program reaches only the hosts its manifest declares;
+bermd registers no files and no commands. The bound worth minding is therefore
+what an image *is*, not which of your programs it can call: read what one
+claims before deploying it.
 
 ```sh
 berm inspect ghcr.io/org/example:v1
+```
+
+A request header may name `{secret:NAME}` for a secret the manifest declares.
+bermd substitutes what `{root}/secrets.toml` grants that program for that host,
+read at every request:
+
+```toml
+[fixture.fixture]
+value = "..."
+hosts = ["127.0.0.1"]
 ```
 
 The endpoint carries no authorization and binds loopback by default.

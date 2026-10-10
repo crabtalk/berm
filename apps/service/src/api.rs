@@ -55,7 +55,7 @@ impl Service {
             usage: manifest.usage.clone(),
             tools: manifest.tools.clone(),
             deps: manifest.deps.clone(),
-            unresolved: self.unresolved(manifest),
+            unresolved: self.unresolved(deployed),
         }
     }
 }
