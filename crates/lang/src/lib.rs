@@ -73,7 +73,7 @@ pub use berm_codegen::{declare_program, program, syscalls};
 pub use out::Out;
 
 #[cfg(feature = "alloc")]
-pub use call::{CallError, Caller, after, call, caller};
+pub use call::{CallError, Caller, User, after, call, caller, deny, user};
 #[cfg(feature = "args")]
 #[doc(hidden)]
 pub use emit::event as __event;

@@ -250,6 +250,19 @@ pub struct ToolSpec {
     /// called by its host, for the program's own subscriptions and wakes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub public: bool,
+    /// Which callers a public tool takes. `None` takes both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub callers: Option<Callers>,
+}
+
+/// One kind of caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Callers {
+    /// Programs reaching it through `berm.call`.
+    Services,
+    /// Callers from outside, as the host authenticates them.
+    Accounts,
 }
 
 /// What running a tool produced.

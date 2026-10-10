@@ -142,6 +142,18 @@ pub const HOST_SET: u64 = hash(SET);
 /// this one itself, from the [`crate::Callsite`].
 pub const HOST_CALLER: u64 = hash("berm.caller");
 
+/// The end user the chain runs for. `(ptr, len) -> staged length`, the pair
+/// ignored.
+///
+/// The reply is no fields when the embedder vouched for none, else the issuer
+/// and the subject. berm serves this one itself, from the [`crate::Callsite`].
+pub const HOST_USER: u64 = hash("berm.user");
+
+/// Mark this invocation's failure as refusing its caller. `() -> 0`
+///
+/// berm serves this one itself; the host reads it in [`crate::Outcome`].
+pub const HOST_DENY: u64 = hash("berm.deny");
+
 /// Milliseconds since the Unix epoch, as the host reads its clock. `() -> millis`
 ///
 /// berm serves this one itself: a clock needs no root, no cap and no

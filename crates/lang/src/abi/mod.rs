@@ -57,6 +57,10 @@ pub const HOST_SQL: u64 = hash("berm.sql");
 pub const HOST_NOW: u64 = hash("berm.now");
 /// Who made this call.
 pub const HOST_CALLER: u64 = hash("berm.caller");
+/// The end user the chain runs for.
+pub const HOST_USER: u64 = hash("berm.user");
+/// Mark this invocation's failure as refusing its caller.
+pub const HOST_DENY: u64 = hash("berm.deny");
 
 /// Set on the length a syscall returns when the staged bytes are an error
 /// message rather than a result. A length never reaches this bit on its own,
@@ -91,6 +95,11 @@ pub fn trace(message: &str) {
 /// otherwise tell a wake that arrived on time from one that arrived late.
 pub fn now() -> u64 {
     sys::call0(HOST_NOW)
+}
+
+/// Mark this invocation's failure as refusing its caller.
+pub fn deny() {
+    sys::call0(HOST_DENY);
 }
 
 /// How many bytes this invocation was given.

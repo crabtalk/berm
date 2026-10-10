@@ -14,7 +14,7 @@ use axum::{
     routing::{get, post},
 };
 use berm::Program;
-use berm_api::{Failed, Output, Program as Wire};
+use berm_api::{Callers, Failed, Output, Program as Wire};
 use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
 };
@@ -168,6 +168,12 @@ async fn run(
             format!("program {name:?} has no public tool named {tool:?}"),
         ));
     };
+    if spec.callers == Some(Callers::Services) {
+        return Err(Refused(
+            StatusCode::FORBIDDEN,
+            format!("{name}.{tool} takes calls from programs only"),
+        ));
+    }
     if query && !spec.query {
         return Err(Refused(
             StatusCode::METHOD_NOT_ALLOWED,

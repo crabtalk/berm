@@ -1,6 +1,7 @@
 //! One MCP endpoint over every deployed program.
 
 use crate::Service;
+use berm_api::Callers;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     model::{
@@ -81,7 +82,7 @@ impl ServerHandler for Mcp {
                     .manifest()
                     .tools
                     .iter()
-                    .filter(|tool| tool.public)
+                    .filter(|tool| tool.public && tool.callers != Some(Callers::Services))
                     .map(|tool| {
                         let mut listed = Tool::new(
                             format!("{}.{}", deployed.name, tool.name),
@@ -127,7 +128,7 @@ impl ServerHandler for Mcp {
         if !self
             .service
             .get(program)
-            .is_some_and(|deployed| deployed.public(tool))
+            .is_some_and(|deployed| deployed.public(tool) && deployed.reached_by_accounts(tool))
         {
             return Err(McpError::invalid_params(
                 format!("{program} has no public tool named {tool:?}"),

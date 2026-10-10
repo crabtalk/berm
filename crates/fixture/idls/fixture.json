@@ -1,7 +1,7 @@
 {
   "name": "fixture",
   "version": "0.0.8",
-  "digest": "1a374f67fad98bb1dc09dc760c50c1cd5ceaece43be15478a1a6d45dbd6cb425",
+  "digest": "e7dba94f5118e9d657fb227def9ae64a43ef846e39b15539a69c7fb1f069063e",
   "usage": "",
   "tools": [
     {
@@ -85,6 +85,31 @@
     {
       "name": "whoami",
       "description": "Says who called: `outside NAME`, `program NAME`, or `none`.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "guarded",
+      "description": "Answers `ok` to a program, and denies any other caller.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "fromservices",
+      "description": "Answers `ok`; only programs may call it.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true,
+      "callers": "services"
+    },
+    {
+      "name": "askguarded",
+      "description": "Calls `guarded` and `fromservices` on `fixture`, and answers what they said.",
       "parameters": {
         "type": "object"
       },

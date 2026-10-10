@@ -143,6 +143,25 @@ fn builtins() -> Table {
     );
 
     table.insert(
+        abi::HOST_USER,
+        handler(|guest, _, _| {
+            let reply = match &guest.data().at.user {
+                Some(user) => wire::frame(&[user.issuer.as_bytes(), user.subject.as_bytes()]),
+                None => Vec::new(),
+            };
+            Ok(stage(guest, Ok(reply)))
+        }),
+    );
+
+    table.insert(
+        abi::HOST_DENY,
+        handler(|guest, _, _| {
+            guest.data_mut().denied = true;
+            Ok(0)
+        }),
+    );
+
+    table.insert(
         abi::HOST_ARG_LEN,
         handler(|guest, _, _| Ok(guest.data().args.len() as u64)),
     );

@@ -157,6 +157,47 @@ mod tools {
             }
             None => out.write(b"none"),
         }
+        if let Some(user) = berm_lang::tool::syscall(berm_lang::user(), out)? {
+            out.write(b" user ");
+            out.write(user.issuer.as_bytes());
+            out.write(b" ");
+            out.write(user.subject.as_bytes());
+        }
+        Ok(())
+    }
+
+    /// Answers `ok` to a program, and denies any other caller.
+    #[public]
+    pub fn guarded(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        match berm_lang::tool::syscall(berm_lang::caller(), out)? {
+            Some(berm_lang::Caller::Program(_)) => {
+                out.write(b"ok");
+                Ok(())
+            }
+            _ => {
+                out.write(b"programs only");
+                Err(berm_lang::deny())
+            }
+        }
+    }
+
+    /// Answers `ok`; only programs may call it.
+    #[public]
+    #[callers(services)]
+    pub fn fromservices(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        out.write(b"ok");
+        Ok(())
+    }
+
+    /// Calls `guarded` and `fromservices` on `fixture`, and answers what they said.
+    #[public]
+    pub fn askguarded(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let guarded = berm_lang::tool::syscall(berm_lang::call("fixture", "guarded", ""), out)?;
+        let services =
+            berm_lang::tool::syscall(berm_lang::call("fixture", "fromservices", ""), out)?;
+        out.write(guarded.as_bytes());
+        out.write(b" ");
+        out.write(services.as_bytes());
         Ok(())
     }
 

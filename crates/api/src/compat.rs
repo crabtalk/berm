@@ -83,6 +83,9 @@ fn tool(old: &ToolSpec, new: &ToolSpec, found: &mut Vec<String>) {
         found.push("no longer public".to_owned());
         return;
     }
+    if new.callers.is_some() && old.callers != new.callers {
+        found.push("takes fewer kinds of caller".to_owned());
+    }
     if old.query && !new.query {
         found.push("no longer a query".to_owned());
     }

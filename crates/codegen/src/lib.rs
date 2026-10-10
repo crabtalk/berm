@@ -259,6 +259,8 @@ struct Tool {
     deprecated: bool,
     /// From `#[public]`: any caller may reach it.
     public: bool,
+    /// From `#[callers(services)]` or `#[callers(accounts)]`.
+    callers: Option<String>,
     /// Programs whose logs this tool takes, each beside the topics it takes.
     logs: Vec<(String, Vec<String>)>,
 }
@@ -295,7 +297,8 @@ struct Event {
 /// called by the host, for the program's own subscriptions and wakes. A
 /// `#[public]` tool can be called by any account the host authenticates and
 /// any program allowed to reach this one, with arguments the caller chooses.
-/// `berm_lang::caller()` says who called.
+/// `berm_lang::caller()` says who called. `#[callers(services)]` limits a
+/// public tool to programs, `#[callers(accounts)]` to callers from outside.
 /// `#[args(Struct)]` and `#[returns(Struct)]` name
 /// structs declared in the module that give the schemas of its arguments and
 /// result, and `#[params("…")]` carries an argument schema literal instead.
@@ -535,6 +538,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     let mut returns = None;
     let mut query = false;
     let mut public = false;
+    let mut callers = None;
     let deprecated = function
         .attrs
         .iter()
@@ -555,6 +559,16 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         if attribute.path().is_ident("public") {
             attribute.meta.require_path_only()?;
             public = true;
+        }
+        if attribute.path().is_ident("callers") {
+            let kind: syn::Ident = attribute.parse_args()?;
+            if kind != "services" && kind != "accounts" {
+                return Err(syn::Error::new(
+                    kind.span(),
+                    "expected `services` or `accounts`",
+                ));
+            }
+            callers = Some(kind.to_string());
         }
         if attribute.path().is_ident("logs") {
             let (program, topics) =
@@ -582,9 +596,17 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     // These exist for this macro to read; leaving them would reach the
     // compiler as unknown attributes.
     function.attrs.retain(|a| {
-        !["params", "returns", "query", "public", "logs", "deprecated"]
-            .iter()
-            .any(|name| a.path().is_ident(name))
+        ![
+            "params",
+            "returns",
+            "query",
+            "public",
+            "callers",
+            "logs",
+            "deprecated",
+        ]
+        .iter()
+        .any(|name| a.path().is_ident(name))
     });
 
     if description.is_empty() {
@@ -605,6 +627,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         query,
         deprecated,
         public,
+        callers,
         logs,
     })
 }
@@ -677,8 +700,12 @@ fn describe(config: &Config, tools: &[Tool], events: &[Event]) -> String {
                 true => r#","public":true"#,
                 false => "",
             };
+            let callers = match &t.callers {
+                Some(kind) => format!(r#","callers":"{kind}""#),
+                None => String::new(),
+            };
             format!(
-                r#"{{"name":"{}","description":"{}","parameters":{}{returns}{query}{deprecated}{public}}}"#,
+                r#"{{"name":"{}","description":"{}","parameters":{}{returns}{query}{deprecated}{public}{callers}}}"#,
                 escape(&t.name),
                 escape(&t.description),
                 t.parameters,

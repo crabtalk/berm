@@ -107,6 +107,7 @@ async fn main() -> Result<()> {
                     .to_owned()
             }),
             own: Arc::new(|_, _, _| None),
+            called: Arc::new(|_, _, _, _| {}),
         },
         vec![],
         storage::Memory::new(),

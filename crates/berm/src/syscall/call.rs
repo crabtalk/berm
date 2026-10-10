@@ -6,7 +6,8 @@
 //! reaches is the embedder's [`Calls::resolve`].
 
 use crate::{
-    Berm, Caller, Callsite, Changes, Program, Refused, Syscall, abi, journal::Journal, wire,
+    Berm, Caller, Callsite, Changes, Program, Refused, Syscall, abi, journal::Journal,
+    program::Ended, wire,
 };
 use anyhow::{Result, bail};
 use std::{
@@ -37,6 +38,21 @@ pub type Named = Arc<dyn Fn(&str) -> String + Send + Sync>;
 /// leaves its writes and logs to the chain.
 pub type Own = Arc<dyn Fn(&Arc<Program>, &str, bool) -> Option<Opening> + Send + Sync>;
 
+/// How a nested call to a deployed program's tool ended, as a host is told it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Called {
+    Done,
+    Failed,
+    /// The tool refused its caller, through `berm.deny`.
+    Denied,
+    /// berm refused it before the tool ran.
+    Refused,
+}
+
+/// Told of every nested call that reached a deployed program: the calling
+/// site, the deployed name, the tool, and how it ended.
+pub type Reported = Arc<dyn Fn(&Callsite, &str, &str, Called) + Send + Sync>;
+
 /// A nested call's own commit, being opened.
 pub type Opening = Pin<Box<dyn Future<Output = Result<Box<dyn Commit>>> + Send>>;
 
@@ -58,6 +74,7 @@ pub struct Calls {
     pub resolve: Resolve,
     pub named: Named,
     pub own: Own,
+    pub called: Reported,
 }
 
 impl Calls {
@@ -69,6 +86,7 @@ impl Calls {
             resolve: Arc::new(|_, target, _| Ok(target.to_owned())),
             named: Arc::new(str::to_owned),
             own: Arc::new(|_, _, _| None),
+            called: Arc::new(|_, _, _, _| {}),
         }
     }
 }
@@ -80,12 +98,14 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
         resolve,
         named,
         own,
+        called,
     } = calls;
     Syscall {
         name: abi::CALL.to_owned(),
         call: Arc::new(move |at: Callsite, request: Vec<u8>| {
             let runtime = runtime.clone();
-            let (resolve, named, own) = (resolve.clone(), named.clone(), own.clone());
+            let (resolve, named, own, called) =
+                (resolve.clone(), named.clone(), own.clone(), called.clone());
             Box::pin(async move {
                 let fields = wire::fields(&request)?;
                 let program = wire::text(&fields, 0, "program")?;
@@ -131,10 +151,15 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                     };
                     return Err(Refused(missing).into());
                 };
+                let refuse = |message: String| -> Result<Vec<u8>> {
+                    called(&at, &deployed, tool, Called::Refused);
+                    Err(Refused(message).into())
+                };
                 if !target.public(tool) {
-                    return Err(
-                        Refused(format!("{program} has no public tool named {tool:?}")).into(),
-                    );
+                    return refuse(format!("{program} has no public tool named {tool:?}"));
+                }
+                if !target.reached_by_programs(tool) {
+                    return refuse(format!("{program}.{tool} takes no calls from programs"));
                 }
 
                 let caller = Some(Caller::Program(named(&at.program).into()));
@@ -157,10 +182,9 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                 // again.
                 if let Some(opening) = own(&target, tool, query) {
                     if at.stack.contains(&target.name) {
-                        return Err(Refused(format!(
+                        return refuse(format!(
                             "{program} is already running in this chain, so {program}.{tool} was not entered again"
-                        ))
-                        .into());
+                        ));
                     }
                     let session = opening.await?;
                     let journal = Arc::new(Journal::default());
@@ -169,6 +193,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                             tool,
                             args.as_bytes().to_vec(),
                             caller,
+                            at.user.clone(),
                             at.depth + 1,
                             at.query,
                             at.deadline,
@@ -176,12 +201,18 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                             stack,
                         )
                         .await;
+                    called(&at, &deployed, tool, ended(&invoked));
                     return match invoked {
-                        Ok(Ok(result)) => {
+                        Ok(Ended {
+                            result: Ok(result), ..
+                        }) => {
                             session.commit(journal.take()).await?;
                             Ok(result.into_bytes())
                         }
-                        Ok(Err(failure)) => bail!(failure),
+                        Ok(Ended {
+                            result: Err(failure),
+                            ..
+                        }) => bail!(failure),
                         Err(error) => Err(error),
                     };
                 }
@@ -194,6 +225,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                         tool,
                         args.as_bytes().to_vec(),
                         caller,
+                        at.user.clone(),
                         at.depth + 1,
                         at.query,
                         at.deadline,
@@ -201,11 +233,17 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                         stack,
                     )
                     .await;
+                called(&at, &deployed, tool, ended(&invoked));
                 match invoked {
-                    Ok(Ok(result)) => Ok(result.into_bytes()),
+                    Ok(Ended {
+                        result: Ok(result), ..
+                    }) => Ok(result.into_bytes()),
                     // The target ran and said no. Not a `Refused`: the caller
                     // is told the difference, and may act on it.
-                    Ok(Err(failure)) => {
+                    Ok(Ended {
+                        result: Err(failure),
+                        ..
+                    }) => {
                         at.journal.revert(mark);
                         bail!(failure)
                     }
@@ -216,5 +254,14 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                 }
             })
         }),
+    }
+}
+
+/// How an invocation ended, as [`Reported`] is told it.
+fn ended(invoked: &Result<Ended>) -> Called {
+    match invoked {
+        Ok(Ended { result: Ok(_), .. }) => Called::Done,
+        Ok(Ended { denied: true, .. }) => Called::Denied,
+        _ => Called::Failed,
     }
 }

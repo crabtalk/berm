@@ -43,7 +43,7 @@ use std::{
     time::Instant,
 };
 pub use storage::{Records, Storage};
-pub use syscall::call::{Calls, Commit, Named, Opening, Own, Resolve};
+pub use syscall::call::{Called, Calls, Commit, Named, Opening, Own, Reported, Resolve};
 
 pub mod abi;
 mod bound;
@@ -83,6 +83,9 @@ pub struct Callsite {
     /// call, or the program that called this one. `None` when the host
     /// started the chain on the program's own behalf.
     pub caller: Option<Caller>,
+    /// The end user the embedder vouched for at the chain's first call.
+    /// Carried unchanged into every nested call.
+    pub user: Option<User>,
     /// How many guests the chain holds, this one included.
     pub depth: u32,
     /// The programs this call sits under, outermost first, this one last.
@@ -106,6 +109,14 @@ pub enum Caller {
     /// The program that called through `berm.call`, as [`Calls::named`] names
     /// it.
     Program(Arc<str>),
+}
+
+/// An end user, as the embedder verified them: who vouched for them, and who
+/// they are to it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct User {
+    pub issuer: Arc<str>,
+    pub subject: Arc<str>,
 }
 
 /// The programs a host is running.

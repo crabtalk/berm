@@ -1,14 +1,14 @@
 //! One compiled program, and the state of one invocation of it.
 
 use crate::{
-    Caller, Callsite, Deps, Syscall, abi,
+    Caller, Callsite, Deps, Syscall, User, abi,
     bound::watchdog,
     engine::{Engine, Image},
     journal::{Changes, Journal},
     syscall,
 };
 use anyhow::{Context, Result, bail};
-use berm_api::Manifest;
+use berm_api::{Callers, Manifest};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
@@ -109,6 +109,24 @@ impl Program {
             .any(|spec| spec.name == tool && spec.public)
     }
 
+    /// Whether `tool` takes calls from other programs, as its manifest's
+    /// `callers` says.
+    pub fn reached_by_programs(&self, tool: &str) -> bool {
+        self.manifest
+            .tools
+            .iter()
+            .any(|spec| spec.name == tool && spec.callers != Some(Callers::Accounts))
+    }
+
+    /// Whether `tool` takes calls from outside, as its manifest's `callers`
+    /// says.
+    pub fn reached_by_accounts(&self, tool: &str) -> bool {
+        self.manifest
+            .tools
+            .iter()
+            .any(|spec| spec.name == tool && spec.callers != Some(Callers::Services))
+    }
+
     /// What the program says it is: ABI version, tools, and usage.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
@@ -129,12 +147,25 @@ impl Program {
         tool: &str,
         args: impl Into<Vec<u8>>,
     ) -> Result<Outcome> {
+        self.call_as(caller, None, tool, args).await
+    }
+
+    /// [`Program::call`] on behalf of `user`, which every call in the chain
+    /// reads off its [`Callsite`].
+    pub async fn call_as(
+        &self,
+        caller: Option<Arc<str>>,
+        user: Option<User>,
+        tool: &str,
+        args: impl Into<Vec<u8>>,
+    ) -> Result<Outcome> {
         let journal = Arc::new(Journal::default());
-        let result = self
+        let Ended { result, denied } = self
             .invoke(
                 tool,
                 args.into(),
                 caller.map(Caller::Outside),
+                user,
                 1,
                 false,
                 watchdog::fresh(),
@@ -146,7 +177,11 @@ impl Program {
             Ok(_) => journal.take(),
             Err(_) => Changes::default(),
         };
-        Ok(Outcome { result, changes })
+        Ok(Outcome {
+            result,
+            denied,
+            changes,
+        })
     }
 
     /// Run one tool as link `depth` of a chain, called by `caller`, that has to
@@ -159,12 +194,13 @@ impl Program {
         tool: &str,
         args: Vec<u8>,
         caller: Option<Caller>,
+        user: Option<User>,
         depth: u32,
         query: bool,
         deadline: Instant,
         journal: Arc<Journal>,
         stack: Arc<[Arc<str>]>,
-    ) -> Result<Result<String, String>> {
+    ) -> Result<Ended> {
         let Some(Tool {
             symbol,
             query: declared,
@@ -178,6 +214,7 @@ impl Program {
                 program: self.name.clone(),
                 deps: self.deps.clone(),
                 caller,
+                user,
                 depth,
                 stack,
                 query: query || *declared,
@@ -187,6 +224,7 @@ impl Program {
             args,
             staged: Vec::new(),
             outcome: None,
+            denied: false,
         };
 
         let finished = self
@@ -197,14 +235,25 @@ impl Program {
 
         // A tool that returned without answering wrote nothing, which is an
         // empty result rather than a missing one.
-        match finished.outcome {
-            Some(Err(failure)) => Ok(Err(failure)),
-            Some(Ok(result)) => Ok(Ok(
-                String::from_utf8(result).context("program returned invalid UTF-8")?
-            )),
-            None => Ok(Ok(String::new())),
-        }
+        let result = match finished.outcome {
+            Some(Err(failure)) => Err(failure),
+            Some(Ok(result)) => {
+                Ok(String::from_utf8(result).context("program returned invalid UTF-8")?)
+            }
+            None => Ok(String::new()),
+        };
+        Ok(Ended {
+            denied: finished.denied && result.is_err(),
+            result,
+        })
     }
+}
+
+/// How one invocation ended.
+pub(crate) struct Ended {
+    pub result: Result<String, String>,
+    /// The program failed the call through `berm.deny`.
+    pub denied: bool,
 }
 
 /// What one chain answered with, and what it left for the host to commit.
@@ -213,6 +262,9 @@ pub struct Outcome {
     /// `Err` is the program's own reported failure, which is a tool result
     /// rather than an error.
     pub result: Result<String, String>,
+    /// `result` is `Err` because the program refused its caller, through
+    /// `berm.deny`.
+    pub denied: bool,
     /// Empty when `result` is `Err`.
     pub changes: Changes,
 }
@@ -232,6 +284,8 @@ pub struct Invocation {
     /// reported failure, which is how a tool that failed is told apart from one
     /// that returned the word "error".
     pub(crate) outcome: Option<Result<Vec<u8>, String>>,
+    /// Set by `berm.deny`.
+    pub(crate) denied: bool,
 }
 
 /// A syscall's answer when it refused the call and nothing ran.
