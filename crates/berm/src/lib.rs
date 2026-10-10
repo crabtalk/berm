@@ -43,7 +43,7 @@ use std::{
     time::Instant,
 };
 pub use storage::{Records, Storage};
-pub use syscall::call::{Calls, Named, Resolve};
+pub use syscall::call::{Calls, Commit, Named, Opening, Own, Resolve};
 
 pub mod abi;
 mod bound;
@@ -85,6 +85,8 @@ pub struct Callsite {
     pub caller: Option<Caller>,
     /// How many guests the chain holds, this one included.
     pub depth: u32,
+    /// The programs this call sits under, outermost first, this one last.
+    pub stack: Arc<[Arc<str>]>,
     /// Whether this invocation is of a `query` tool, or sits under one. A
     /// query is refused `berm.set`, `berm.emit` and `berm.call.after`.
     pub query: bool,

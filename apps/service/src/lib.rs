@@ -84,24 +84,11 @@ impl Service {
             syscalls.push(timer::syscalls(me.clone(), runtime));
             syscalls.push(fetch);
             syscalls.push(database::syscall(me.clone()));
-            // A call into a program keeping a database runs in that database's
-            // own transaction, which a nested call cannot join.
-            let deployed: Weak<Self> = me.clone();
+            // A nested call into a program keeping a database commits on its
+            // own.
             let calls = Calls {
-                depth,
-                resolve: Arc::new(move |_, target: &str, _| {
-                    if deployed
-                        .upgrade()
-                        .and_then(|service| service.get(target))
-                        .is_some_and(|program| database::keeps(&program))
-                    {
-                        anyhow::bail!(
-                            "{target} keeps a database, and a nested call cannot reach it"
-                        );
-                    }
-                    Ok(target.to_owned())
-                }),
-                named: Arc::new(str::to_owned),
+                own: database::own(me.clone()),
+                ..Calls::by_name(depth)
             };
             Self {
                 berm: Berm::new(

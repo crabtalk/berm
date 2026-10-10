@@ -139,6 +139,7 @@ impl Program {
                 false,
                 watchdog::fresh(),
                 journal.clone(),
+                Arc::from([self.name.clone()]),
             )
             .await?;
         let changes = match result {
@@ -149,7 +150,8 @@ impl Program {
     }
 
     /// Run one tool as link `depth` of a chain, called by `caller`, that has to
-    /// be done by `deadline`, holding its writes and logs in `journal`. `query`
+    /// be done by `deadline`, holding its writes and logs in `journal`, under
+    /// the programs in `stack`. `query`
     /// is whether a link above it is a query.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn invoke(
@@ -161,6 +163,7 @@ impl Program {
         query: bool,
         deadline: Instant,
         journal: Arc<Journal>,
+        stack: Arc<[Arc<str>]>,
     ) -> Result<Result<String, String>> {
         let Some(Tool {
             symbol,
@@ -176,6 +179,7 @@ impl Program {
                 deps: self.deps.clone(),
                 caller,
                 depth,
+                stack,
                 query: query || *declared,
                 deadline,
                 journal,

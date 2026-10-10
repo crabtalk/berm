@@ -106,6 +106,7 @@ async fn main() -> Result<()> {
                     .map_or(program, |(_, name)| name)
                     .to_owned()
             }),
+            own: Arc::new(|_, _, _| None),
         },
         vec![],
         storage::Memory::new(),

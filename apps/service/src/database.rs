@@ -1,15 +1,17 @@
 //! `berm.sql`, over one SQLite file per program under `{root}/databases`.
 
-use crate::Service;
+use crate::{Service, logs, store};
 use anyhow::{Result, anyhow, bail};
 use berm::{
-    Callsite, Program, Syscall,
-    database::Database,
+    Callsite, Changes, Commit, Opening, Own, Program, Syscall,
+    database::{Database, Writing},
     syscall::sql::{self, Statement},
 };
 use std::{
     collections::HashMap,
+    future::Future,
     path::PathBuf,
+    pin::Pin,
     sync::{Arc, Mutex, Weak},
 };
 
@@ -71,4 +73,59 @@ pub(crate) fn syscall(service: Weak<Service>) -> Syscall {
             }
         }
     })
+}
+
+/// A nested call into a program keeping a database, unless a query, commits on
+/// its own: it holds that database's writer, and its writes and logs are
+/// committed when it returns ok.
+pub(crate) fn own(service: Weak<Service>) -> Own {
+    Arc::new(move |program: &Arc<Program>, _tool: &str, query: bool| {
+        if query || !keeps(program) {
+            return None;
+        }
+        let service = service.upgrade()?;
+        let name = program.name.clone();
+        let opening: Opening = Box::pin(async move {
+            let writing = service.databases.get(&name)?.write().await?;
+            Ok(Box::new(Nested {
+                service,
+                name,
+                writing,
+            }) as Box<dyn Commit>)
+        });
+        Some(opening)
+    })
+}
+
+/// A nested call's hold on its program's database.
+struct Nested {
+    service: Arc<Service>,
+    name: Arc<str>,
+    writing: Writing,
+}
+
+impl Commit for Nested {
+    fn commit(
+        self: Box<Self>,
+        changes: Changes,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
+        Box::pin(async move {
+            let Nested {
+                service,
+                name,
+                writing,
+            } = *self;
+            logs::append(&service.root, &changes.logs)?;
+            let (own, rest): (Vec<_>, Vec<_>) = changes
+                .writes
+                .into_iter()
+                .partition(|write| write.program == name);
+            store::commit(&service.root, &rest)?;
+            writing.commit(own, Vec::new()).await?;
+            if !changes.logs.is_empty() {
+                service.deliver();
+            }
+            Ok(())
+        })
+    }
 }

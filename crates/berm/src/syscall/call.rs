@@ -5,9 +5,15 @@
 //! works against whatever it was deployed beside; which deployed program a name
 //! reaches is the embedder's [`Calls::resolve`].
 
-use crate::{Berm, Caller, Callsite, Refused, Syscall, abi, wire};
+use crate::{
+    Berm, Caller, Callsite, Changes, Program, Refused, Syscall, abi, journal::Journal, wire,
+};
 use anyhow::{Result, bail};
-use std::sync::{Arc, Weak};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{Arc, Weak},
+};
 
 /// How deep a chain of programs calling programs may go before the next call
 /// is refused. Zero turns composition off.
@@ -26,6 +32,24 @@ pub type Resolve = Arc<dyn Fn(&Callsite, &str, &str) -> Result<String> + Send + 
 /// name that one was deployed as.
 pub type Named = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
+/// Whether a nested call into `program`'s `tool` commits on its own, handed
+/// whether the call is a query. `Some` opens what it commits through; `None`
+/// leaves its writes and logs to the chain.
+pub type Own = Arc<dyn Fn(&Arc<Program>, &str, bool) -> Option<Opening> + Send + Sync>;
+
+/// A nested call's own commit, being opened.
+pub type Opening = Pin<Box<dyn Future<Output = Result<Box<dyn Commit>>> + Send>>;
+
+/// What a nested call that commits on its own commits through. Dropped
+/// without [`Commit::commit`], it commits nothing.
+pub trait Commit: Send {
+    /// Commit what the call and every call it made wrote and emitted.
+    fn commit(
+        self: Box<Self>,
+        changes: Changes,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+}
+
 /// How `berm.call` reaches programs.
 #[derive(Clone)]
 pub struct Calls {
@@ -33,6 +57,7 @@ pub struct Calls {
     pub depth: u32,
     pub resolve: Resolve,
     pub named: Named,
+    pub own: Own,
 }
 
 impl Calls {
@@ -43,6 +68,7 @@ impl Calls {
             depth,
             resolve: Arc::new(|_, target, _| Ok(target.to_owned())),
             named: Arc::new(str::to_owned),
+            own: Arc::new(|_, _, _| None),
         }
     }
 }
@@ -53,12 +79,13 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
         depth: limit,
         resolve,
         named,
+        own,
     } = calls;
     Syscall {
         name: abi::CALL.to_owned(),
         call: Arc::new(move |at: Callsite, request: Vec<u8>| {
             let runtime = runtime.clone();
-            let (resolve, named) = (resolve.clone(), named.clone());
+            let (resolve, named, own) = (resolve.clone(), named.clone(), own.clone());
             Box::pin(async move {
                 let fields = wire::fields(&request)?;
                 let program = wire::text(&fields, 0, "program")?;
@@ -110,6 +137,55 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                     );
                 }
 
+                let caller = Some(Caller::Program(named(&at.program).into()));
+                let stack: Arc<[Arc<str>]> = at
+                    .stack
+                    .iter()
+                    .cloned()
+                    .chain([target.name.clone()])
+                    .collect();
+                let query = at.query
+                    || target
+                        .manifest()
+                        .tools
+                        .iter()
+                        .any(|spec| spec.name == tool && spec.query);
+
+                // A target that commits on its own runs on a journal of its
+                // own, committed when it returns ok, whatever the caller does
+                // after. One already running in this chain is not entered
+                // again.
+                if let Some(opening) = own(&target, tool, query) {
+                    if at.stack.contains(&target.name) {
+                        return Err(Refused(format!(
+                            "{program} is already running in this chain, so {program}.{tool} was not entered again"
+                        ))
+                        .into());
+                    }
+                    let session = opening.await?;
+                    let journal = Arc::new(Journal::default());
+                    let invoked = target
+                        .invoke(
+                            tool,
+                            args.as_bytes().to_vec(),
+                            caller,
+                            at.depth + 1,
+                            at.query,
+                            at.deadline,
+                            journal.clone(),
+                            stack,
+                        )
+                        .await;
+                    return match invoked {
+                        Ok(Ok(result)) => {
+                            session.commit(journal.take()).await?;
+                            Ok(result.into_bytes())
+                        }
+                        Ok(Err(failure)) => bail!(failure),
+                        Err(error) => Err(error),
+                    };
+                }
+
                 // A failed target takes what it held with it; the caller
                 // goes on from where it was.
                 let mark = at.journal.mark();
@@ -117,11 +193,12 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                     .invoke(
                         tool,
                         args.as_bytes().to_vec(),
-                        Some(Caller::Program(named(&at.program).into())),
+                        caller,
                         at.depth + 1,
                         at.query,
                         at.deadline,
                         at.journal.clone(),
+                        stack,
                     )
                     .await;
                 match invoked {
