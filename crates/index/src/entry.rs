@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub struct Entry {
     /// As published, tag and all.
     pub reference: String,
-    /// sha256 of the ELF, `sha256:`-prefixed, as the registry addresses it.
+    /// sha256 of the image, `sha256:`-prefixed, as the registry addresses it.
     pub digest: String,
     /// Whoever the publishing service vouched for, if it vouched for anyone.
     /// An open index records none, and the reference already names an owner

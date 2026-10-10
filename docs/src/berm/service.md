@@ -10,7 +10,7 @@ pays only instantiation.
 
 ```sh
 bermd &
-berm deploy example ./program.elf
+berm deploy example ./program.wasm
 berm ls
 ```
 

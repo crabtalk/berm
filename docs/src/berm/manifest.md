@@ -9,9 +9,8 @@ must not mean running it. `Manifest::from_image` parses the section with nothing
 compiled and nothing executed, which is what an embedder assembling a prompt, or
 a service listing a registry, actually needs.
 
-One name covers both formats: an ELF section and a wasm custom section are each
-what `#[link_section]` emits for the target, and each is what the same reader
-finds.
+The section is a wasm custom section, which is what `#[link_section]` emits on
+`wasm32`.
 
 ```rust,ignore
 let manifest = Manifest::from_image(&bytes)?;

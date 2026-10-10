@@ -19,7 +19,7 @@
 
 // `no_std` and `no_main` are the guest's shape. Off a guest target this is an
 // ordinary library, so `cargo test` runs the tools below natively.
-#![cfg_attr(any(target_arch = "wasm32", target_arch = "riscv64"), no_std, no_main)]
+#![cfg_attr(target_arch = "wasm32", no_std, no_main)]
 
 extern crate alloc;
 

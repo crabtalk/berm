@@ -8,9 +8,8 @@
 //! Every one takes a request at `(ptr, len)` and answers with a single word.
 //! One shape for all of them: a call that needs no request is handed a pair it
 //! ignores, and one whose answer is longer than a word stages it for the guest
-//! to pull. That is what lets a backend register a table rather than a list of
-//! signatures — rvtime puts the number in `a7` and the pair in `a0`/`a1`,
-//! wasmtime takes all three as arguments to one import.
+//! to pull. That is what lets the engine register a table rather than a list
+//! of signatures: all three arrive as arguments to one import.
 //!
 //! The same hash is computed guest-side in `crates/lang/src/abi.rs`. The two
 //! must agree — and cannot drift quietly if they don't: a mismatched name
@@ -27,11 +26,8 @@ pub const HOST_ARG_READ: u64 = hash("berm.args.read");
 pub const HOST_DONE: u64 = hash("berm.done");
 /// Fail this invocation with a message. `(ptr, len) -> 0`
 ///
-/// The other half of [`HOST_DONE`], and the reason neither is a return value:
-/// what a tool answers with travels the same way everything else does, so an
-/// export takes nothing and returns nothing on every backend. A pointer pair
-/// in registers would have been two words on RV64 and a hidden out-parameter
-/// on wasm32, which is one convention too many for one ABI.
+/// The other half of [`HOST_DONE`]. What a tool answers with travels the same
+/// way everything else does, so an export takes nothing and returns nothing.
 pub const HOST_FAIL: u64 = hash("berm.fail");
 /// Copy the staged syscall result into guest memory. `(ptr, cap) -> full length`
 pub const HOST_RESULT_READ: u64 = hash("berm.result.read");
@@ -129,10 +125,6 @@ pub const HOST_SET: u64 = hash(SET);
 /// while the process was down arrives late, and says so only against this.
 pub const HOST_NOW: u64 = hash("berm.now");
 
-/// Where this guest's heap starts. `() -> address`
-pub const HOST_HEAP_START: u64 = hash("berm.heap.start");
-/// How many bytes of it there are. `() -> length`
-pub const HOST_HEAP_SIZE: u64 = hash("berm.heap.size");
 /// Prefix on every tool's exported symbol. A tool is resolved by name like any
 /// other symbol; the prefix keeps one called `init` from colliding with the
 /// exports the ABI reserves.

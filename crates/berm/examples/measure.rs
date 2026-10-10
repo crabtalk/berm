@@ -19,22 +19,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Whichever image the backend this was built with can run.
-#[cfg(feature = "wasm")]
 const GUEST: (&str, &str) = (
     "target/wasm32-unknown-unknown/release/fixture.wasm",
     "wasm32-unknown-unknown",
-);
-#[cfg(not(feature = "wasm"))]
-const GUEST: (&str, &str) = (
-    "target/riscv64imac-unknown-none-elf/release/fixture",
-    "riscv64imac-unknown-none-elf",
 );
 const ROUNDS: usize = 1000;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Only the guest's own log; cranelift is chatty at info.
+    // Only the guest's own log; wasmtime is chatty at info.
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::new("warn,program=info"))
         .init();
@@ -46,21 +39,21 @@ async fn main() -> Result<()> {
         .to_path_buf();
 
     let (guest, target) = GUEST;
-    let elf = fs::read(root.join(guest)).with_context(|| {
+    let image = fs::read(root.join(guest)).with_context(|| {
         format!("build the guest first: cargo build --release -p berm-fixture --target {target} ({guest})")
     })?;
-    println!("guest: {} bytes", elf.len());
+    println!("guest: {} bytes", image.len());
 
     let cache = std::env::temp_dir().join("berm-measure");
     let _ = fs::remove_dir_all(&cache);
 
-    let cold = time(|| compile(&cache, &elf))?;
+    let cold = time(|| compile(&cache, &image))?;
     println!("compile (cold cache):{cold:>12.3?}");
 
-    let warm = time(|| compile(&cache, &elf))?;
+    let warm = time(|| compile(&cache, &image))?;
     println!("compile (warm cache):{warm:>12.3?}");
 
-    let program = compile(&cache, &elf)?;
+    let program = compile(&cache, &image)?;
     println!("manifest:              {:?}", program.manifest());
 
     println!(

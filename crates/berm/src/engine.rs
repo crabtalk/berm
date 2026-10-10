@@ -1,27 +1,24 @@
-//! wasmtime — a program as WebAssembly.
+//! wasmtime — where a program's bytes become code that runs.
 //!
-//! What a program is built for. Every syscall arrives through one import,
-//! `berm.syscall`, carrying the number its name hashes to alongside the
-//! request — the same number rvtime takes in `a7`, so one name resolves the
-//! same way on both.
+//! Every syscall arrives through one import, `berm.syscall`, carrying the
+//! number its name hashes to alongside the request.
 //!
 //! A guest runs on a fiber: a hosted syscall suspends it, and the thread is
 //! free until the reply resolves.
 
 use crate::{
     Invocation,
-    backend::{Config, Guest},
     syscall::{self, Door, Table},
 };
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use std::{
-    ops::Range,
+    path::PathBuf,
     sync::Arc,
     thread,
     time::{Duration, Instant},
 };
 use wasmtime::{
-    Caller, Engine, Extern, InstanceAllocationStrategy, InstancePre, Linker, Memory, Module,
+    Caller, Extern, InstanceAllocationStrategy, InstancePre, Linker, Memory, Module,
     PoolingAllocationConfig, Store, ToWasmtimeResult, TypedFunc,
 };
 
@@ -34,37 +31,78 @@ const SYSCALL: &str = "syscall";
 /// promptly, coarse enough that the tick costs nothing.
 const TICK: Duration = Duration::from_millis(100);
 
-pub(crate) fn engine(config: &Config) -> Result<Engine> {
-    let mut wasmtime = wasmtime::Config::new();
-    // Without this the compiled code has no checks to notice a deadline, and a
-    // guest that loops forever holds the calling thread forever.
-    wasmtime.epoch_interruption(true);
-    if let Some(dir) = &config.cache_dir {
-        let mut cache = wasmtime::CacheConfig::new();
-        cache.with_directory(dir.join("wasm"));
-        wasmtime.cache(Some(wasmtime::Cache::new(cache)?));
-    }
+/// How a runtime compiles and holds code.
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// Where compiled code is cached, if anywhere.
+    ///
+    /// Entries are keyed on contents, so a stale directory yields misses
+    /// rather than wrong code, and it is safe to share between processes.
+    pub cache_dir: Option<PathBuf>,
+    /// How many guests may be live at once, across every program and nested
+    /// calls included. Slots are reserved when the engine is built; a call
+    /// past the last one fails.
+    pub instances: u32,
+    /// The largest linear memory one guest may grow to, in bytes.
+    pub memory: usize,
+}
 
-    // An instance, its memory, its table and the fiber it runs on are taken
-    // from slots reserved here rather than mapped per call. One of each per
-    // guest: a guest asking for a second memory or table fails to instantiate.
-    let mut pool = PoolingAllocationConfig::new();
-    pool.total_core_instances(config.instances)
-        .total_memories(config.instances)
-        .total_tables(config.instances)
-        .total_stacks(config.instances)
-        .max_memory_size(config.memory);
-    wasmtime.allocation_strategy(InstanceAllocationStrategy::Pooling(pool));
-    let engine = Engine::new(&wasmtime)?;
-    tick(&engine);
-    Ok(engine)
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            cache_dir: None,
+            instances: 1_000,
+            memory: 64 << 20,
+        }
+    }
+}
+
+/// A compilation target, shared by every program a runtime holds.
+///
+/// Cheap to clone; each compiled image keeps its own handle.
+#[derive(Clone)]
+pub struct Engine(wasmtime::Engine);
+
+impl Engine {
+    pub fn new(config: &Config) -> Result<Self> {
+        let mut wasmtime = wasmtime::Config::new();
+        // Without this the compiled code has no checks to notice a deadline,
+        // and a guest that loops forever holds the calling thread forever.
+        wasmtime.epoch_interruption(true);
+        if let Some(dir) = &config.cache_dir {
+            let mut cache = wasmtime::CacheConfig::new();
+            cache.with_directory(dir.join("wasm"));
+            wasmtime.cache(Some(wasmtime::Cache::new(cache)?));
+        }
+
+        // An instance, its memory, its table and the fiber it runs on are
+        // taken from slots reserved here rather than mapped per call. One of
+        // each per guest: a guest asking for a second memory or table fails to
+        // instantiate.
+        let mut pool = PoolingAllocationConfig::new();
+        pool.total_core_instances(config.instances)
+            .total_memories(config.instances)
+            .total_tables(config.instances)
+            .total_stacks(config.instances)
+            .max_memory_size(config.memory);
+        wasmtime.allocation_strategy(InstanceAllocationStrategy::Pooling(pool));
+        let engine = wasmtime::Engine::new(&wasmtime)?;
+        tick(&engine);
+        Ok(Self(engine))
+    }
+}
+
+impl Default for Engine {
+    fn default() -> Self {
+        Engine::new(&Config::default()).expect("the host target is supported")
+    }
 }
 
 /// Advance `engine`'s epoch until it is dropped.
 ///
 /// One thread for every guest the engine runs: a deadline is a countdown each
 /// store holds, so nothing here has to know which of them are running.
-fn tick(engine: &Engine) {
+fn tick(engine: &wasmtime::Engine) {
     let engine = engine.weak();
     thread::Builder::new()
         .name("berm-epoch".to_owned())
@@ -80,8 +118,9 @@ fn tick(engine: &Engine) {
         .expect("spawn the berm epoch ticker");
 }
 
+/// One compiled program, ready to instantiate.
 pub(crate) struct Image {
-    engine: Engine,
+    engine: wasmtime::Engine,
     /// Imports resolved once, at deploy. A guest reaching for something no
     /// syscall is registered for is refused by the deploy that introduced it,
     /// rather than trapping on a model's turn.
@@ -90,8 +129,9 @@ pub(crate) struct Image {
 }
 
 impl Image {
+    /// Compile `image` against `table`.
     pub(crate) fn compile(engine: &Engine, image: &[u8], table: Table) -> Result<Self> {
-        let engine = engine.clone();
+        let engine = engine.0.clone();
         let module = Module::new(&engine, image)?;
 
         let mut linker: Linker<Invocation> = Linker::new(&engine);
@@ -128,10 +168,17 @@ impl Image {
         })
     }
 
+    /// Every name this image exports. Which of them are tools is the ABI's
+    /// question.
     pub(crate) fn exports(&self) -> Vec<&str> {
         self.exports.iter().map(String::as_str).collect()
     }
 
+    /// Instantiate and run one tool.
+    ///
+    /// The invocation goes in carrying the arguments and comes back carrying
+    /// whatever the tool answered with. Nothing else survives: the instance is
+    /// built for this call and dropped with it.
     pub(crate) async fn call(&self, symbol: &str, invocation: Invocation) -> Result<Invocation> {
         let deadline = invocation.at.deadline;
         let mut store = Store::new(&self.engine, invocation);
@@ -150,27 +197,18 @@ impl Image {
     }
 }
 
-impl Guest for Caller<'_, Invocation> {
-    fn read(&mut self, addr: u64, len: u64) -> Result<Vec<u8>> {
-        let memory = memory(self)?;
-        let mut bytes = vec![0u8; len as usize];
-        memory.read(&*self, addr as usize, &mut bytes)?;
-        Ok(bytes)
-    }
+/// Copy `len` bytes of guest memory at `addr`.
+pub(crate) fn read(caller: &mut Caller<'_, Invocation>, addr: u64, len: u64) -> Result<Vec<u8>> {
+    let memory = memory(caller)?;
+    let mut bytes = vec![0u8; len as usize];
+    memory.read(&*caller, addr as usize, &mut bytes)?;
+    Ok(bytes)
+}
 
-    fn write(&mut self, addr: u64, bytes: &[u8]) -> Result<()> {
-        let memory = memory(self)?;
-        Ok(memory.write(&mut *self, addr as usize, bytes)?)
-    }
-
-    /// A wasm guest grows and manages its own memory, so nothing asks.
-    fn heap(&mut self) -> Result<Range<u64>> {
-        bail!("a WebAssembly program owns its memory; the host has no heap to hand it")
-    }
-
-    fn invocation(&mut self) -> &mut Invocation {
-        self.data_mut()
-    }
+/// Copy `bytes` into guest memory at `addr`.
+pub(crate) fn write(caller: &mut Caller<'_, Invocation>, addr: u64, bytes: &[u8]) -> Result<()> {
+    let memory = memory(caller)?;
+    Ok(memory.write(&mut *caller, addr as usize, bytes)?)
 }
 
 fn memory(caller: &mut Caller<'_, Invocation>) -> Result<Memory> {

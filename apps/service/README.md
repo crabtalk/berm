@@ -17,7 +17,7 @@ The control API is resource-shaped, for the reason dockerd's is: the clients are
 a UI, a CLI, and `curl`.
 
 ```sh
-curl -X PUT --data-binary @program.elf http://127.0.0.1:7777/programs/example
+curl -X PUT --data-binary @program.wasm http://127.0.0.1:7777/programs/example
 curl http://127.0.0.1:7777/programs
 curl -X DELETE http://127.0.0.1:7777/programs/example
 ```
@@ -31,8 +31,8 @@ guest berm's own tests use — its tools price things rather than do them, so it
 proves the path works and is not something to leave deployed.
 
 ```sh
-cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
-curl -X PUT --data-binary @target/riscv64imac-unknown-none-elf/release/fixture \
+cargo build --release -p berm-fixture --target wasm32-unknown-unknown
+curl -X PUT --data-binary @target/wasm32-unknown-unknown/release/fixture.wasm \
   http://127.0.0.1:7777/programs/fixture
 ```
 
@@ -55,8 +55,8 @@ program deployed beside it. There is no wiring step: what is deployed is
 reachable by name, the way containers on one network reach each other.
 
 ```sh
-berm deploy inner ./inner.elf
-berm deploy outer ./outer.elf
+berm deploy inner ./inner.wasm
+berm deploy outer ./outer.wasm
 ```
 
 ```rust

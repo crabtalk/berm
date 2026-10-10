@@ -13,7 +13,7 @@
 //!     assert_eq!(out, br#"{"echo":hi}"#);
 //! }
 //! ```
-#![cfg(not(any(target_arch = "wasm32", target_arch = "riscv64")))]
+#![cfg(not(target_arch = "wasm32"))]
 
 use crate::{CallError, abi, sys};
 use std::{

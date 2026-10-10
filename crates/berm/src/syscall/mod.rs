@@ -9,14 +9,13 @@
 //! typed value and hands it to closures the embedder registers with it.
 //! Anything else is a [`crate::Syscall`] the embedder writes whole.
 //!
-//! Every one of them, berm's own included, is written once here and reached
-//! through the one table below. A backend carries that table across its own
-//! boundary and supplies nothing else, which is what keeps two of them from
-//! growing two ABIs.
+//! Every one of them, berm's own included, is reached through the one table
+//! below.
 
-use crate::{Call, Callsite, Refused, Syscall, abi, backend::Guest};
+use crate::{Call, Callsite, Invocation, Refused, Syscall, abi, engine};
 use anyhow::{Result, bail};
 use std::{collections::HashMap, sync::Arc};
+use wasmtime::Caller;
 
 pub mod after;
 pub mod call;
@@ -26,9 +25,11 @@ pub mod store;
 /// One of the ABI's own doors: request bytes at `(ptr, len)` in, a staged
 /// length out, answered before the guest resumes.
 ///
-/// One signature for all of them, so a backend registers a table rather than a
-/// list of shapes. A call that takes no arguments is handed a pair it ignores.
-pub(crate) type Handler = Arc<dyn Fn(&mut dyn Guest, u64, u64) -> Result<u64> + Send + Sync>;
+/// One signature for all of them, so the engine registers a table rather than
+/// a list of shapes. A call that takes no arguments is handed a pair it
+/// ignores.
+pub(crate) type Handler =
+    Arc<dyn Fn(&mut Caller<'_, Invocation>, u64, u64) -> Result<u64> + Send + Sync>;
 
 /// What answers one syscall number.
 #[derive(Clone)]
@@ -68,9 +69,13 @@ pub(crate) fn is_builtin(number: u64) -> bool {
 
 /// Copy a hosted syscall's request out of the guest, beside the callsite it
 /// came from.
-pub(crate) fn request(guest: &mut dyn Guest, ptr: u64, len: u64) -> Result<(Callsite, Vec<u8>)> {
-    let request = guest.read(ptr, len)?;
-    Ok((guest.invocation().at.clone(), request))
+pub(crate) fn request(
+    guest: &mut Caller<'_, Invocation>,
+    ptr: u64,
+    len: u64,
+) -> Result<(Callsite, Vec<u8>)> {
+    let request = engine::read(guest, ptr, len)?;
+    Ok((guest.data().at.clone(), request))
 }
 
 /// Leave a syscall's bytes for the guest to pull, and answer with their length.
@@ -80,7 +85,7 @@ pub(crate) fn request(guest: &mut dyn Guest, ptr: u64, len: u64) -> Result<(Call
 /// nothing extra to find out about, and an empty result cannot be mistaken for
 /// one. A [`Refused`] additionally sets [`abi::REFUSED`], which is how a guest
 /// tells "it ran and said no" from "it never ran".
-pub(crate) fn stage(guest: &mut dyn Guest, answer: Result<Vec<u8>>) -> u64 {
+pub(crate) fn stage(guest: &mut Caller<'_, Invocation>, answer: Result<Vec<u8>>) -> u64 {
     let (staged, outcome) = match answer {
         Ok(result) => (result, 0),
         Err(error) => {
@@ -95,7 +100,7 @@ pub(crate) fn stage(guest: &mut dyn Guest, answer: Result<Vec<u8>>) -> u64 {
         }
     };
     let length = staged.len() as u64;
-    guest.invocation().staged = staged;
+    guest.data_mut().staged = staged;
     length | outcome
 }
 
@@ -107,7 +112,7 @@ fn builtins() -> Table {
     table.insert(
         abi::HOST_LOG,
         handler(|guest, ptr, len| {
-            let message = guest.read(ptr, len)?;
+            let message = engine::read(guest, ptr, len)?;
             tracing::info!(target: "program", "{}", String::from_utf8_lossy(&message));
             Ok(0)
         }),
@@ -115,7 +120,7 @@ fn builtins() -> Table {
 
     table.insert(
         abi::HOST_ARG_LEN,
-        handler(|guest, _, _| Ok(guest.invocation().args.len() as u64)),
+        handler(|guest, _, _| Ok(guest.data().args.len() as u64)),
     );
 
     // Answers with the blob's full length rather than what fit, so a guest with
@@ -124,10 +129,10 @@ fn builtins() -> Table {
     table.insert(
         abi::HOST_ARG_READ,
         handler(|guest, ptr, capacity| {
-            let args = &guest.invocation().args;
+            let args = &guest.data().args;
             let length = args.len();
             let taken = args[..length.min(capacity as usize)].to_vec();
-            guest.write(ptr, &taken)?;
+            engine::write(guest, ptr, &taken)?;
             Ok(length as u64)
         }),
     );
@@ -138,10 +143,10 @@ fn builtins() -> Table {
     table.insert(
         abi::HOST_RESULT_READ,
         handler(|guest, ptr, capacity| {
-            let staged = &guest.invocation().staged;
+            let staged = &guest.data().staged;
             let length = staged.len();
             let taken = staged[..length.min(capacity as usize)].to_vec();
-            guest.write(ptr, &taken)?;
+            engine::write(guest, ptr, &taken)?;
             Ok(length as u64)
         }),
     );
@@ -149,8 +154,8 @@ fn builtins() -> Table {
     table.insert(
         abi::HOST_DONE,
         handler(|guest, ptr, len| {
-            let result = guest.read(ptr, len)?;
-            guest.invocation().outcome = Some(Ok(result));
+            let result = engine::read(guest, ptr, len)?;
+            guest.data_mut().outcome = Some(Ok(result));
             Ok(0)
         }),
     );
@@ -158,9 +163,9 @@ fn builtins() -> Table {
     table.insert(
         abi::HOST_FAIL,
         handler(|guest, ptr, len| {
-            let message = guest.read(ptr, len)?;
+            let message = engine::read(guest, ptr, len)?;
             let message = String::from_utf8_lossy(&message).into_owned();
-            guest.invocation().outcome = Some(Err(message));
+            guest.data_mut().outcome = Some(Err(message));
             Ok(0)
         }),
     );
@@ -176,25 +181,11 @@ fn builtins() -> Table {
         }),
     );
 
-    // Asked for on the guest's first allocation, from inside the entry it is
-    // already in. Pushing these in would mean entering the guest a second
-    // time, which costs ~13µs against ~30ns for a syscall.
-    table.insert(
-        abi::HOST_HEAP_START,
-        handler(|guest, _, _| Ok(guest.heap()?.start)),
-    );
-
-    table.insert(
-        abi::HOST_HEAP_SIZE,
-        handler(|guest, _, _| {
-            let heap = guest.heap()?;
-            Ok(heap.end - heap.start)
-        }),
-    );
-
     table
 }
 
-fn handler(call: impl Fn(&mut dyn Guest, u64, u64) -> Result<u64> + Send + Sync + 'static) -> Door {
+fn handler(
+    call: impl Fn(&mut Caller<'_, Invocation>, u64, u64) -> Result<u64> + Send + Sync + 'static,
+) -> Door {
     Door::Builtin(Arc::new(call))
 }

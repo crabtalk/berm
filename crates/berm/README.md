@@ -1,12 +1,12 @@
 # berm
 
-The runtime of programs. A program is one hash-pinned RV64 ELF; berm compiles
-it once, holds it by the name it answers to, and instantiates it per invocation
-under [rvtime](https://crates.io/crates/rvtime) — nothing survives the call.
+The runtime of programs. A program is one hash-pinned WebAssembly module; berm
+compiles it once, holds it by the name it answers to, and instantiates it per
+invocation under wasmtime — nothing survives the call.
 
 ```rust
 let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
-berm.deploy("example", &elf)?;
+berm.deploy("example", &wasm)?;
 let result = berm.call(None, "example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
 ```
 
@@ -34,7 +34,7 @@ values so the guest never holds a secret.
 nest, and how long one may run. Unlike a syscall, these are conditions
 rather than something a guest reaches for.
 
-`Manifest::from_elf(elf)` reads what an image claims to be without compiling or
+`Manifest::from_image(bytes)` reads what an image claims to be without compiling or
 running it.
 
 ```sh

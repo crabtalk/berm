@@ -6,7 +6,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-keywords = ["crabtalk", "program", "sandbox", "riscv"]
+keywords = ["crabtalk", "program", "sandbox", "wasm"]
 readme = "README.md"
 
 [lib]
@@ -31,9 +31,4 @@ serde_json_guest = { workspace = true, optional = true }
 # target may do — off one, this crate is a library inside someone's tests and
 # std already has one.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-linked_list_allocator = { workspace = true, optional = true }
-
-# `guest` supplies the `ecall` wrappers, which only this target has.
-[target.'cfg(target_arch = "riscv64")'.dependencies]
-guest.workspace = true
 linked_list_allocator = { workspace = true, optional = true }

@@ -1,7 +1,6 @@
 //! `#[program]` — turns a module of plain functions into a loadable program.
 //!
-//! The exports an image needs are ceremony: an entry point that keeps the
-//! linker from discarding it, a heap handshake, a description the host reads at
+//! The exports an image needs are ceremony: a description the host reads at
 //! registration, and dispatch from a tool index back to a function. None of it
 //! is the author's problem, so none of it is in their source.
 
@@ -233,8 +232,7 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
     let buffer = config.buffer;
 
     // One export per tool, so the host resolves it the way it resolves any
-    // other symbol. An index would couple the two sides by declaration order
-    // for no gain — both backends look entries up by name already.
+    // other symbol.
     let exports = tools.iter().map(|tool| {
         let ident = &tool.ident;
         let symbol = syn::Ident::new(&format!("{TOOL_PREFIX}{}", tool.name), ident.span());
@@ -267,11 +265,6 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
-    let anchors = tools.iter().map(|tool| {
-        let symbol = syn::Ident::new(&format!("{TOOL_PREFIX}{}", tool.name), tool.ident.span());
-        quote! { ^ #symbol as *const () as u64 }
-    });
-
     // The macro read the usage file itself, which cargo cannot see. This
     // makes the dependency visible so editing it rebuilds the program.
     let usage_rebuild = config.usage_file.as_ref().map(|path| {
@@ -293,39 +286,14 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
         /// What this program is, as a section rather than an export: the host
         /// reads it out of the image without compiling or running anything, so
         /// learning what a program claims never means executing it.
-        ///
-        /// One attribute for both targets — an ELF section and a wasm custom
-        /// section are what `link_section` emits for each.
         #[used]
-        #[cfg_attr(
-            any(target_arch = "wasm32", target_arch = "riscv64"),
-            unsafe(link_section = ".berm.abi")
-        )]
+        #[cfg_attr(target_arch = "wasm32", unsafe(link_section = ".berm.abi"))]
         static _CRABTALK_ABI: [u8; #description_len] = *#description_bytes;
 
         /// A program is a binary, and off a guest target a binary needs a
         /// `main` — which is what lets `cargo test` build one natively.
-        #[cfg(not(any(target_arch = "wasm32", target_arch = "riscv64")))]
+        #[cfg(not(target_arch = "wasm32"))]
         fn main() {}
-
-        /// The ELF entry point. Never called: it exists so `--gc-sections`
-        /// keeps the exports, which nothing else in the image references. wasm
-        /// needs no equivalent — an exported function is a root there.
-        /// Off the guest's target the C runtime owns `_start`, and defining a
-        /// second one fails the native test link on ELF platforms.
-        #[cfg(target_arch = "riscv64")]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn _start() {
-            static mut ANCHOR: u64 = 0;
-            unsafe {
-                ::core::ptr::write_volatile(
-                    &raw mut ANCHOR,
-                    _CRABTALK_ABI.as_ptr() as u64
-                        #(#anchors)*,
-                );
-            }
-        }
-
 
         #(#exports)*
     }

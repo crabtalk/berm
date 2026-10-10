@@ -22,15 +22,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(feature = "wasm")]
 const GUEST: (&str, &str) = (
     "target/wasm32-unknown-unknown/release/fixture.wasm",
     "wasm32-unknown-unknown",
-);
-#[cfg(not(feature = "wasm"))]
-const GUEST: (&str, &str) = (
-    "target/riscv64imac-unknown-none-elf/release/fixture",
-    "riscv64imac-unknown-none-elf",
 );
 
 /// How long `wait`'s one host call takes.

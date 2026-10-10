@@ -1,9 +1,7 @@
 //! A bound on how long a guest may run.
 //!
 //! How long, and how a nested call inherits what is left, is berm's. Stopping
-//! a guest that has run past it is the backend's: rvtime trips a flag its
-//! compiled code polls, wasmtime counts down an epoch, and neither is a
-//! decision about the program model.
+//! a guest that has run past it is wasmtime's, counting down an epoch.
 
 use std::time::{Duration, Instant};
 

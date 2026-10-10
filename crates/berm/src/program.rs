@@ -2,8 +2,8 @@
 
 use crate::{
     Callsite, Deps, Syscall, abi,
-    backend::{Engine, Image},
     bound::watchdog,
+    engine::{Engine, Image},
     syscall,
 };
 use anyhow::{Context, Result, bail};
@@ -98,8 +98,6 @@ impl Program {
     ///
     /// `caller` is who the chain runs on behalf of, as the embedder names
     /// them; a syscall reads it off its [`Callsite`].
-    ///
-    /// Under the RISC-V backend this has to be awaited inside a tokio runtime.
     pub async fn call(
         &self,
         caller: Option<Arc<str>>,

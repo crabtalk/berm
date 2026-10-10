@@ -6,19 +6,12 @@ version.workspace = true
 repository.workspace = true
 license.workspace = true
 authors.workspace = true
-keywords = ["mcp", "sandbox", "riscv", "program", "daemon"]
+keywords = ["mcp", "sandbox", "wasm", "program", "daemon"]
 categories = ["virtualization"]
 
 [[bin]]
 name = "bermd"
 path = "bin/main.rs"
-
-[features]
-# Passed through to berm, which is where the two backends live.
-default = ["wasm"]
-wasm = ["berm/wasm"]
-riscv = ["berm/riscv"]
-riscv-jit = ["berm/riscv-jit"]
 
 [dependencies]
 anyhow.workspace = true

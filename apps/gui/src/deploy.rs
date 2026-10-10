@@ -21,7 +21,7 @@ impl Sheet {
         Self {
             name: cx.new(|cx| TextField::new(cx).with_placeholder("echo")),
             image: cx.new(|cx| {
-                TextField::new(cx).with_placeholder("./program.elf or ghcr.io/org/echo:v1")
+                TextField::new(cx).with_placeholder("./program.wasm or ghcr.io/org/echo:v1")
             }),
         }
     }
@@ -43,8 +43,8 @@ impl Workbench {
         let deploying = self.rt.spawn(async move {
             // Reading an image reaches a registry or the filesystem, neither of
             // which a runtime worker can afford to block on.
-            let elf = tokio::task::spawn_blocking(move || utils::image(&image)).await??;
-            service.deploy(&name, elf).await
+            let image = tokio::task::spawn_blocking(move || utils::image(&image)).await??;
+            service.deploy(&name, image).await
         });
         cx.spawn(async move |this, cx| {
             let refused = match deploying.await {

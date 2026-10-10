@@ -16,9 +16,8 @@ pub const ABI_VERSION: u32 = 2;
 /// The section carrying the manifest. A section rather than an export, so
 /// reading what a program claims to be never means running it.
 ///
-/// One name for both formats: an ELF section and a wasm custom section are
-/// each what `#[link_section]` emits for the target, and each is what
-/// [`Manifest::section`] reads back.
+/// A wasm custom section, which is what `#[link_section]` emits on
+/// `wasm32`.
 pub const ABI_SECTION: &str = ".berm.abi";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -123,7 +122,7 @@ impl Manifest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Program {
     pub name: String,
-    /// sha256 of the ELF.
+    /// sha256 of the image.
     pub digest: String,
     /// When to reach for this program's tools, and how they go together.
     pub usage: String,

@@ -1,6 +1,6 @@
 //! What a host call does when there is no host.
 //!
-//! Off RISC-V this crate is an ordinary library, so a program author can build
+//! Off wasm this crate is an ordinary library, so a program author can build
 //! and unit test their handlers natively rather than cross-compiling to see
 //! anything at all. The calls a test can reasonably answer — the argument blob,
 //! the log, the failure channel — are served from [`crate::test`]'s state.

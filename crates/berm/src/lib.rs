@@ -11,10 +11,7 @@
 //! let result = berm.call(None, "example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
 //! ```
 //!
-//! An image is WebAssembly, run under wasmtime, or — experimentally — a
-//! statically linked RV64 ELF run under rvtime. Which one a deploy reaches is
-//! read off its first four bytes, and the two answer the same ABI: same
-//! syscall names, same framing, same exports.
+//! An image is a WebAssembly module, run under wasmtime.
 //!
 //! What is deployed is reachable, by name, from any other program deployed
 //! beside it — which is the one syscall berm serves itself, because it
@@ -28,8 +25,8 @@
 //! and check the request and hand the work to the embedder's closures.
 
 use anyhow::Result;
-pub use backend::{Config, Engine};
 pub use berm_api::{Deps, Manifest, ToolSpec};
+pub use engine::{Config, Engine};
 pub use program::{Invocation, Program, Refused};
 use std::{
     collections::BTreeMap,
@@ -40,8 +37,8 @@ use std::{
 pub use storage::{Records, Storage};
 
 pub mod abi;
-mod backend;
 mod bound;
+mod engine;
 mod program;
 pub mod storage;
 pub mod syscall;
@@ -59,9 +56,8 @@ pub type Reply = Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send>>;
 
 /// What a syscall does: request bytes in, result bytes out.
 ///
-/// The guest is suspended until the reply resolves. Under the wasm backend
-/// that frees the thread; under the RISC-V backend the guest holds a blocking
-/// thread, which drives the reply with the tokio runtime it was called from.
+/// The guest is suspended until the reply resolves, and its thread is free
+/// meanwhile.
 pub type Call = Arc<dyn Fn(Callsite, Vec<u8>) -> Reply + Send + Sync>;
 
 /// Which program is asking, on whose behalf, and the chain that reached it.
@@ -245,9 +241,9 @@ impl Berm {
 /// from its linker, and that absence is the enforcement — there is no check to
 /// write and none to forget. Whatever bounds it is whatever it closes over.
 ///
-/// The name is hashed to the number the guest puts in `a7`, and berm neither
-/// reserves a namespace nor recognises one: every name in the list belongs to
-/// the embedder that wrote it.
+/// The name is hashed to the number the guest passes to `berm.syscall`, and
+/// berm neither reserves a namespace nor recognises one: every name in the list
+/// belongs to the embedder that wrote it.
 #[derive(Clone)]
 pub struct Syscall {
     /// What the guest calls it, e.g. `berm.http.fetch`.

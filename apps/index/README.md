@@ -9,7 +9,7 @@ anything:
 
 ```sh
 berm-indexd --index ./index &
-berm push ghcr.io/me/example:v1 ./program.elf
+berm push ghcr.io/me/example:v1 ./program.wasm
 berm publish --index http://127.0.0.1:7788 ghcr.io/me/example:v1
 berm search --index http://127.0.0.1:7788 "read a file"
 ```
