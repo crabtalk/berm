@@ -54,7 +54,8 @@ impl Service {
         let Some(program) = self.get(program) else {
             bail!("no program named {program:?} is deployed");
         };
-        program.call(tool, args).await
+        // bermd authenticates no one, so no chain it starts has a caller.
+        program.call(None, tool, args).await
     }
 
     /// Compile an image into the runtime, off the async workers.

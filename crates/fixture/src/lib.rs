@@ -11,7 +11,8 @@
 //! host calls to price one, `probe` allocates to show the heap arrives without
 //! a second entry into the guest, and `boom` fails on purpose.
 //! `tick` arms itself, to show a wake outliving the invocation that asked for
-//! it, and `wait` makes one host call a host can make slow.
+//! it, `wait` makes one host call a host can make slow, and `fetch` makes one
+//! HTTP request to a host its manifest declares.
 //! `crates/berm/examples/measure.rs` and `load.rs` read the numbers off them,
 //! and `tests/tools.rs` is the only exercise the SDK's host-side `test::call`
 //! gets.
@@ -26,7 +27,13 @@ extern crate alloc;
 // only declared.
 #[berm_lang::program(
     programs = ["inner"],
-    syscalls = { "berm.get", "berm.set", "berm.call.after" },
+    syscalls = {
+        "berm.get",
+        "berm.set",
+        "berm.call.after",
+        "berm.http.fetch" = ["127.0.0.1"],
+    },
+    secrets = ["fixture"],
 )]
 mod tools {
     use berm_lang::{Failed, Out};
@@ -94,6 +101,31 @@ mod tools {
             Ok(None) => out.write(b"unset"),
             Err(_) => return Err(Failed),
         }
+        Ok(())
+    }
+
+    /// Fetches the URL in its arguments and answers the status and the body's
+    /// length. A second word onward is one `Name: Value` header, which may
+    /// name `{secret:fixture}`.
+    pub fn fetch(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let args = core::str::from_utf8(args).unwrap_or("").trim();
+        let (url, header) = args.split_once(char::is_whitespace).unwrap_or((args, ""));
+        let header = header
+            .split_once(':')
+            .map(|(name, value)| (name.trim(), value.trim()));
+        let response = berm_lang::http::fetch("GET", url, header.as_slice(), b"")
+            .map_err(|error| berm_lang::tool::syscall::<()>(Err(error), out).unwrap_err())?;
+
+        let mut said = alloc::string::String::new();
+        let _ = core::fmt::Write::write_fmt(
+            &mut said,
+            format_args!(
+                r#"{{"status":{},"bytes":{}}}"#,
+                response.status,
+                response.body.len()
+            ),
+        );
+        out.write(said.as_bytes());
         Ok(())
     }
 

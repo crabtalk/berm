@@ -1,7 +1,7 @@
 //! One compiled program, and the state of one invocation of it.
 
 use crate::{
-    Callsite, Syscall, abi,
+    Callsite, Deps, Syscall, abi,
     backend::{Engine, Image},
     bound::watchdog,
     syscall,
@@ -24,6 +24,8 @@ pub struct Program {
     image: Image,
     /// Read from the image at load, without running anything.
     manifest: Manifest,
+    /// The manifest's deps, as every invocation's [`Callsite`] carries them.
+    deps: Arc<Deps>,
     /// Each tool beside the symbol it is exported as, resolved once so a call
     /// spends no allocation rebuilding the name.
     tools: BTreeMap<String, String>,
@@ -72,6 +74,7 @@ impl Program {
             name: name.into(),
             digest: hex::encode(Sha256::digest(image)),
             image: compiled,
+            deps: Arc::new(manifest.deps.clone()),
             manifest,
             tools,
         })
@@ -93,21 +96,27 @@ impl Program {
     /// image. The inner one is the guest's: `Err` means the program reported
     /// failure, which is what a tool result carries back to the model.
     ///
+    /// `caller` is who the chain runs on behalf of, as the embedder names
+    /// them; a syscall reads it off its [`Callsite`].
+    ///
     /// Under the RISC-V backend this has to be awaited inside a tokio runtime.
     pub async fn call(
         &self,
+        caller: Option<Arc<str>>,
         tool: &str,
         args: impl Into<Vec<u8>>,
     ) -> Result<Result<String, String>> {
-        self.invoke(tool, args.into(), 1, watchdog::fresh()).await
+        self.invoke(tool, args.into(), caller, 1, watchdog::fresh())
+            .await
     }
 
-    /// Run one tool as link `depth` of a chain that has to be done by
-    /// `deadline`.
+    /// Run one tool as link `depth` of a chain started by `caller` that has to
+    /// be done by `deadline`.
     pub(crate) async fn invoke(
         &self,
         tool: &str,
         args: Vec<u8>,
+        caller: Option<Arc<str>>,
         depth: u32,
         deadline: Instant,
     ) -> Result<Result<String, String>> {
@@ -118,6 +127,8 @@ impl Program {
         let invocation = Invocation {
             at: Callsite {
                 program: self.name.clone(),
+                deps: self.deps.clone(),
+                caller,
                 depth,
                 deadline,
             },

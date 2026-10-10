@@ -113,7 +113,7 @@ async fn row(
             for _ in 0..mine {
                 let submitted = Instant::now();
                 program
-                    .call(tool, b"{}".to_vec())
+                    .call(None, tool, b"{}".to_vec())
                     .await?
                     .map_err(anyhow::Error::msg)?;
                 latencies.push(submitted.elapsed());

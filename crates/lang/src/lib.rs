@@ -29,14 +29,11 @@
 //! with `-Clink-arg=--emit-relocs`, which is not optional there. `berm new`
 //! writes a crate whose `.cargo/config.toml` carries what its target needs.
 //!
-//! This crate declares one syscall and no more: [`call`], for reaching
-//! another program the same host is running. That one is about the program
-//! model itself rather than about any host's world, which is why it is here.
-//! What a program can reach *outside* is whatever its host registered, and
-//! naming any of that here would be the SDK deciding what a host must serve. A
-//! program running under the Crabtalk daemon adds
-//! [`berm-crabtalk`](https://crates.io/crates/berm-crabtalk), which declares
-//! that namespace — files, commands, HTTP, the runtime.
+//! This crate declares the standard syscalls: [`call`] and [`after`] for
+//! reaching programs, [`get`] and [`set`] for a program's own bytes, and
+//! [`http::fetch`] for the network. berm serves [`call`] itself; the rest run
+//! only under a host that registers them, and trap as unknown host calls
+//! otherwise.
 
 #![no_std]
 
@@ -52,6 +49,7 @@ extern crate alloc;
 pub mod abi;
 mod call;
 mod heap;
+pub mod http;
 mod out;
 mod store;
 pub mod test;

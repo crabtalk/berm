@@ -17,6 +17,7 @@ use tokio::{net::TcpListener, runtime::Handle, sync::broadcast};
 mod api;
 mod deps;
 mod files;
+mod http;
 mod mcp;
 mod program;
 mod source;
@@ -53,9 +54,11 @@ impl Service {
         // Cyclic for the reason `Berm` is: the timer door reaches back into
         // the service holding the table it writes to.
         let runtime = Handle::current();
+        let fetch = http::syscall()?;
         let service = Arc::new_cyclic(|me| {
             let mut syscalls = store::syscalls(&root);
             syscalls.push(timer::syscalls(me.clone(), runtime));
+            syscalls.push(fetch);
             Self {
                 berm: Berm::new(
                     &engine,

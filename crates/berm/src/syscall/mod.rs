@@ -1,15 +1,13 @@
 //! What a guest can reach.
 //!
 //! A syscall is native host code behind a name, the way a precompile is
-//! native code behind an address. berm serves the ones whose whole behaviour is
-//! the program model — [`call`], which resolves against the set berm already
-//! holds, and [`store`], whose keyspace is whoever is asking. Where the bytes
-//! land is still a host's, and arrives as an argument.
+//! native code behind an address. berm serves [`call`] itself, resolving
+//! against the set it already holds.
 //!
-//! Everything else is a [`crate::Syscall`] the embedder registers. berm ships no
-//! filesystem, no command runner and no network: each needs a policy invented
-//! to compile — a root, a size cap, an allowlist — and those are decisions
-//! about a host.
+//! The standard calls — [`store`], [`after`], [`http`] — are berm's to read
+//! and check, and a host's to carry out: each module turns the request into a
+//! typed value and hands it to closures the embedder registers with it.
+//! Anything else is a [`crate::Syscall`] the embedder writes whole.
 //!
 //! Every one of them, berm's own included, is written once here and reached
 //! through the one table below. A backend carries that table across its own
@@ -20,7 +18,9 @@ use crate::{Call, Callsite, Refused, Syscall, abi, backend::Guest};
 use anyhow::{Result, bail};
 use std::{collections::HashMap, sync::Arc};
 
+pub mod after;
 pub mod call;
+pub mod http;
 pub mod store;
 
 /// One of the ABI's own doors: request bytes at `(ptr, len)` in, a staged

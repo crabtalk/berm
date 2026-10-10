@@ -16,7 +16,7 @@
 
 use crate::Service;
 use anyhow::{Context, Result, bail};
-use berm::{Callsite, Records, Syscall, abi, wire};
+use berm::{Callsite, Records, Syscall, syscall::after};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -45,41 +45,28 @@ pub(crate) struct Wakes {
 
 /// `berm.call.after`, against `service`.
 pub(crate) fn syscalls(service: Weak<Service>, runtime: Handle) -> Syscall {
-    Syscall {
-        name: abi::CALL_AFTER.to_owned(),
-        call: Arc::new(move |at: Callsite, request: Vec<u8>| {
-            Box::pin(std::future::ready(arm(&service, &runtime, &at, &request)))
-        }),
-    }
-}
-
-/// Read one `berm.call.after` request and hold the wake it names.
-fn arm(
-    service: &Weak<Service>,
-    runtime: &Handle,
-    at: &Callsite,
-    request: &[u8],
-) -> Result<Vec<u8>> {
-    let fields = wire::fields(request)?;
-    let after: u64 = wire::text(&fields, 0, "delay")?
-        .parse()
-        .context("a delay is milliseconds")?;
-    let wake = Wake {
-        at: now().saturating_add(after),
-        program: wire::text(&fields, 1, "program")?.to_owned(),
-        tool: wire::text(&fields, 2, "tool")?.to_owned(),
-        args: wire::text(&fields, 3, "arguments")?.to_owned(),
-    };
-
-    let Some(service) = service.upgrade() else {
-        bail!("the service is shutting down, so nothing was armed");
-    };
-    service.arm(&at.program, wake, runtime)
+    after::programs(move |at: Callsite, asked: after::Wake| {
+        let armed = match service.upgrade() {
+            Some(service) => {
+                let wake = Wake {
+                    at: now().saturating_add(asked.delay),
+                    program: asked.program,
+                    tool: asked.tool,
+                    args: asked.args,
+                };
+                service.arm(&at.program, wake, &runtime)
+            }
+            None => Err(anyhow::anyhow!(
+                "the service is shutting down, so nothing was armed"
+            )),
+        };
+        std::future::ready(armed)
+    })
 }
 
 impl Service {
     /// Hold `wake` for `owner`, replacing whatever it had pending.
-    fn arm(self: &Arc<Self>, owner: &str, wake: Wake, runtime: &Handle) -> Result<Vec<u8>> {
+    fn arm(self: &Arc<Self>, owner: &str, wake: Wake, runtime: &Handle) -> Result<()> {
         // Checked here, where the program that armed it is still running and
         // can act on the answer. At firing time nobody is listening.
         let Some(target) = self.get(&wake.program) else {
@@ -103,7 +90,7 @@ impl Service {
             .put(Records::Wakes, owner, &serde_json::to_vec(&wake)?)
             .context("failed to write down a wake")?;
         self.hold(owner.to_owned(), wake, runtime);
-        Ok(Vec::new())
+        Ok(())
     }
 
     /// Put a wake on a task, replacing the one already there.

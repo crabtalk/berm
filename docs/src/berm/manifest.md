@@ -38,13 +38,20 @@ file at compile time when it outgrows an attribute.
 #[berm_lang::program(
     programs = ["weather"],
     syscalls = { "berm.get", "berm.http.fetch" = ["api.example.com"] },
+    secrets = ["example"],
 )]
 ```
 
 is what an image says it will reach for once it runs: programs it calls by
-name, and syscalls it makes beyond the ABI's own, each beside what it reaches
-through that call. The manifest carries them as
-`"deps": {"programs": [...], "syscalls": {"name": [...]}}`. These are runtime
+name, syscalls it makes beyond the ABI's own, each beside what it reaches
+through that call, and secrets it names as `{secret:NAME}` in a header. The
+manifest carries them as
+`"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...]}`.
+
+`berm.http.fetch` holds a program to them: a host it does not declare, or a
+secret it does not declare, is refused before anything is sent. A declared
+secret is substituted by the host for the chain's caller, and the guest never
+holds its value. These are runtime
 and resolved wherever the image lands: nothing here is fetched, installed, or
 compiled in, which is what separates them from the crate's own
 `[dependencies]`.

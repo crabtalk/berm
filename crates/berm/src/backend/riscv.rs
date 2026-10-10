@@ -139,6 +139,8 @@ fn probe() -> Invocation {
     Invocation {
         at: Callsite {
             program: Arc::from(""),
+            deps: Arc::default(),
+            caller: None,
             depth: 0,
             deadline: Instant::now(),
         },

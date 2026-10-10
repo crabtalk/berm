@@ -5,8 +5,9 @@ use berm_api::{Deps, Manifest};
 
 impl Service {
     /// The declared dependencies nothing here answers to: programs not
-    /// deployed, and syscalls nothing registers. What a served syscall
-    /// reaches through it is that syscall's to grant.
+    /// deployed, syscalls nothing registers, and every secret — bermd holds
+    /// none. What a served syscall reaches through it is that syscall's to
+    /// grant.
     ///
     /// Reported, never refused. Refusing would make deploy order significant,
     /// and `restore` walks a directory in whatever order the filesystem gives
@@ -26,6 +27,7 @@ impl Service {
                 .filter(|(name, _)| !self.berm.serves(name))
                 .map(|(name, reached)| (name.clone(), reached.clone()))
                 .collect(),
+            secrets: deps.secrets.clone(),
         }
     }
 }

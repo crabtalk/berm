@@ -32,6 +32,10 @@ pub fn show(program: &Program) {
         };
         println!("  syscall {name}{reached}{}", answered(missing));
     }
+    for name in &program.deps.secrets {
+        let missing = program.unresolved.secrets.contains(name);
+        println!("  secret  {name}{}", answered(missing));
+    }
 
     for tool in &program.tools {
         println!();

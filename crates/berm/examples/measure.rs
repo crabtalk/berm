@@ -65,25 +65,25 @@ async fn main() -> Result<()> {
 
     println!(
         "heap probe:            {:?}",
-        program.call("probe", b"".to_vec()).await?
+        program.call(None, "probe", b"".to_vec()).await?
     );
 
     // A payload in the range a real tool call carries.
     let args = format!(r#"{{"query":"{}"}}"#, "x".repeat(256));
     let echoed = program
-        .call("echo", args.as_bytes())
+        .call(None, "echo", args.as_bytes())
         .await?
         .map_err(anyhow::Error::msg)?;
     assert!(echoed.contains(&args), "round trip lost the payload");
     println!(
         "failure path:          {:?}",
-        program.call("boom", b"".to_vec()).await?.unwrap_err()
+        program.call(None, "boom", b"".to_vec()).await?.unwrap_err()
     );
 
     let mut chatty = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
         let start = Instant::now();
-        let _ = program.call("chatty", b"".to_vec()).await?;
+        let _ = program.call(None, "chatty", b"".to_vec()).await?;
         chatty.push(start.elapsed());
     }
     chatty.sort();
@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
     let mut samples = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
         let start = Instant::now();
-        let _ = program.call("echo", args.as_bytes()).await?;
+        let _ = program.call(None, "echo", args.as_bytes()).await?;
         samples.push(start.elapsed());
     }
     samples.sort();
@@ -105,7 +105,7 @@ async fn main() -> Result<()> {
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
             let start = Instant::now();
-            let _ = program.call(tool, args.to_vec()).await?;
+            let _ = program.call(None, tool, args.to_vec()).await?;
             samples.push(start.elapsed());
         }
         samples.sort();

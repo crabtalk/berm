@@ -49,8 +49,10 @@ turn.
 
 ## What a program can reach
 
-Its arguments, the log, its own stored keys, the clock, a callback timer, and
-any other program deployed beside it. There is no wiring step: what is deployed is reachable by
+Its arguments, the log, its own stored keys, the clock, a callback timer, HTTP
+to the hosts its manifest declares under `berm.http.fetch`, and any other
+program deployed beside it. bermd holds no secrets, so a request naming
+`{secret:NAME}` is refused. There is no wiring step: what is deployed is reachable by
 name, the way containers on one network reach each other.
 
 ```sh

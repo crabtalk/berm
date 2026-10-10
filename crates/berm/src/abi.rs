@@ -91,6 +91,17 @@ pub const CALL_AFTER: &str = "berm.call.after";
 /// which is what bounds a program to one and keeps it from fanning out.
 pub const HOST_CALL_AFTER: u64 = hash(CALL_AFTER);
 
+/// What a host registers to serve [`HOST_HTTP_FETCH`].
+pub const HTTP_FETCH: &str = "berm.http.fetch";
+
+/// Make one HTTP request. `(ptr, len) -> staged length`
+///
+/// Request fields are the method, the URL and the body, then header names and
+/// values in turn. The reply is the status as decimal text and the body, then
+/// header names and values in turn. A header value may carry `{secret:NAME}`,
+/// which the host substitutes; the guest never holds the value.
+pub const HOST_HTTP_FETCH: u64 = hash(HTTP_FETCH);
+
 /// What a host registers to serve [`HOST_GET`] and [`HOST_SET`].
 pub const GET: &str = "berm.get";
 pub const SET: &str = "berm.set";

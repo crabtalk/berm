@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
     berm.deploy("outer", &elf)?;
 
     let result = berm
-        .call("outer", "nest", br#"{"query":"hi"}"#.to_vec())
+        .call(None, "outer", "nest", br#"{"query":"hi"}"#.to_vec())
         .await?
         .map_err(anyhow::Error::msg)?;
     println!("reached:  {result}");
@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
     // once it is gone.
     assert!(berm.remove("inner")?);
     let failure = berm
-        .call("outer", "nest", br#"{"query":"hi"}"#.to_vec())
+        .call(None, "outer", "nest", br#"{"query":"hi"}"#.to_vec())
         .await?
         .expect_err("a refused call fails its caller");
     println!("refused:  {failure}");
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
     // levels got through — the runaway a limit exists to stop.
     berm.deploy("inner", &elf)?;
     let reached = berm
-        .call("outer", "recurse", b"0".to_vec())
+        .call(None, "outer", "recurse", b"0".to_vec())
         .await?
         .map_err(anyhow::Error::msg)?;
     println!("depth:    {reached} levels before the runtime refused");

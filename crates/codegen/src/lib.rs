@@ -68,6 +68,8 @@ struct Config {
     /// Syscalls it makes beyond the ABI's own, each beside what it reaches
     /// through that call.
     syscalls: Vec<(String, Vec<String>)>,
+    /// Secrets it names in `{secret:NAME}`.
+    secrets: Vec<String>,
     /// Kept only to re-emit as an `include_str!`, so editing the file
     /// rebuilds the program.
     usage_file: Option<syn::LitStr>,
@@ -80,6 +82,7 @@ impl Parse for Config {
         let mut usage_file = None;
         let mut programs = Vec::new();
         let mut syscalls = Vec::new();
+        let mut secrets = Vec::new();
 
         while !input.is_empty() {
             let key: syn::Ident = input.parse()?;
@@ -111,6 +114,7 @@ impl Parse for Config {
                 // the call is invisible to anything reading the image, so a
                 // scan of this crate would report a list that is quietly short.
                 "programs" => programs = strings(input)?,
+                "secrets" => secrets = strings(input)?,
                 // `{ "berm.get", "berm.http.fetch" = ["example.com"] }`: each
                 // call, and what it reaches through that call.
                 "syscalls" => {
@@ -141,7 +145,7 @@ impl Parse for Config {
                     return Err(syn::Error::new(
                         key.span(),
                         format!(
-                            "unknown argument: {other} (expected `buffer`, `usage_file`, `programs` or `syscalls`)"
+                            "unknown argument: {other} (expected `buffer`, `usage_file`, `programs`, `syscalls` or `secrets`)"
                         ),
                     ));
                 }
@@ -158,6 +162,7 @@ impl Parse for Config {
             usage_file,
             programs,
             syscalls,
+            secrets,
         })
     }
 }
@@ -494,6 +499,7 @@ fn describe(config: &Config, tools: &[Tool]) -> String {
             .join(",")
     };
     let programs = list(&config.programs);
+    let secrets = list(&config.secrets);
     let syscalls = config
         .syscalls
         .iter()
@@ -502,7 +508,7 @@ fn describe(config: &Config, tools: &[Tool]) -> String {
         .join(",");
 
     format!(
-        r#"{{"abi_version":2,"tools":[{tools}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}}}}}}"#,
+        r#"{{"abi_version":2,"tools":[{tools}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}]}}}}"#,
         escape(&config.usage),
     )
 }

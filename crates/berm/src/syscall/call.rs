@@ -65,7 +65,13 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, limit: u32) -> Syscall {
                 };
 
                 match target
-                    .invoke(tool, args.as_bytes().to_vec(), at.depth + 1, at.deadline)
+                    .invoke(
+                        tool,
+                        args.as_bytes().to_vec(),
+                        at.caller.clone(),
+                        at.depth + 1,
+                        at.deadline,
+                    )
                     .await?
                 {
                     Ok(result) => Ok(result.into_bytes()),

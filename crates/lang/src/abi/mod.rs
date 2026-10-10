@@ -47,6 +47,8 @@ pub const HOST_SET: u64 = hash("berm.set");
 pub const HOST_CALL: u64 = hash("berm.call");
 /// Call a tool on one later, replacing whatever this program had pending.
 pub const HOST_CALL_AFTER: u64 = hash("berm.call.after");
+/// Make one HTTP request.
+pub const HOST_HTTP_FETCH: u64 = hash("berm.http.fetch");
 /// Milliseconds since the Unix epoch, as the host reads its clock.
 pub const HOST_NOW: u64 = hash("berm.now");
 

@@ -53,16 +53,20 @@ pub struct Deps {
     /// read by. An empty list is the call alone.
     #[serde(default)]
     pub syscalls: BTreeMap<String, Vec<String>>,
+    /// Secrets it names in `{secret:NAME}`, which the host substitutes and
+    /// the guest never holds.
+    #[serde(default)]
+    pub secrets: Vec<String>,
 }
 
 impl Deps {
     pub fn is_empty(&self) -> bool {
-        self.programs.is_empty() && self.syscalls.is_empty()
+        self.programs.is_empty() && self.syscalls.is_empty() && self.secrets.is_empty()
     }
 }
 
-/// `inner, berm.http.fetch (example.com)` — every program, then every
-/// syscall with what it reaches.
+/// `inner, berm.http.fetch (example.com), secret openai` — every program,
+/// every syscall with what it reaches, then every secret.
 impl std::fmt::Display for Deps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut items = self.programs.clone();
@@ -74,6 +78,7 @@ impl std::fmt::Display for Deps {
                     false => format!("{name} ({})", reached.join(", ")),
                 }),
         );
+        items.extend(self.secrets.iter().map(|name| format!("secret {name}")));
         f.write_str(&items.join(", "))
     }
 }

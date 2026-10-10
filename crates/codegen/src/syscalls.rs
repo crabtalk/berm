@@ -614,14 +614,14 @@ impl Declaration {
             #docs
             pub fn #ident<Serve, Served>(serve: Serve) -> ::berm::Syscall
             where
-                Serve: Fn(#(#takes),*) -> Served + Send + Sync + 'static,
+                Serve: Fn(::berm::Callsite, #(#takes),*) -> Served + Send + Sync + 'static,
                 Served: ::core::future::Future<Output = ::berm::anyhow::Result<#returns>>
                     + Send + 'static,
             {
                 ::berm::Syscall {
                     name: ::std::string::String::from(#konst),
                     call: ::std::sync::Arc::new(
-                        move |_: ::berm::Callsite, request: ::std::vec::Vec<u8>| -> ::berm::Reply {
+                        move |at: ::berm::Callsite, request: ::std::vec::Vec<u8>| -> ::berm::Reply {
                             let decoded = (|| -> ::berm::anyhow::Result<_> {
                                 let fields = ::berm::wire::fields(&request)?;
                                 #arity
@@ -637,7 +637,7 @@ impl Declaration {
                                     ));
                                 }
                             };
-                            let pending = serve(#(#names),*);
+                            let pending = serve(at, #(#names),*);
                             ::std::boxed::Box::pin(async move {
                                 let served = pending.await;
                                 #answer
