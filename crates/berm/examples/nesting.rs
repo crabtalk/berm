@@ -44,6 +44,7 @@ async fn main() -> Result<()> {
 
     let engine = Engine::new(&Config {
         cache_dir: Some(std::env::temp_dir().join("berm-nesting")),
+        ..Config::default()
     })?;
 
     let berm = Berm::new(

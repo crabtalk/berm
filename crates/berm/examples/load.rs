@@ -67,7 +67,10 @@ async fn main() -> Result<()> {
             })
         }),
     };
-    let engine = Engine::new(&Config { cache_dir: None })?;
+    let engine = Engine::new(&Config {
+        instances: 10_000,
+        ..Config::default()
+    })?;
     let program =
         Berm::new(&engine, 0, vec![get], berm::storage::Memory::new()).deploy("fixture", &image)?;
 

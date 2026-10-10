@@ -46,6 +46,7 @@ impl Service {
     pub async fn new(root: PathBuf, depth: u32) -> Result<Arc<Self>> {
         let engine = Engine::new(&Config {
             cache_dir: Some(root.join("cache")),
+            ..Config::default()
         })
         .context("failed to start the compiler")?;
 

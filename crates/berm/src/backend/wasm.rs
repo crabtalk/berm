@@ -21,7 +21,8 @@ use std::{
     time::{Duration, Instant},
 };
 use wasmtime::{
-    Caller, Engine, Extern, InstancePre, Linker, Memory, Module, Store, ToWasmtimeResult, TypedFunc,
+    Caller, Engine, Extern, InstanceAllocationStrategy, InstancePre, Linker, Memory, Module,
+    PoolingAllocationConfig, Store, ToWasmtimeResult, TypedFunc,
 };
 
 /// The module every syscall is imported from, and the one name under it.
@@ -44,6 +45,16 @@ pub(crate) fn engine(config: &Config) -> Result<Engine> {
         wasmtime.cache(Some(wasmtime::Cache::new(cache)?));
     }
 
+    // An instance, its memory, its table and the fiber it runs on are taken
+    // from slots reserved here rather than mapped per call. One of each per
+    // guest: a guest asking for a second memory or table fails to instantiate.
+    let mut pool = PoolingAllocationConfig::new();
+    pool.total_core_instances(config.instances)
+        .total_memories(config.instances)
+        .total_tables(config.instances)
+        .total_stacks(config.instances)
+        .max_memory_size(config.memory);
+    wasmtime.allocation_strategy(InstanceAllocationStrategy::Pooling(pool));
     let engine = Engine::new(&wasmtime)?;
     tick(&engine);
     Ok(engine)

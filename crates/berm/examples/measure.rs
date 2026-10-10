@@ -158,6 +158,7 @@ async fn main() -> Result<()> {
 fn compile(dir: &std::path::Path, image: &[u8]) -> Result<Arc<Program>> {
     let engine = Engine::new(&Config {
         cache_dir: Some(dir.to_path_buf()),
+        ..Config::default()
     })?;
     Berm::new(&engine, 0, vec![], storage::Memory::new()).deploy("fixture", image)
 }

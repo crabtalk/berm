@@ -41,13 +41,29 @@ pub(crate) trait Guest {
 }
 
 /// How a runtime compiles and holds code.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Config {
     /// Where compiled code is cached, if anywhere.
     ///
     /// Entries are keyed on contents, so a stale directory yields misses
     /// rather than wrong code, and it is safe to share between processes.
     pub cache_dir: Option<PathBuf>,
+    /// How many wasm guests may be live at once, across every program and
+    /// nested calls included. Slots are reserved when the engine is built; a
+    /// call past the last one fails.
+    pub instances: u32,
+    /// The largest linear memory one wasm guest may grow to, in bytes.
+    pub memory: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            cache_dir: None,
+            instances: 1_000,
+            memory: 64 << 20,
+        }
+    }
 }
 
 /// A compilation target, shared by every program a runtime holds.

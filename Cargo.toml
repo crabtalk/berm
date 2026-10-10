@@ -101,6 +101,7 @@ wasmtime = { version = "48", default-features = false, features = [
     "cache",
     "cranelift",
     "parallel-compilation",
+    "pooling-allocator",
     "runtime",
     "std",
 ] }
