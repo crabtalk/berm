@@ -11,9 +11,10 @@
 //! host calls to price one, `probe` allocates to show the heap arrives without
 //! a second entry into the guest, and `boom` fails on purpose.
 //! `tick` arms itself, to show a wake outliving the invocation that asked for
-//! it.
-//! `crates/berm/examples/measure.rs` reads the numbers off them, and
-//! `tests/tools.rs` is the only exercise the SDK's host-side `test::call` gets.
+//! it, and `wait` makes one host call a host can make slow.
+//! `crates/berm/examples/measure.rs` and `load.rs` read the numbers off them,
+//! and `tests/tools.rs` is the only exercise the SDK's host-side `test::call`
+//! gets.
 
 // `no_std` and `no_main` are the guest's shape. Off a guest target this is an
 // ordinary library, so `cargo test` runs the tools below natively.
@@ -78,6 +79,18 @@ mod tools {
     pub fn probe(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let v = alloc::vec![7u8; 4096];
         out.write(&v[..2]);
+        Ok(())
+    }
+
+    /// Reads one stored key and answers whether it was set. Under
+    /// `examples/load.rs` the read stands in for a host call that waits on
+    /// I/O.
+    pub fn wait(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        match berm_lang::get("wait") {
+            Ok(Some(_)) => out.write(b"set"),
+            Ok(None) => out.write(b"unset"),
+            Err(_) => return Err(Failed),
+        }
         Ok(())
     }
 
