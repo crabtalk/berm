@@ -4,30 +4,35 @@
 //! off the [`Callsite`], so another program's keys are not refused — a guest
 //! has no way to name them.
 //!
-//! Where the bytes land is the host's, and arrives as the two closures below.
+//! A write is held in the chain's journal and reaches the host in
+//! [`crate::Changes`]; a read sees the chain's own writes first, then asks the
+//! host through the closure below.
 
 use crate::{Callsite, Syscall, abi, wire};
 use anyhow::{Result, bail};
 use std::sync::Arc;
 
-/// Serve both doors against `read` and `write`, each handed the asking program
-/// and the key.
+/// Serve both doors, reading what is committed through `read`, handed the
+/// asking program and the key.
 ///
-/// `read` answers `None` for a key never written. Both run to completion
-/// before the guest resumes, on the thread the guest was suspended on. Neither
-/// may panic, being reached from compiled guest code across an `extern "C"`
+/// `read` answers `None` for a key never written. It runs to completion
+/// before the guest resumes, on the thread the guest was suspended on, and may
+/// not panic, being reached from compiled guest code across an `extern "C"`
 /// boundary where an unwind aborts the process.
 pub fn programs(
     read: impl Fn(&str, &str) -> Result<Option<Vec<u8>>> + Send + Sync + 'static,
-    write: impl Fn(&str, &str, &[u8]) -> Result<()> + Send + Sync + 'static,
 ) -> Vec<Syscall> {
     let get = move |at: &Callsite, request: &[u8]| {
         let fields = wire::fields(request)?;
         let key = wire::text(&fields, 0, "key")?;
+        let value = match at.journal.read(&at.program, key) {
+            Some(held) => Some(held),
+            None => read(&at.program, key)?,
+        };
         // One field for a value, none for an absent key. Framed rather than
         // bare, so a stored empty value is not read as one that was never
         // written.
-        Ok(match read(&at.program, key)? {
+        Ok(match value {
             Some(value) => wire::frame(&[&value]),
             None => Vec::new(),
         })
@@ -38,7 +43,7 @@ pub fn programs(
         let Some(value) = fields.get(1) else {
             bail!("request has no value");
         };
-        write(&at.program, key, value)?;
+        at.journal.write(&at.program, key, value)?;
         Ok(Vec::new())
     };
     vec![

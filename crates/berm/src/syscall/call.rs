@@ -64,20 +64,31 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, limit: u32) -> Syscall {
                     return Err(Refused(format!("no program named {program:?} is deployed")).into());
                 };
 
-                match target
+                // A failed target takes what it held with it; the caller
+                // goes on from where it was.
+                let mark = at.journal.mark();
+                let invoked = target
                     .invoke(
                         tool,
                         args.as_bytes().to_vec(),
                         at.caller.clone(),
                         at.depth + 1,
                         at.deadline,
+                        at.journal.clone(),
                     )
-                    .await?
-                {
-                    Ok(result) => Ok(result.into_bytes()),
+                    .await;
+                match invoked {
+                    Ok(Ok(result)) => Ok(result.into_bytes()),
                     // The target ran and said no. Not a `Refused`: the caller
                     // is told the difference, and may act on it.
-                    Err(failure) => bail!(failure),
+                    Ok(Err(failure)) => {
+                        at.journal.revert(mark);
+                        bail!(failure)
+                    }
+                    Err(error) => {
+                        at.journal.revert(mark);
+                        Err(error)
+                    }
                 }
             })
         }),

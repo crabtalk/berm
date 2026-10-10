@@ -8,7 +8,7 @@
 //! ```ignore
 //! let berm = Berm::new(&engine, syscall::call::DEFAULT_CALL_DEPTH, vec![]);
 //! berm.deploy("example", &wasm)?;
-//! let result = berm.call(None, "example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
+//! let outcome = berm.call(None, "example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
 //! ```
 //!
 //! An image is a WebAssembly module, run under wasmtime.
@@ -23,11 +23,17 @@
 //! The standard ones — `berm.get`/`berm.set`, `berm.call.after`,
 //! `berm.http.fetch` — are built with [`syscall`]'s constructors, which read
 //! and check the request and hand the work to the embedder's closures.
+//!
+//! `berm.set` and `berm.emit` reach no host while the chain runs: they are held
+//! in a journal and handed back from [`Program::call`] as [`Changes`], for the
+//! host to commit as one.
 
 use anyhow::Result;
 pub use berm_api::{Deps, Manifest, ToolSpec};
 pub use engine::{Config, Engine};
-pub use program::{Invocation, Program, Refused};
+use journal::Journal;
+pub use journal::{Changes, Log, Write};
+pub use program::{Invocation, Outcome, Program, Refused};
 use std::{
     collections::BTreeMap,
     pin::Pin,
@@ -39,6 +45,7 @@ pub use storage::{Records, Storage};
 pub mod abi;
 mod bound;
 mod engine;
+mod journal;
 mod program;
 pub mod storage;
 pub mod syscall;
@@ -76,6 +83,8 @@ pub struct Callsite {
     /// notice it until the reply resolves, so a syscall bounds its own wait
     /// inside this.
     pub deadline: Instant,
+    /// What the chain has written and emitted so far.
+    pub(crate) journal: Arc<Journal>,
 }
 
 /// The programs a host is running.
@@ -218,16 +227,15 @@ impl Berm {
 
     /// Run one tool on one program.
     ///
-    /// The outer `Result` is the host's — no such program, no such tool, a
-    /// trap. The inner one is the program's own reported failure, which is a
-    /// tool result rather than an error.
+    /// `Err` is the host's — no such program, no such tool, a trap. The
+    /// program's own reported failure is [`Outcome::result`].
     pub async fn call(
         &self,
         caller: Option<Arc<str>>,
         program: &str,
         tool: &str,
         args: impl Into<Vec<u8>>,
-    ) -> Result<Result<String, String>> {
+    ) -> Result<Outcome> {
         let Some(program) = self.get(program) else {
             anyhow::bail!("no program named {program:?} is deployed");
         };

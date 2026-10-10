@@ -6,19 +6,24 @@
 
 use crate::utils;
 use anyhow::{Context, Result};
-use berm::{Syscall, syscall::store};
+use berm::{Syscall, Write, syscall::store};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-/// `berm.get` and `berm.set`, against files under `root`.
+/// `berm.get` and `berm.set`, reading files under `root`.
 pub(crate) fn syscalls(root: &Path) -> Vec<Syscall> {
-    let (reading, writing) = (root.to_owned(), root.to_owned());
-    store::programs(
-        move |program, key| read(&reading, program, key),
-        move |program, key, value| write(&writing, program, key, value),
-    )
+    let root = root.to_owned();
+    store::programs(move |program, key| read(&root, program, key))
+}
+
+/// Write what a chain left under `root`.
+pub(crate) fn commit(root: &Path, writes: &[Write]) -> Result<()> {
+    for write in writes {
+        utils::write(&key_path(root, &write.program, &write.key), &write.value)?;
+    }
+    Ok(())
 }
 
 fn key_path(root: &Path, program: &str, key: &str) -> PathBuf {
@@ -34,9 +39,4 @@ pub(crate) fn read(root: &Path, program: &str, key: &str) -> Result<Option<Vec<u
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error).context("failed to read stored state"),
     }
-}
-
-/// Write `key`, replacing whatever was there.
-pub(crate) fn write(root: &Path, program: &str, key: &str, value: &[u8]) -> Result<()> {
-    utils::write(&key_path(root, program, key), value)
 }

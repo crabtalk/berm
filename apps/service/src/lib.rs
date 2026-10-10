@@ -18,6 +18,7 @@ mod api;
 mod deps;
 mod files;
 mod http;
+mod logs;
 mod mcp;
 mod program;
 mod secrets;
@@ -43,6 +44,8 @@ pub struct Service {
     pub(crate) wakes: timer::Wakes,
     /// What each program may have substituted into its requests.
     pub(crate) secrets: secrets::Secrets,
+    /// Where each chain's writes and logs are committed.
+    root: PathBuf,
 }
 
 impl Service {
@@ -73,6 +76,7 @@ impl Service {
                 changed: broadcast::channel(CHANGE_BACKLOG).0,
                 wakes: timer::Wakes::default(),
                 secrets,
+                root: root.clone(),
             }
         });
         // Images first: a wake names a program, which has to be deployed

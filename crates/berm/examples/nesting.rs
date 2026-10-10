@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
     let result = berm
         .call(None, "outer", "nest", br#"{"query":"hi"}"#.to_vec())
         .await?
+        .result
         .map_err(anyhow::Error::msg)?;
     println!("reached:  {result}");
     assert!(
@@ -66,6 +67,7 @@ async fn main() -> Result<()> {
     let failure = berm
         .call(None, "outer", "nest", br#"{"query":"hi"}"#.to_vec())
         .await?
+        .result
         .expect_err("a refused call fails its caller");
     println!("refused:  {failure}");
     assert!(
@@ -80,6 +82,7 @@ async fn main() -> Result<()> {
     let reached = berm
         .call(None, "outer", "recurse", b"0".to_vec())
         .await?
+        .result
         .map_err(anyhow::Error::msg)?;
     println!("depth:    {reached} levels before the runtime refused");
 

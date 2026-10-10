@@ -27,8 +27,8 @@ pub mod host;
 #[doc(hidden)]
 pub mod wire;
 
-/// Write a UTF-8 message to the host log.
-pub const HOST_LOG: u64 = hash("berm.log");
+/// Write a UTF-8 message to the host's trace.
+pub const HOST_TRACE: u64 = hash("berm.trace");
 /// Byte length of this invocation's argument blob.
 pub const HOST_ARG_LEN: u64 = hash("berm.args.len");
 /// Copy the argument blob into guest memory.
@@ -43,6 +43,8 @@ pub const HOST_RESULT_READ: u64 = hash("berm.result.read");
 pub const HOST_GET: u64 = hash("berm.get");
 /// Write one.
 pub const HOST_SET: u64 = hash("berm.set");
+/// Emit one log.
+pub const HOST_EMIT: u64 = hash("berm.emit");
 /// Call a tool on another program the same host is running.
 pub const HOST_CALL: u64 = hash("berm.call");
 /// Call a tool on one later, replacing whatever this program had pending.
@@ -74,9 +76,9 @@ pub const fn hash(name: &str) -> u64 {
     result
 }
 
-/// Write a line to the host's log.
-pub fn log(message: &str) {
-    sys::call2(HOST_LOG, message.as_ptr() as u64, message.len() as u64);
+/// Write a line to the host's trace.
+pub fn trace(message: &str) {
+    sys::call2(HOST_TRACE, message.as_ptr() as u64, message.len() as u64);
 }
 
 /// What time the host says it is, in milliseconds since the Unix epoch.

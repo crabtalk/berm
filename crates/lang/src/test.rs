@@ -39,7 +39,8 @@ pub fn call(entry: extern "C" fn(), args: &[u8]) -> Result<Vec<u8>, String> {
 
     sys::with(|host| {
         host.args = args.to_vec();
-        host.logged.clear();
+        host.traced.clear();
+        host.emitted.clear();
         host.done = None;
         host.failure = None;
     });
@@ -55,9 +56,15 @@ pub fn call(entry: extern "C" fn(), args: &[u8]) -> Result<Vec<u8>, String> {
     })
 }
 
-/// What the program logged during the last [`call`].
-pub fn logged() -> Vec<String> {
-    sys::with(|host| host.logged.clone())
+/// What the program traced during the last [`call`].
+pub fn traced() -> Vec<String> {
+    sys::with(|host| host.traced.clone())
+}
+
+/// Each log's topics and data, as the program emitted them during the last
+/// [`call`].
+pub fn emitted() -> Vec<(Vec<String>, String)> {
+    sys::with(|host| host.emitted.clone())
 }
 
 /// Arrange what another program answers, so a tool that calls one can be run

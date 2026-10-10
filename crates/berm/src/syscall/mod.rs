@@ -2,7 +2,8 @@
 //!
 //! A syscall is native host code behind a name, the way a precompile is
 //! native code behind an address. berm serves [`call`] itself, resolving
-//! against the set it already holds.
+//! against the set it already holds, and `berm.emit`, which only the chain's
+//! journal holds.
 //!
 //! The standard calls — [`store`], [`after`], [`http`] — are berm's to read
 //! and check, and a host's to carry out: each module turns the request into a
@@ -19,6 +20,7 @@ use wasmtime::Caller;
 
 pub mod after;
 pub mod call;
+mod emit;
 pub mod http;
 pub mod store;
 
@@ -110,11 +112,20 @@ fn builtins() -> Table {
     let mut table = Table::new();
 
     table.insert(
-        abi::HOST_LOG,
+        abi::HOST_TRACE,
         handler(|guest, ptr, len| {
             let message = engine::read(guest, ptr, len)?;
             tracing::info!(target: "program", "{}", String::from_utf8_lossy(&message));
             Ok(0)
+        }),
+    );
+
+    table.insert(
+        abi::HOST_EMIT,
+        handler(|guest, ptr, len| {
+            let request = engine::read(guest, ptr, len)?;
+            let answer = emit::emit(&guest.data().at, &request);
+            Ok(stage(guest, answer))
         }),
     );
 

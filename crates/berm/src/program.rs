@@ -4,6 +4,7 @@ use crate::{
     Callsite, Deps, Syscall, abi,
     bound::watchdog,
     engine::{Engine, Image},
+    journal::{Changes, Journal},
     syscall,
 };
 use anyhow::{Context, Result, bail};
@@ -92,9 +93,8 @@ impl Program {
 
     /// Run one tool by name, as the first link of a chain.
     ///
-    /// The outer `Result` is the host's — a missing tool, a trap, a broken
-    /// image. The inner one is the guest's: `Err` means the program reported
-    /// failure, which is what a tool result carries back to the model.
+    /// `Err` is the host's — a missing tool, a trap, a broken image. The
+    /// program's own reported failure is [`Outcome::result`].
     ///
     /// `caller` is who the chain runs on behalf of, as the embedder names
     /// them; a syscall reads it off its [`Callsite`].
@@ -103,13 +103,27 @@ impl Program {
         caller: Option<Arc<str>>,
         tool: &str,
         args: impl Into<Vec<u8>>,
-    ) -> Result<Result<String, String>> {
-        self.invoke(tool, args.into(), caller, 1, watchdog::fresh())
-            .await
+    ) -> Result<Outcome> {
+        let journal = Arc::new(Journal::default());
+        let result = self
+            .invoke(
+                tool,
+                args.into(),
+                caller,
+                1,
+                watchdog::fresh(),
+                journal.clone(),
+            )
+            .await?;
+        let changes = match result {
+            Ok(_) => journal.take(),
+            Err(_) => Changes::default(),
+        };
+        Ok(Outcome { result, changes })
     }
 
     /// Run one tool as link `depth` of a chain started by `caller` that has to
-    /// be done by `deadline`.
+    /// be done by `deadline`, holding its writes and logs in `journal`.
     pub(crate) async fn invoke(
         &self,
         tool: &str,
@@ -117,6 +131,7 @@ impl Program {
         caller: Option<Arc<str>>,
         depth: u32,
         deadline: Instant,
+        journal: Arc<Journal>,
     ) -> Result<Result<String, String>> {
         let Some(symbol) = self.tools.get(tool) else {
             bail!("program exports no tool named {tool:?}");
@@ -129,6 +144,7 @@ impl Program {
                 caller,
                 depth,
                 deadline,
+                journal,
             },
             args,
             staged: Vec::new(),
@@ -151,6 +167,16 @@ impl Program {
             None => Ok(Ok(String::new())),
         }
     }
+}
+
+/// What one chain answered with, and what it left for the host to commit.
+#[derive(Debug)]
+pub struct Outcome {
+    /// `Err` is the program's own reported failure, which is a tool result
+    /// rather than an error.
+    pub result: Result<String, String>,
+    /// Empty when `result` is `Err`.
+    pub changes: Changes,
 }
 
 /// Guest state for one invocation. Memory is per-invocation; anything a

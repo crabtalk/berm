@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
 
     println!(
         "heap probe:            {:?}",
-        program.call(None, "probe", b"".to_vec()).await?
+        program.call(None, "probe", b"".to_vec()).await?.result
     );
 
     // A payload in the range a real tool call carries.
@@ -66,11 +66,16 @@ async fn main() -> Result<()> {
     let echoed = program
         .call(None, "echo", args.as_bytes())
         .await?
+        .result
         .map_err(anyhow::Error::msg)?;
     assert!(echoed.contains(&args), "round trip lost the payload");
     println!(
         "failure path:          {:?}",
-        program.call(None, "boom", b"".to_vec()).await?.unwrap_err()
+        program
+            .call(None, "boom", b"".to_vec())
+            .await?
+            .result
+            .unwrap_err()
     );
 
     let mut chatty = Vec::with_capacity(ROUNDS);

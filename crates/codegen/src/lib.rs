@@ -476,7 +476,7 @@ fn describe(config: &Config, tools: &[Tool]) -> String {
         .join(",");
 
     format!(
-        r#"{{"abi_version":2,"tools":[{tools}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}]}}}}"#,
+        r#"{{"abi_version":3,"tools":[{tools}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}]}}}}"#,
         escape(&config.usage),
     )
 }

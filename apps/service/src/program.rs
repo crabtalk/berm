@@ -1,6 +1,6 @@
 //! Deploying, restoring, and invoking.
 
-use crate::Service;
+use crate::{Service, logs, store};
 use anyhow::{Context, Result, bail};
 use berm::Program;
 use std::sync::Arc;
@@ -40,11 +40,14 @@ impl Service {
         Ok(true)
     }
 
-    /// Run one tool.
+    /// Run one tool, and commit what the chain wrote and emitted.
     ///
     /// The outer `Result` is the service's — no such program, no such tool, a
-    /// trap. The inner one is the program's own reported failure, which is a
-    /// tool result rather than an error.
+    /// trap, a commit that failed. The inner one is the program's own reported
+    /// failure, which is a tool result rather than an error.
+    ///
+    /// Logs are appended before writes land, so a crash between them repeats
+    /// logs rather than losing them.
     pub async fn call(
         &self,
         program: &str,
@@ -55,7 +58,10 @@ impl Service {
             bail!("no program named {program:?} is deployed");
         };
         // bermd authenticates no one, so no chain it starts has a caller.
-        program.call(None, tool, args).await
+        let outcome = program.call(None, tool, args).await?;
+        logs::append(&self.root, &outcome.changes.logs)?;
+        store::commit(&self.root, &outcome.changes.writes)?;
+        Ok(outcome.result)
     }
 
     /// Compile an image into the runtime, off the async workers.

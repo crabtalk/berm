@@ -109,6 +109,7 @@ async fn row(
                 program
                     .call(None, tool, b"{}".to_vec())
                     .await?
+                    .result
                     .map_err(anyhow::Error::msg)?;
                 latencies.push(submitted.elapsed());
             }

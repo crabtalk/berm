@@ -12,7 +12,8 @@
 //! a second entry into the guest, and `boom` fails on purpose.
 //! `tick` arms itself, to show a wake outliving the invocation that asked for
 //! it, `wait` makes one host call a host can make slow, and `fetch` makes one
-//! HTTP request to a host its manifest declares.
+//! HTTP request to a host its manifest declares. `note` writes and emits, and
+//! `relay` calls `note` on `inner`, to show what a failed call takes with it.
 //! `crates/berm/examples/measure.rs` and `load.rs` read the numbers off them,
 //! and `tests/tools.rs` is the only exercise the SDK's host-side `test::call`
 //! gets.
@@ -193,6 +194,43 @@ mod tools {
             format_args!(r#"{{"round":{round},"at":{}}}"#, berm_lang::now()),
         );
         out.write(said.as_bytes());
+        Ok(())
+    }
+
+    /// Writes its argument under `note`, emits it under the topic `note`,
+    /// answers what it reads back, and fails when the argument is `fail`.
+    pub fn note(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let word = core::str::from_utf8(args).unwrap_or("").trim();
+        if berm_lang::set("note", word.as_bytes()).is_err()
+            || berm_lang::emit(&["note"], word).is_err()
+        {
+            return Err(Failed);
+        }
+        if word == "fail" {
+            out.write(b"failed, as requested");
+            return Err(Failed);
+        }
+        match berm_lang::get("note") {
+            Ok(Some(seen)) => out.write(&seen),
+            _ => return Err(Failed),
+        }
+        Ok(())
+    }
+
+    /// Calls `note` on `inner` with its argument, carries on whether or not
+    /// that failed, emits under the topic `relay`, and answers what this
+    /// program reads back under `note`.
+    pub fn relay(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let word = core::str::from_utf8(args).unwrap_or("").trim();
+        let _ = berm_lang::call("inner", "note", word);
+        if berm_lang::emit(&["relay"], word).is_err() {
+            return Err(Failed);
+        }
+        match berm_lang::get("note") {
+            Ok(Some(seen)) => out.write(&seen),
+            Ok(None) => out.write(b"unset"),
+            Err(_) => return Err(Failed),
+        }
         Ok(())
     }
 

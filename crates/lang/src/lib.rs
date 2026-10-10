@@ -27,16 +27,19 @@
 //! Build for `wasm32-unknown-unknown`.
 //!
 //! This crate declares the standard syscalls: [`call`] and [`after`] for
-//! reaching programs, [`get`] and [`set`] for a program's own bytes, and
-//! [`http::fetch`] for the network. berm serves [`call`] itself; the rest run
-//! only under a host that registers them, and trap as unknown host calls
-//! otherwise.
+//! reaching programs, [`get`] and [`set`] for a program's own bytes, [`emit`]
+//! for logs, and [`http::fetch`] for the network. berm serves [`call`] and
+//! [`emit`] itself; the rest run only under a host that registers them, and
+//! trap as unknown host calls otherwise.
+//!
+//! What [`set`] writes and [`emit`] emits is kept only if the call the host
+//! started returns a result.
 
 #![no_std]
 
 // Off a guest target this is an ordinary library in someone's test binary,
 // where std is both available and the point: it is what lets a stand-in host
-// hold the argument blob and collect what a program logged.
+// hold the argument blob and collect what a program traced.
 #[cfg(not(target_arch = "wasm32"))]
 extern crate std;
 
@@ -45,6 +48,7 @@ extern crate alloc;
 
 pub mod abi;
 mod call;
+mod emit;
 mod heap;
 pub mod http;
 mod out;
@@ -59,12 +63,14 @@ pub mod tool;
 #[cfg_attr(not(target_arch = "wasm32"), path = "sys/stub.rs")]
 mod sys;
 
-pub use abi::{args_len, log, now};
+pub use abi::{args_len, now, trace};
 pub use berm_codegen::{program, syscalls};
 pub use out::Out;
 
 #[cfg(feature = "alloc")]
 pub use call::{CallError, after, call};
+#[cfg(feature = "alloc")]
+pub use emit::emit;
 #[cfg(feature = "alloc")]
 pub use store::{get, set};
 
@@ -80,10 +86,10 @@ pub use serde_json_guest as serde_json;
 
 /// The ABI this SDK generates against. A host that does not recognise it
 /// refuses the program rather than guessing.
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 
 #[doc(hidden)]
-pub const ABI_VERSION_TEXT: &str = "2";
+pub const ABI_VERSION_TEXT: &str = "3";
 
 /// Returned by a handler that failed. Whatever it wrote to its [`Out`] becomes
 /// the failure message, so an error can be specific without an allocator.
@@ -100,7 +106,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     // Say where before dying. A program author otherwise gets a trap and
     // nothing else.
     if let Some(location) = info.location() {
-        abi::log(location.file());
+        abi::trace(location.file());
     }
     sys::abort()
 }
