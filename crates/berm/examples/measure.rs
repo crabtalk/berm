@@ -11,7 +11,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, Config, Engine, Program, storage};
+use berm::{Berm, Calls, Config, Engine, Program, storage};
 use std::{
     fs,
     path::PathBuf,
@@ -158,7 +158,7 @@ fn compile(dir: &std::path::Path, image: &[u8]) -> Result<Arc<Program>> {
         cache_dir: Some(dir.to_path_buf()),
         ..Config::default()
     })?;
-    Berm::new(&engine, 0, vec![], storage::Memory::new()).deploy("fixture", image)
+    Berm::new(&engine, Calls::by_name(0), vec![], storage::Memory::new()).deploy("fixture", image)
 }
 
 fn time<T>(f: impl FnOnce() -> Result<T>) -> Result<Duration> {

@@ -13,7 +13,7 @@
 
 use anyhow::{Context, Result, ensure};
 use berm::{
-    Berm, Changes, Config, Engine, storage,
+    Berm, Calls, Changes, Config, Engine, storage,
     syscall::{after, call, store},
 };
 use std::{
@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
     syscalls.push(after::programs(|_, _| async { Ok(()) }));
     let berm = Berm::new(
         &engine,
-        call::DEFAULT_CALL_DEPTH,
+        Calls::by_name(call::DEFAULT_CALL_DEPTH),
         syscalls,
         storage::Memory::new(),
     );

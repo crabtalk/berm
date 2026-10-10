@@ -1,12 +1,12 @@
 //! `berm.call` — one program reaching another.
 //!
-//! The one syscall berm serves itself. It needs nothing a host would
-//! have to decide: the set of deployed programs is what berm already is, and
-//! the target is named in the request rather than wired at deploy, so an image
-//! works against whatever it was deployed beside.
+//! berm serves it against the set of deployed programs it already holds. The
+//! target is named in the request rather than wired at deploy, so an image
+//! works against whatever it was deployed beside; which deployed program a name
+//! reaches is the embedder's [`Calls::resolve`].
 
 use crate::{Berm, Callsite, Refused, Syscall, abi, wire};
-use anyhow::bail;
+use anyhow::{Result, bail};
 use std::sync::{Arc, Weak};
 
 /// How deep a chain of programs calling programs may go before the next call
@@ -18,12 +18,39 @@ use std::sync::{Arc, Weak};
 /// one chain reserves — 64 MiB a level.
 pub const DEFAULT_CALL_DEPTH: u32 = 4;
 
+/// The deployed name a call's target reaches, asked with the calling site. An
+/// `Err` refuses the call.
+pub type Resolve = Arc<dyn Fn(&Callsite, &str) -> Result<String> + Send + Sync>;
+
+/// How `berm.call` reaches programs.
+#[derive(Clone)]
+pub struct Calls {
+    /// See [`DEFAULT_CALL_DEPTH`].
+    pub depth: u32,
+    pub resolve: Resolve,
+}
+
+impl Calls {
+    /// A target reaches the program deployed under that name.
+    pub fn by_name(depth: u32) -> Self {
+        Self {
+            depth,
+            resolve: Arc::new(|_, target| Ok(target.to_owned())),
+        }
+    }
+}
+
 /// Serve `berm.call` against `runtime`.
-pub(crate) fn syscalls(runtime: Weak<Berm>, limit: u32) -> Syscall {
+pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
+    let Calls {
+        depth: limit,
+        resolve,
+    } = calls;
     Syscall {
         name: abi::CALL.to_owned(),
         call: Arc::new(move |at: Callsite, request: Vec<u8>| {
             let runtime = runtime.clone();
+            let resolve = resolve.clone();
             Box::pin(async move {
                 let fields = wire::fields(&request)?;
                 let program = wire::text(&fields, 0, "program")?;
@@ -50,6 +77,8 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, limit: u32) -> Syscall {
                 // dropped before the guest below runs: holding it across a
                 // nested call would block the next deploy for as long as that
                 // call takes.
+                let deployed = resolve(&at, program)
+                    .map_err(|error| Refused(format!("{program}.{tool}: {error:#}")))?;
                 let target = {
                     let Ok(programs) = runtime.programs.try_read() else {
                         return Err(Refused(format!(
@@ -57,11 +86,15 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, limit: u32) -> Syscall {
                         ))
                         .into());
                     };
-                    programs.get(program).cloned()
+                    programs.get(&deployed).cloned()
                 };
 
                 let Some(target) = target else {
-                    return Err(Refused(format!("no program named {program:?} is deployed")).into());
+                    let missing = match deployed == program {
+                        true => format!("no program named {program:?} is deployed"),
+                        false => format!("{program:?} reaches {deployed:?}, which is not deployed"),
+                    };
+                    return Err(Refused(missing).into());
                 };
 
                 // A failed target takes what it held with it; the caller

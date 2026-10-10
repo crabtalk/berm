@@ -6,16 +6,18 @@
 //! nothing survives the call.
 //!
 //! ```ignore
-//! let berm = Berm::new(&engine, syscall::call::DEFAULT_CALL_DEPTH, vec![]);
+//! let calls = Calls::by_name(syscall::call::DEFAULT_CALL_DEPTH);
+//! let berm = Berm::new(&engine, calls, vec![], storage::Memory::new());
 //! berm.deploy("example", &wasm)?;
 //! let outcome = berm.call(None, "example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
 //! ```
 //!
 //! An image is a WebAssembly module, run under wasmtime.
 //!
-//! What is deployed is reachable, by name, from any other program deployed
-//! beside it — which is the one syscall berm serves itself, because it
-//! is the only one that needs nothing but the set berm already holds.
+//! What is deployed is reachable from any other program deployed beside it,
+//! through `berm.call`, which berm serves against the set it already holds.
+//! Which deployed program a call's target names is the embedder's
+//! [`Calls::resolve`].
 //!
 //! Everything else a program reaches is a [`Syscall`] the embedder passed in,
 //! and that list is the linker it is instantiated with: a call to anything else
@@ -41,6 +43,7 @@ use std::{
     time::Instant,
 };
 pub use storage::{Records, Storage};
+pub use syscall::call::{Calls, Resolve};
 
 pub mod abi;
 mod bound;
@@ -99,8 +102,8 @@ pub struct Berm {
     /// Every deployed program, by the name it answers to. Never held across an
     /// await.
     programs: RwLock<BTreeMap<String, Arc<Program>>>,
-    /// See [`syscall::call::DEFAULT_CALL_DEPTH`].
-    depth: u32,
+    /// How `berm.call` reaches programs.
+    calls: Calls,
     /// What the embedder gives every program, beside what berm serves itself.
     syscalls: Vec<Syscall>,
     /// Where this runtime's own records live. Held as the trait: berm decides
@@ -120,14 +123,14 @@ impl Berm {
     /// process.
     pub fn new(
         engine: &Engine,
-        depth: u32,
+        calls: Calls,
         syscalls: Vec<Syscall>,
         storage: Arc<dyn Storage>,
     ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             engine: engine.clone(),
             programs: RwLock::new(BTreeMap::new()),
-            depth,
+            calls,
             syscalls,
             storage,
             me: me.clone(),
@@ -186,7 +189,7 @@ impl Berm {
     /// Compile an image against the syscalls this runtime serves.
     fn load(&self, name: &str, image: &[u8]) -> Result<Arc<Program>> {
         let mut syscalls = self.syscalls.clone();
-        syscalls.push(syscall::call::syscalls(self.me.clone(), self.depth));
+        syscalls.push(syscall::call::syscalls(self.me.clone(), self.calls.clone()));
         Ok(Arc::new(Program::load(
             &self.engine,
             image,

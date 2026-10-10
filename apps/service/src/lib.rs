@@ -10,7 +10,7 @@
 //! `{program}.{tool}`.
 
 use anyhow::{Context, Result};
-use berm::{Berm, Config, Engine, Program};
+use berm::{Berm, Calls, Config, Engine, Program};
 use std::{
     path::PathBuf,
     sync::{Arc, Weak},
@@ -83,7 +83,7 @@ impl Service {
             Self {
                 berm: Berm::new(
                     &engine,
-                    depth,
+                    Calls::by_name(depth),
                     syscalls,
                     Arc::new(files::Files::open(&root)),
                 ),
