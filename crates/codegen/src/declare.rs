@@ -21,7 +21,6 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
         |message: &str| syn::Error::new(name.span(), format!("{}: {message}", path.display()));
 
     let program = idl["name"].as_str().ok_or_else(|| fail("no `name`"))?;
-    let digest = idl["digest"].as_str().unwrap_or_default();
     let tools = idl["tools"].as_array().ok_or_else(|| fail("no `tools`"))?;
     let events = idl["events"].as_array().cloned().unwrap_or_default();
 
@@ -37,6 +36,10 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
 
     let types = structs.iter().map(|(title, schema)| {
         let ident = format_ident!("{title}");
+        let deprecated = events
+            .iter()
+            .find(|event| event["name"].as_str() == Some(title))
+            .map(deprecation);
         let doc = schema["description"]
             .as_str()
             .map(|text| quote!(#[doc = #text]));
@@ -81,6 +84,7 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
                 ::berm_lang::serde::Deserialize,
             )]
             #[serde(crate = "::berm_lang::serde")]
+            #deprecated
             pub struct #ident {
                 #(#fields)*
             }
@@ -95,6 +99,7 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
     let event_docs = events
         .iter()
         .map(|event| event["description"].as_str().unwrap_or_default());
+    let event_deprecations = events.iter().map(deprecation);
     let reads = names.iter().map(|name| {
         quote! {
             if let ::core::option::Option::Some(read) = logged.read::<#name>() {
@@ -106,6 +111,7 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
         true => quote!(),
         false => quote! {
             /// The events it emits, each a log under its name.
+            #[allow(deprecated)]
             pub mod events {
                 pub use super::types::{#(#names),*};
 
@@ -118,7 +124,7 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
                 /// Any one of its events.
                 #[derive(Debug, Clone)]
                 pub enum Event {
-                    #(#[doc = #event_docs] #names(#names),)*
+                    #(#[doc = #event_docs] #event_deprecations #names(#names),)*
                 }
 
                 impl Event {
@@ -141,6 +147,7 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
         let tool_name = tool["name"].as_str().unwrap_or_default();
         let ident = field_ident(tool_name);
         let doc = tool["description"].as_str().unwrap_or_default();
+        let deprecated = deprecation(tool);
         let types = quote!(super::types::);
         let (args, encode) = match tool["parameters"]["title"].as_str() {
             Some(_) => {
@@ -164,6 +171,7 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
         };
         quote! {
             #[doc = #doc]
+            #deprecated
             pub fn #ident(#args) -> ::core::result::Result<#returns, ::berm_lang::CallError> {
                 #encode
                 let result = ::berm_lang::call(super::NAME, #tool_name, &args)?;
@@ -181,10 +189,9 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
 
             /// What the program is deployed as, which every call names.
             pub const NAME: &str = #program;
-            /// sha256 of the image the IDL was read from.
-            pub const DIGEST: &str = #digest;
 
             /// Its argument, result and event structs.
+            #[allow(deprecated)]
             pub mod types {
                 #(#types)*
             }
@@ -198,6 +205,14 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
             }
         }
     })
+}
+
+/// `#[deprecated]` for a tool or event the IDL marks deprecated.
+fn deprecation(spec: &Value) -> TokenStream {
+    match spec["deprecated"].as_bool() == Some(true) {
+        true => quote!(#[deprecated]),
+        false => quote!(),
+    }
 }
 
 /// `idls/{name}.json` in the crate's directory or the nearest ancestor.

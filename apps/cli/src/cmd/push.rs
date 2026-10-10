@@ -22,6 +22,7 @@ pub fn run(reference: &str, image: &Path) -> Result<()> {
     // what the service serves.
     inspect::show(&Program {
         name: reference.to_string(),
+        version: manifest.version,
         digest,
         usage: manifest.usage,
         tools: manifest.tools,
@@ -30,6 +31,7 @@ pub fn run(reference: &str, image: &Path) -> Result<()> {
         // Nothing to resolve against: a registry runs no programs and dials
         // nowhere, so what this image needs is a question for whoever deploys it.
         unresolved: Default::default(),
+        breaks: Vec::new(),
     });
     Ok(())
 }

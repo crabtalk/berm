@@ -214,6 +214,8 @@ struct Tool {
     output: Option<String>,
     /// From `#[query]`: the tool may not write, emit or arm a wake.
     query: bool,
+    /// From `#[deprecated]`.
+    deprecated: bool,
     /// Programs whose logs this tool takes, each beside the topics it takes.
     logs: Vec<(String, Vec<String>)>,
 }
@@ -224,6 +226,8 @@ struct Event {
     description: String,
     /// JSON Schema for its data.
     fields: String,
+    /// From `#[deprecated]`.
+    deprecated: bool,
 }
 
 /// Declare a program from a module of tool functions.
@@ -246,6 +250,7 @@ struct Event {
 /// structs declared in the module that give the schemas of its arguments and
 /// result, and `#[params("…")]` carries an argument schema literal instead.
 /// `#[query]` marks it read-only: the host refuses its writes, logs and wakes.
+/// `#[deprecated]` on a tool or an event marks it so in the manifest.
 /// An `#[event]` struct in the module is a typed log, emitted with
 /// `berm_lang::emit!` under the struct's name.
 /// `#[logs("hn" = ["item"])]` subscribes it to a program's logs, delivered as
@@ -383,6 +388,9 @@ fn collect(module: &mut ItemMod) -> syn::Result<(Vec<Tool>, Vec<Event>)> {
         if item.attrs.len() == before {
             continue;
         }
+        let before = item.attrs.len();
+        item.attrs.retain(|a| !a.path().is_ident("deprecated"));
+        let deprecated = item.attrs.len() != before;
         let (fields, used) = schema::of(&item.ident, &declared)?;
         written.extend(used);
         let description = docs(&item.attrs);
@@ -396,6 +404,7 @@ fn collect(module: &mut ItemMod) -> syn::Result<(Vec<Tool>, Vec<Event>)> {
             ident: item.ident.clone(),
             description,
             fields,
+            deprecated,
         });
     }
     for tool in &mut tools {
@@ -463,6 +472,10 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     let mut parameters = None;
     let mut returns = None;
     let mut query = false;
+    let deprecated = function
+        .attrs
+        .iter()
+        .any(|a| a.path().is_ident("deprecated"));
     let mut logs: Vec<(String, Vec<String>)> = Vec::new();
 
     for attribute in &function.attrs {
@@ -502,7 +515,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     // These exist for this macro to read; leaving them would reach the
     // compiler as unknown attributes.
     function.attrs.retain(|a| {
-        !["params", "returns", "query", "logs"]
+        !["params", "returns", "query", "logs", "deprecated"]
             .iter()
             .any(|name| a.path().is_ident(name))
     });
@@ -523,6 +536,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         returns,
         output: None,
         query,
+        deprecated,
         logs,
     })
 }
@@ -587,8 +601,12 @@ fn describe(config: &Config, tools: &[Tool], events: &[Event]) -> String {
                 true => r#","query":true"#,
                 false => "",
             };
+            let deprecated = match t.deprecated {
+                true => r#","deprecated":true"#,
+                false => "",
+            };
             format!(
-                r#"{{"name":"{}","description":"{}","parameters":{}{returns}{query}}}"#,
+                r#"{{"name":"{}","description":"{}","parameters":{}{returns}{query}{deprecated}}}"#,
                 escape(&t.name),
                 escape(&t.description),
                 t.parameters,
@@ -630,8 +648,12 @@ fn describe(config: &Config, tools: &[Tool], events: &[Event]) -> String {
     let events = events
         .iter()
         .map(|event| {
+            let deprecated = match event.deprecated {
+                true => r#","deprecated":true"#,
+                false => "",
+            };
             format!(
-                r#"{{"name":"{}","description":"{}","fields":{}}}"#,
+                r#"{{"name":"{}","description":"{}","fields":{}{deprecated}}}"#,
                 event.ident,
                 escape(&event.description),
                 event.fields
@@ -641,7 +663,8 @@ fn describe(config: &Config, tools: &[Tool], events: &[Event]) -> String {
         .join(",");
 
     format!(
-        r#"{{"abi_version":3,"tools":[{specs}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}],"logs":[{logs}]}},"events":[{events}]}}"#,
+        r#"{{"abi_version":3,"version":"{}","tools":[{specs}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}],"logs":[{logs}]}},"events":[{events}]}}"#,
+        escape(&std::env::var("CARGO_PKG_VERSION").unwrap_or_default()),
         escape(&config.usage),
     )
 }

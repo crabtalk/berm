@@ -3,17 +3,28 @@
 use crate::{Service, logs, store};
 use anyhow::{Context, Result, bail};
 use berm::Program;
+use berm_api::Break;
 use std::sync::Arc;
 
 impl Service {
-    /// Compile `image`, store it, and make its tools reachable under `name`.
+    /// Compile `image`, store it, and make its tools reachable under `name`,
+    /// answering with how it breaks callers of the program it replaced.
     ///
     /// Compile, then store, then publish — berm does the first two in that
     /// order, so a rejected image leaves no record that would fail again on
     /// every restart, and a tool that is served is one a restart brings back.
-    pub async fn deploy(&self, name: &str, image: Vec<u8>) -> Result<Arc<Program>> {
+    pub async fn deploy(&self, name: &str, image: Vec<u8>) -> Result<(Arc<Program>, Vec<Break>)> {
         validate(name)?;
+        let replaced = self.get(name);
         let program = self.compile(name.to_owned(), Arc::new(image)).await?;
+
+        // Said rather than refused, as `unresolved` is.
+        let breaks = replaced
+            .map(|replaced| replaced.manifest().breaks(program.manifest()))
+            .unwrap_or_default();
+        for broken in &breaks {
+            tracing::warn!(name, "breaks callers: {broken}");
+        }
 
         // Said rather than refused: a program deployed before the one it
         // calls is ordinary, and the call reports it again if it stays that
@@ -25,7 +36,7 @@ impl Service {
 
         let _ = self.changed.send(());
         self.deliver();
-        Ok(program)
+        Ok((program, breaks))
     }
 
     /// Forget a program and drop its image. `false` if it wasn't deployed.

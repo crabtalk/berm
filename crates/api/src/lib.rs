@@ -8,6 +8,9 @@ use object::{Object, ObjectSection};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod compat;
+pub use compat::{Break, Surface};
+
 /// The ABI this host speaks. A program built against a different one is
 /// refused rather than dispatched into a syscall its author did not
 /// mean.
@@ -23,6 +26,9 @@ pub const ABI_SECTION: &str = ".berm.abi";
 #[derive(Debug, Clone, Deserialize)]
 pub struct Manifest {
     pub abi_version: u32,
+    /// The crate's version when it was built.
+    #[serde(default)]
+    pub version: String,
     pub tools: Vec<ToolSpec>,
     /// When to reach for these tools, and how they go together — the
     /// question no single tool's `description` answers, because it is about
@@ -52,6 +58,8 @@ pub struct EventSpec {
     pub description: String,
     /// JSON Schema for the log's data.
     pub fields: serde_json::Value,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub deprecated: bool,
 }
 
 /// What a program reaches for once it runs, by kind.
@@ -185,6 +193,9 @@ impl Manifest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Program {
     pub name: String,
+    /// The crate's version when it was built.
+    #[serde(default)]
+    pub version: String,
     /// sha256 of the image.
     pub digest: String,
     /// When to reach for this program's tools, and how they go together.
@@ -197,6 +208,10 @@ pub struct Program {
     /// The part of `deps` this service answers to nothing for.
     #[serde(default, skip_serializing_if = "Deps::is_empty")]
     pub unresolved: Deps,
+    /// How this deploy broke callers of the program it replaced, as
+    /// [`Manifest::breaks`] words it. Set only in a deploy's answer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub breaks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,6 +227,8 @@ pub struct ToolSpec {
     /// `berm.set`, `berm.emit` and `berm.call.after`, so it commits nothing.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub query: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub deprecated: bool,
 }
 
 /// What running a tool produced.

@@ -52,12 +52,14 @@ impl Service {
         let manifest = deployed.manifest();
         Wire {
             name: deployed.name.to_string(),
+            version: manifest.version.clone(),
             digest: deployed.digest.clone(),
             usage: manifest.usage.clone(),
             tools: manifest.tools.clone(),
             deps: manifest.deps.clone(),
             events: manifest.events.clone(),
             unresolved: self.unresolved(deployed),
+            breaks: Vec::new(),
         }
     }
 }
@@ -89,14 +91,16 @@ async fn deploy(
     Path(name): Path<String>,
     image: Bytes,
 ) -> Result<Json<Wire>, Refused> {
-    let deployed = service
+    let (deployed, breaks) = service
         .deploy(&name, image.to_vec())
         .await
         // A rejected image is the client's, not the service's fault: a bad
         // name, an unreadable image, a manifest that disagrees with its
         // exports.
         .map_err(|error| Refused(StatusCode::BAD_REQUEST, format!("{error:#}")))?;
-    Ok(Json(service.describe(&deployed)))
+    let mut wire = service.describe(&deployed);
+    wire.breaks = breaks.iter().map(ToString::to_string).collect();
+    Ok(Json(wire))
 }
 
 /// Run one tool. `POST` because an invocation is not idempotent, and the body

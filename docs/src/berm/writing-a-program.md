@@ -115,7 +115,14 @@ nearest ancestor with an `idls/`, and generates:
   none).
 - `hn::events`: its events, and an `Event` enum whose `read` takes a delivered
   `Logged`.
-- `hn::NAME`, which every call names, and `hn::DIGEST`, the image the IDL was
-  read from.
+- `hn::NAME`, which every call names.
+
+A tool or event the IDL marks `deprecated` is generated with `#[deprecated]`.
+
+## Changing an interface
+
+A tool's callers were built against its IDL. A change that breaks them — see
+[the manifest](manifest.md#compatibility) — keeps the old tool beside the new
+one, marked `#[deprecated]`, until no caller uses it.
 
 The IDL is a file in the crate; it changes only when `berm idl` is run again.

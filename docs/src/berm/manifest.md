@@ -24,7 +24,19 @@ Schema for its arguments, and optionally `returns`, a JSON Schema for its
 result, and `"query": true` for a read-only tool. `events` lists the typed logs
 the program emits, each with a name, a description and a JSON Schema of its
 `fields`. The `#[program]` macro writes them at compile time from the module it
-expands. Every object schema carries the struct's name as `title`.
+expands. Every object schema carries the struct's name as `title`. A tool or
+event marked `#[deprecated]` carries `"deprecated": true`, and `version` is the
+crate's version when it was built.
+
+## Compatibility
+
+`Manifest::breaks(next)` lists every way `next` breaks a caller of this
+manifest: a tool or event removed, a tool no longer a query, an argument newly
+required, a result or event field no longer always present, a changed type, an
+unsigned integer becoming signed. Arguments are compared as the new program
+reads them, results and events as old callers read them; added fields break
+nothing. bermd reports the breaks of a redeploy against the program it replaced
+and deploys anyway.
 
 ## Usage
 

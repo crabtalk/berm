@@ -1,6 +1,7 @@
 {
   "name": "fixture",
-  "digest": "4ce3b435b6542af05495b5dcc279845f9d2bc926943cc47a2a26725d08549c1e",
+  "version": "0.0.8",
+  "digest": "95cf3032c09dc70e680957ba829c01a250aa3d7f77b9445489981fe53615b5cd",
   "usage": "",
   "tools": [
     {

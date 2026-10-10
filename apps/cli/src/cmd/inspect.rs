@@ -12,6 +12,9 @@ pub fn run(client: &Client, name: &str) -> Result<()> {
 
 pub fn show(program: &Program) {
     println!("{}", program.name);
+    if !program.version.is_empty() {
+        println!("  version {}", program.version);
+    }
     println!("  digest  {}", program.digest);
     if !program.usage.is_empty() {
         println!("  usage   {}", program.usage);
@@ -36,13 +39,19 @@ pub fn show(program: &Program) {
         let missing = program.unresolved.secrets.contains(name);
         println!("  secret  {name}{}", answered(missing));
     }
+    for broken in &program.breaks {
+        println!("  breaks  {broken}");
+    }
 
     for tool in &program.tools {
         println!();
-        match tool.query {
-            true => println!("  {} (query)", tool.name),
-            false => println!("  {}", tool.name),
-        }
+        let marks = [(tool.query, " (query)"), (tool.deprecated, " (deprecated)")];
+        let marks: String = marks
+            .iter()
+            .filter(|(set, _)| *set)
+            .map(|(_, mark)| *mark)
+            .collect();
+        println!("  {}{marks}", tool.name);
         println!("    {}", tool.description);
         for parameter in properties(&tool.parameters) {
             println!("    {parameter}");
@@ -57,7 +66,10 @@ pub fn show(program: &Program) {
 
     for event in &program.events {
         println!();
-        println!("  event {}", event.name);
+        match event.deprecated {
+            true => println!("  event {} (deprecated)", event.name),
+            false => println!("  event {}", event.name),
+        }
         println!("    {}", event.description);
         for field in properties(&event.fields) {
             println!("    {field}");
