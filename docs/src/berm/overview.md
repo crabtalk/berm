@@ -8,7 +8,7 @@ comes back out through one, and nothing survives the call.
 let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
 berm.deploy("example", &wasm)?;
 
-match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
+match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec()).await? {
     Ok(result) => println!("{result}"),
     Err(failure) => eprintln!("{failure}"),
 }

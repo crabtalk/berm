@@ -7,7 +7,7 @@ under [rvtime](https://crates.io/crates/rvtime) — nothing survives the call.
 ```rust
 let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
 berm.deploy("example", &elf)?;
-let result = berm.call("example", "echo", br#"{"query":"hi"}"#.to_vec())?;
+let result = berm.call("example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
 ```
 
 ## What a guest can reach

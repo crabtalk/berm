@@ -54,12 +54,7 @@ impl Service {
         let Some(program) = self.get(program) else {
             bail!("no program named {program:?} is deployed");
         };
-        let tool = tool.to_owned();
-        // Entering a guest blocks the thread until the guest returns, which is
-        // not something a runtime worker can afford to do.
-        tokio::task::spawn_blocking(move || program.call(&tool, args))
-            .await
-            .context("invocation panicked")?
+        program.call(tool, args).await
     }
 
     /// Compile an image into the runtime, off the async workers.

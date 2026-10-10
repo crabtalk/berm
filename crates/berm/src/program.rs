@@ -1,15 +1,15 @@
 //! One compiled program, and the state of one invocation of it.
 
 use crate::{
-    Syscall, abi,
+    Callsite, Syscall, abi,
     backend::{Engine, Image},
-    bound::depth,
+    bound::watchdog,
     syscall,
 };
 use anyhow::{Context, Result, bail};
 use berm_api::Manifest;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
 /// One compiled program: an image, its tools, and the syscalls it was linked
 /// against. Compilation is paid once; every invocation gets a fresh instance so
@@ -87,23 +87,41 @@ impl Program {
         &self.manifest
     }
 
-    /// Run one tool by name.
+    /// Run one tool by name, as the first link of a chain.
     ///
     /// The outer `Result` is the host's — a missing tool, a trap, a broken
     /// image. The inner one is the guest's: `Err` means the program reported
     /// failure, which is what a tool result carries back to the model.
-    pub fn call(&self, tool: &str, args: impl Into<Vec<u8>>) -> Result<Result<String, String>> {
+    ///
+    /// Under the RISC-V backend this has to be awaited inside a tokio runtime.
+    pub async fn call(
+        &self,
+        tool: &str,
+        args: impl Into<Vec<u8>>,
+    ) -> Result<Result<String, String>> {
+        self.invoke(tool, args.into(), 1, watchdog::fresh()).await
+    }
+
+    /// Run one tool as link `depth` of a chain that has to be done by
+    /// `deadline`.
+    pub(crate) async fn invoke(
+        &self,
+        tool: &str,
+        args: Vec<u8>,
+        depth: u32,
+        deadline: Instant,
+    ) -> Result<Result<String, String>> {
         let Some(symbol) = self.tools.get(tool) else {
             bail!("program exports no tool named {tool:?}");
         };
 
-        // Counted before the invocation is built, so this guest's own depth is
-        // what its syscalls are handed.
-        let _level = depth::Level::enter();
         let invocation = Invocation {
-            name: self.name.clone(),
-            depth: depth::current(),
-            args: args.into(),
+            at: Callsite {
+                program: self.name.clone(),
+                depth,
+                deadline,
+            },
+            args,
             staged: Vec::new(),
             outcome: None,
         };
@@ -111,6 +129,7 @@ impl Program {
         let finished = self
             .image
             .call(symbol, invocation)
+            .await
             .with_context(|| format!("program trapped in {tool}"))?;
 
         // A tool that returned without answering wrote nothing, which is an
@@ -128,10 +147,9 @@ impl Program {
 /// Guest state for one invocation. Memory is per-invocation; anything a
 /// program needs to survive belongs in a storage program, not here.
 pub struct Invocation {
-    /// The program this invocation is of, and how deep it sits. Read once when
-    /// the invocation is built, so a syscall costs no lookup.
-    pub(crate) name: Arc<str>,
-    pub(crate) depth: u32,
+    /// The program this invocation is of, and the chain it sits in. Built
+    /// once with the invocation, so a syscall costs no lookup.
+    pub(crate) at: Callsite,
     pub(crate) args: Vec<u8>,
     /// The last syscall's reply, waiting for the guest to pull it. Staged
     /// rather than pushed because its size is not known until the work is

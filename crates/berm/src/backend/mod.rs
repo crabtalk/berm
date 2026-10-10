@@ -11,6 +11,8 @@
 
 use crate::{Invocation, syscall::Table};
 use anyhow::{Result, bail};
+#[cfg(feature = "riscv")]
+use std::sync::Arc;
 use std::{ops::Range, path::PathBuf};
 
 #[cfg(feature = "riscv")]
@@ -80,8 +82,9 @@ impl Default for Engine {
 pub(crate) enum Image {
     #[cfg(feature = "wasm")]
     Wasm(wasm::Image),
+    /// Shared, because an invocation of it moves onto a blocking thread.
     #[cfg(feature = "riscv")]
-    Riscv(riscv::Image),
+    Riscv(Arc<riscv::Image>),
 }
 
 impl Image {
@@ -102,11 +105,11 @@ impl Image {
             }
             [0x7f, b'E', b'L', b'F', ..] => {
                 #[cfg(feature = "riscv")]
-                return Ok(Self::Riscv(riscv::Image::compile(
+                return Ok(Self::Riscv(Arc::new(riscv::Image::compile(
                     &engine.riscv,
                     image,
                     table,
-                )?));
+                )?)));
                 #[cfg(not(feature = "riscv"))]
                 bail!("program is an ELF, which this build of berm was not compiled with");
             }
@@ -130,12 +133,12 @@ impl Image {
     /// The invocation goes in carrying the arguments and comes back carrying
     /// whatever the tool answered with. Nothing else survives: the instance is
     /// built for this call and dropped with it.
-    pub(crate) fn call(&self, symbol: &str, invocation: Invocation) -> Result<Invocation> {
+    pub(crate) async fn call(&self, symbol: &str, invocation: Invocation) -> Result<Invocation> {
         match self {
             #[cfg(feature = "wasm")]
-            Self::Wasm(image) => image.call(symbol, invocation),
+            Self::Wasm(image) => image.call(symbol, invocation).await,
             #[cfg(feature = "riscv")]
-            Self::Riscv(image) => image.call(symbol, invocation),
+            Self::Riscv(image) => riscv::Image::call(image.clone(), symbol, invocation).await,
         }
     }
 }

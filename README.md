@@ -25,7 +25,7 @@ berm.deploy("example", &wasm)?;
 
 // The outer result is the host's — a missing tool, a trap. The inner one is
 // the program reporting failure, which is a result the model should see.
-match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
+match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec()).await? {
     Ok(result) => println!("{result}"),
     Err(failure) => eprintln!("{failure}"),
 }

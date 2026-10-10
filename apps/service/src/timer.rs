@@ -47,24 +47,34 @@ pub(crate) struct Wakes {
 pub(crate) fn syscalls(service: Weak<Service>, runtime: Handle) -> Syscall {
     Syscall {
         name: abi::CALL_AFTER.to_owned(),
-        call: Arc::new(move |at: &Callsite<'_>, request: &[u8]| {
-            let fields = wire::fields(request)?;
-            let after: u64 = wire::text(&fields, 0, "delay")?
-                .parse()
-                .context("a delay is milliseconds")?;
-            let wake = Wake {
-                at: now().saturating_add(after),
-                program: wire::text(&fields, 1, "program")?.to_owned(),
-                tool: wire::text(&fields, 2, "tool")?.to_owned(),
-                args: wire::text(&fields, 3, "arguments")?.to_owned(),
-            };
-
-            let Some(service) = service.upgrade() else {
-                bail!("the service is shutting down, so nothing was armed");
-            };
-            service.arm(at.program, wake, &runtime)
+        call: Arc::new(move |at: Callsite, request: Vec<u8>| {
+            Box::pin(std::future::ready(arm(&service, &runtime, &at, &request)))
         }),
     }
+}
+
+/// Read one `berm.call.after` request and hold the wake it names.
+fn arm(
+    service: &Weak<Service>,
+    runtime: &Handle,
+    at: &Callsite,
+    request: &[u8],
+) -> Result<Vec<u8>> {
+    let fields = wire::fields(request)?;
+    let after: u64 = wire::text(&fields, 0, "delay")?
+        .parse()
+        .context("a delay is milliseconds")?;
+    let wake = Wake {
+        at: now().saturating_add(after),
+        program: wire::text(&fields, 1, "program")?.to_owned(),
+        tool: wire::text(&fields, 2, "tool")?.to_owned(),
+        args: wire::text(&fields, 3, "arguments")?.to_owned(),
+    };
+
+    let Some(service) = service.upgrade() else {
+        bail!("the service is shutting down, so nothing was armed");
+    };
+    service.arm(&at.program, wake, runtime)
 }
 
 impl Service {

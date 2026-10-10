@@ -16,21 +16,31 @@
 //! boundary and supplies nothing else, which is what keeps two of them from
 //! growing two ABIs.
 
-use crate::{Callsite, Refused, Syscall, abi, backend::Guest};
+use crate::{Call, Callsite, Refused, Syscall, abi, backend::Guest};
 use anyhow::{Result, bail};
 use std::{collections::HashMap, sync::Arc};
 
 pub mod call;
 pub mod store;
 
-/// One syscall: request bytes at `(ptr, len)` in, a staged length out.
+/// One of the ABI's own doors: request bytes at `(ptr, len)` in, a staged
+/// length out, answered before the guest resumes.
 ///
 /// One signature for all of them, so a backend registers a table rather than a
 /// list of shapes. A call that takes no arguments is handed a pair it ignores.
 pub(crate) type Handler = Arc<dyn Fn(&mut dyn Guest, u64, u64) -> Result<u64> + Send + Sync>;
 
+/// What answers one syscall number.
+#[derive(Clone)]
+pub(crate) enum Door {
+    /// The ABI's own, which touch nothing but the guest.
+    Builtin(Handler),
+    /// An embedder's, handed the request and awaited.
+    Hosted(Call),
+}
+
 /// Every syscall one program can reach, by the number its name hashes to.
-pub(crate) type Table = HashMap<u64, Handler>;
+pub(crate) type Table = HashMap<u64, Door>;
 
 /// Assemble what a program is instantiated with: the ABI's own doors, then
 /// whatever the embedder registered.
@@ -46,25 +56,16 @@ pub(crate) fn table(syscalls: &[Syscall]) -> Result<Table> {
         if table.contains_key(&number) {
             bail!("syscall {:?} is already served", syscall.name);
         }
-        let call = syscall.call.clone();
-        table.insert(
-            number,
-            handler(move |guest, ptr, len| {
-                let request = guest.read(ptr, len)?;
-                let at = guest.invocation();
-                let (name, depth) = (at.name.clone(), at.depth);
-                let answer = call(
-                    &Callsite {
-                        program: &name,
-                        depth,
-                    },
-                    &request,
-                );
-                Ok(stage(guest, answer))
-            }),
-        );
+        table.insert(number, Door::Hosted(syscall.call.clone()));
     }
     Ok(table)
+}
+
+/// Copy a hosted syscall's request out of the guest, beside the callsite it
+/// came from.
+pub(crate) fn request(guest: &mut dyn Guest, ptr: u64, len: u64) -> Result<(Callsite, Vec<u8>)> {
+    let request = guest.read(ptr, len)?;
+    Ok((guest.invocation().at.clone(), request))
 }
 
 /// Leave a syscall's bytes for the guest to pull, and answer with their length.
@@ -74,7 +75,7 @@ pub(crate) fn table(syscalls: &[Syscall]) -> Result<Table> {
 /// nothing extra to find out about, and an empty result cannot be mistaken for
 /// one. A [`Refused`] additionally sets [`abi::REFUSED`], which is how a guest
 /// tells "it ran and said no" from "it never ran".
-fn stage(guest: &mut dyn Guest, answer: Result<Vec<u8>>) -> u64 {
+pub(crate) fn stage(guest: &mut dyn Guest, answer: Result<Vec<u8>>) -> u64 {
     let (staged, outcome) = match answer {
         Ok(result) => (result, 0),
         Err(error) => {
@@ -189,8 +190,6 @@ fn builtins() -> Table {
     table
 }
 
-fn handler(
-    call: impl Fn(&mut dyn Guest, u64, u64) -> Result<u64> + Send + Sync + 'static,
-) -> Handler {
-    Arc::new(call)
+fn handler(call: impl Fn(&mut dyn Guest, u64, u64) -> Result<u64> + Send + Sync + 'static) -> Door {
+    Door::Builtin(Arc::new(call))
 }

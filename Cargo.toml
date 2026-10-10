@@ -97,6 +97,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # backends, and `cache` drags in a config format nothing here reads.
 wasmtime = { version = "48", default-features = false, features = [
     "anyhow",
+    "async",
     "cache",
     "cranelift",
     "parallel-compilation",

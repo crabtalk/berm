@@ -93,8 +93,8 @@ enum Found {
 }
 
 pub struct Workbench {
-    /// Beside gpui's own executor, because `Service` is tokio: the
-    /// `spawn_blocking` a call enters the guest on panics outside a runtime.
+    /// Beside gpui's own executor, because `Service` is tokio: a deploy
+    /// compiles on `spawn_blocking`, which panics outside a runtime.
     rt: Runtime,
     engine: Engine,
     /// What the service was holding as of the last refresh.

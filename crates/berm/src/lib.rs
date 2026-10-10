@@ -8,7 +8,7 @@
 //! ```ignore
 //! let berm = Berm::new(&engine, syscall::call::DEFAULT_CALL_DEPTH, vec![]);
 //! berm.deploy("example", &wasm)?;
-//! let result = berm.call("example", "echo", br#"{"query":"hi"}"#.to_vec())?;
+//! let result = berm.call("example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
 //! ```
 //!
 //! An image is WebAssembly, run under wasmtime, or — experimentally — a
@@ -33,7 +33,9 @@ pub use berm_api::{Manifest, ToolSpec};
 pub use program::{Invocation, Program, Refused};
 use std::{
     collections::BTreeMap,
+    pin::Pin,
     sync::{Arc, RwLock, Weak},
+    time::Instant,
 };
 pub use storage::{Records, Storage};
 
@@ -51,21 +53,28 @@ pub mod wire;
 pub use anyhow;
 pub use berm_codegen::hosts;
 
-/// What a syscall does: request bytes in, result bytes out. An `Err`
-/// reaches the guest as a failure message on the same wire as a result.
-pub type Call = Arc<dyn Fn(&Callsite<'_>, &[u8]) -> Result<Vec<u8>> + Send + Sync>;
+/// What a syscall answers with, once it has. An `Err` reaches the guest as a
+/// failure message on the same wire as a result.
+pub type Reply = Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send>>;
 
-/// Which program is asking, and how deep the chain that reached it already is.
+/// What a syscall does: request bytes in, result bytes out.
 ///
-/// The runtime knows both at the moment of the call, so a syscall is
-/// handed them rather than made to infer them: identity would otherwise be a
-/// closure built per deployed program, and depth a thread-local read from
-/// inside the guest's own stack.
-pub struct Callsite<'a> {
+/// The guest is suspended until the reply resolves. Under the wasm backend
+/// that frees the thread; under the RISC-V backend the guest holds a blocking
+/// thread, which drives the reply with the tokio runtime it was called from.
+pub type Call = Arc<dyn Fn(Callsite, Vec<u8>) -> Reply + Send + Sync>;
+
+/// Which program is asking, and the chain that reached it.
+#[derive(Clone, Debug)]
+pub struct Callsite {
     /// What this program was deployed as.
-    pub program: &'a str,
-    /// How many guests are already on this thread's stack, this one included.
+    pub program: Arc<str>,
+    /// How many guests the chain holds, this one included.
     pub depth: u32,
+    /// When the chain has to be done by. A guest suspended in a syscall cannot
+    /// notice it until the reply resolves, so a syscall bounds its own wait
+    /// inside this.
+    pub deadline: Instant,
 }
 
 /// The programs a host is running.
@@ -74,8 +83,8 @@ pub struct Callsite<'a> {
 /// so it hands them a [`Weak`] of itself rather than a table copied per deploy.
 pub struct Berm {
     engine: Engine,
-    /// Every deployed program, by the name it answers to. A `std` lock because
-    /// it is read from inside a guest's host call, where an async one cannot go.
+    /// Every deployed program, by the name it answers to. Never held across an
+    /// await.
     programs: RwLock<BTreeMap<String, Arc<Program>>>,
     /// See [`syscall::call::DEFAULT_CALL_DEPTH`].
     depth: u32,
@@ -204,7 +213,7 @@ impl Berm {
     /// The outer `Result` is the host's — no such program, no such tool, a
     /// trap. The inner one is the program's own reported failure, which is a
     /// tool result rather than an error.
-    pub fn call(
+    pub async fn call(
         &self,
         program: &str,
         tool: &str,
@@ -213,7 +222,7 @@ impl Berm {
         let Some(program) = self.get(program) else {
             anyhow::bail!("no program named {program:?} is deployed");
         };
-        program.call(tool, args)
+        program.call(tool, args).await
     }
 }
 

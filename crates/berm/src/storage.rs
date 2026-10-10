@@ -47,9 +47,8 @@ impl Records {
 /// coming back after a restart reads all of them, and everything else is
 /// already in memory.
 ///
-/// Synchronous because a write happens inside a guest's host call, where an
-/// async one cannot go. A host backing this with something remote pays a
-/// blocked thread for the call's duration.
+/// Synchronous. A host backing this with something remote blocks the thread
+/// it is called on for the call's duration.
 pub trait Storage: Send + Sync + 'static {
     fn put(&self, records: Records, key: &str, value: &[u8]) -> Result<()>;
 

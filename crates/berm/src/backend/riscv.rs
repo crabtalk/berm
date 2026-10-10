@@ -6,14 +6,17 @@
 //! A syscall arrives as `ecall`, taking the number from `a7` and the request
 //! pointer and length from `a0` and `a1`. Each is registered under its own
 //! number, which is the only key an ELF's guests can name.
+//!
+//! A guest runs on the native stack of the thread that entered it, so an
+//! invocation holds a tokio blocking thread for its whole run, and a hosted
+//! syscall blocks that thread on its reply.
 
 use crate::{
-    Invocation,
+    Callsite, Invocation,
     backend::{Config, Guest},
-    bound::watchdog,
-    syscall::Table,
+    syscall::{self, Door, Table},
 };
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use rvtime::{Caller, Engine, Interrupt, Linker, Module, Store, TypedFunc};
 use std::{
     collections::BTreeMap,
@@ -58,8 +61,15 @@ impl Image {
         for (number, call) in table {
             linker.func_wrap(
                 number,
-                move |mut caller: Caller<'_, Invocation>, ptr: u64, len: u64| {
-                    call(&mut caller, ptr, len)
+                move |mut caller: Caller<'_, Invocation>, ptr: u64, len: u64| match &call {
+                    Door::Builtin(call) => call(&mut caller, ptr, len),
+                    Door::Hosted(call) => {
+                        let (at, request) = syscall::request(&mut caller, ptr, len)?;
+                        // On a blocking thread, which carries the runtime it
+                        // was spawned from.
+                        let reply = tokio::runtime::Handle::current().block_on(call(at, request));
+                        Ok(syscall::stage(&mut caller, reply))
+                    }
                 },
             )?;
         }
@@ -93,19 +103,30 @@ impl Image {
         self.exports.keys().map(String::as_str).collect()
     }
 
-    pub(crate) fn call(&self, symbol: &str, invocation: Invocation) -> Result<Invocation> {
+    pub(crate) async fn call(
+        image: Arc<Self>,
+        symbol: &str,
+        invocation: Invocation,
+    ) -> Result<Invocation> {
+        let symbol = symbol.to_owned();
+        tokio::task::spawn_blocking(move || image.run(&symbol, invocation))
+            .await
+            .context("invocation panicked")?
+    }
+
+    fn run(&self, symbol: &str, invocation: Invocation) -> Result<Invocation> {
         let Some(func) = self.exports.get(symbol) else {
             bail!("program exports no symbol named {symbol:?}");
         };
 
-        let deadline = watchdog::Deadline::enter();
+        let deadline = invocation.at.deadline;
         let mut store = Store::new(&self.engine, invocation);
         self.linker.instantiate(&mut store, &self.module)?;
 
         // Entering the guest blocks this thread until the guest chooses to
         // return, so the bound on that has to be held by someone else. Declared
         // after the store, so it is withdrawn before the store is dropped.
-        let _stop = Stop::at(deadline.at(), store.interrupt_handle()?);
+        let _stop = Stop::at(deadline, store.interrupt_handle()?);
 
         func.call(&mut store, ())?;
         Ok(store.into_data())
@@ -116,8 +137,11 @@ impl Image {
 /// it is ever read.
 fn probe() -> Invocation {
     Invocation {
-        name: Arc::from(""),
-        depth: 0,
+        at: Callsite {
+            program: Arc::from(""),
+            depth: 0,
+            deadline: Instant::now(),
+        },
         args: Vec::new(),
         staged: Vec::new(),
         outcome: None,

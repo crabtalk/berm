@@ -4,12 +4,14 @@
 //! `berm.syscall`, carrying the number its name hashes to alongside the
 //! request — the same number rvtime takes in `a7`, so one name resolves the
 //! same way on both.
+//!
+//! A guest runs on a fiber: a hosted syscall suspends it, and the thread is
+//! free until the reply resolves.
 
 use crate::{
     Invocation,
     backend::{Config, Guest},
-    bound::watchdog,
-    syscall::Table,
+    syscall::{self, Door, Table},
 };
 use anyhow::{Context, Result, anyhow, bail};
 use std::{
@@ -83,17 +85,28 @@ impl Image {
 
         let mut linker: Linker<Invocation> = Linker::new(&engine);
         let table = Arc::new(table);
-        linker.func_wrap(
+        linker.func_wrap_async(
             MODULE,
             SYSCALL,
-            move |mut caller: Caller<'_, Invocation>, number: u64, ptr: u32, len: u32| {
+            move |mut caller: Caller<'_, Invocation>, (number, ptr, len): (u64, u32, u32)| {
                 // A syscall the guest was not given traps: the absence is the
                 // enforcement.
-                let answer = match table.get(&number) {
-                    Some(call) => call(&mut caller, ptr as u64, len as u64),
-                    None => Err(anyhow!("no syscall for {number}")),
-                };
-                answer.to_wasmtime_result()
+                let door = table.get(&number).cloned();
+                Box::new(async move {
+                    let (ptr, len) = (ptr as u64, len as u64);
+                    let answer = match door {
+                        Some(Door::Builtin(call)) => call(&mut caller, ptr, len),
+                        Some(Door::Hosted(call)) => match syscall::request(&mut caller, ptr, len) {
+                            Ok((at, request)) => {
+                                let reply = call(at, request).await;
+                                Ok(syscall::stage(&mut caller, reply))
+                            }
+                            Err(error) => Err(error),
+                        },
+                        None => Err(anyhow!("no syscall for {number}")),
+                    };
+                    answer.to_wasmtime_result()
+                })
             },
         )?;
 
@@ -108,20 +121,20 @@ impl Image {
         self.exports.iter().map(String::as_str).collect()
     }
 
-    pub(crate) fn call(&self, symbol: &str, invocation: Invocation) -> Result<Invocation> {
-        let deadline = watchdog::Deadline::enter();
+    pub(crate) async fn call(&self, symbol: &str, invocation: Invocation) -> Result<Invocation> {
+        let deadline = invocation.at.deadline;
         let mut store = Store::new(&self.engine, invocation);
 
         // Rounded up, and never zero: a guest gets at least what is left of the
         // bound it inherited, and a deadline of no ticks would trap it before
         // it ran an instruction.
-        let remaining = deadline.at().saturating_duration_since(Instant::now());
+        let remaining = deadline.saturating_duration_since(Instant::now());
         let ticks = remaining.div_duration_f64(TICK).ceil() as u64;
         store.set_epoch_deadline(ticks.max(1));
 
-        let instance = self.pre.instantiate(&mut store)?;
+        let instance = self.pre.instantiate_async(&mut store).await?;
         let tool: TypedFunc<(), ()> = instance.get_typed_func(&mut store, symbol)?;
-        tool.call(&mut store, ())?;
+        tool.call_async(&mut store, ()).await?;
         Ok(store.into_data())
     }
 }

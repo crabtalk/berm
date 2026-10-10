@@ -32,7 +32,8 @@ const GUEST: (&str, &str) = (
 );
 const ROUNDS: usize = 1000;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Only the guest's own log; cranelift is chatty at info.
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::new("warn,program=info"))
@@ -64,24 +65,25 @@ fn main() -> Result<()> {
 
     println!(
         "heap probe:            {:?}",
-        program.call("probe", b"".to_vec())?
+        program.call("probe", b"".to_vec()).await?
     );
 
     // A payload in the range a real tool call carries.
     let args = format!(r#"{{"query":"{}"}}"#, "x".repeat(256));
     let echoed = program
-        .call("echo", args.as_bytes())?
+        .call("echo", args.as_bytes())
+        .await?
         .map_err(anyhow::Error::msg)?;
     assert!(echoed.contains(&args), "round trip lost the payload");
     println!(
         "failure path:          {:?}",
-        program.call("boom", b"".to_vec())?.unwrap_err()
+        program.call("boom", b"".to_vec()).await?.unwrap_err()
     );
 
     let mut chatty = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
         let start = Instant::now();
-        let _ = program.call("chatty", b"".to_vec())?;
+        let _ = program.call("chatty", b"".to_vec()).await?;
         chatty.push(start.elapsed());
     }
     chatty.sort();
@@ -90,7 +92,7 @@ fn main() -> Result<()> {
     let mut samples = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
         let start = Instant::now();
-        let _ = program.call("echo", args.as_bytes())?;
+        let _ = program.call("echo", args.as_bytes()).await?;
         samples.push(start.elapsed());
     }
     samples.sort();
@@ -99,11 +101,11 @@ fn main() -> Result<()> {
     // tool's arguments from one guest to the next, so the difference is what
     // JSON costs per nesting level — and whether it tracks the payload says
     // which half is the parse and which is the allocation behind it.
-    let p50 = |tool: &str, args: &[u8]| -> Result<Duration> {
+    let p50 = async |tool: &str, args: &[u8]| -> Result<Duration> {
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
             let start = Instant::now();
-            let _ = program.call(tool, args.to_vec())?;
+            let _ = program.call(tool, args.to_vec()).await?;
             samples.push(start.elapsed());
         }
         samples.sort();
@@ -114,8 +116,8 @@ fn main() -> Result<()> {
     for size in [16usize, 256, 4096] {
         let args = format!(r#"{{"query":"{}"}}"#, "x".repeat(size));
         let (raw, parsed) = (
-            p50("echo", args.as_bytes())?,
-            p50("typed", args.as_bytes())?,
+            p50("echo", args.as_bytes()).await?,
+            p50("typed", args.as_bytes()).await?,
         );
         println!(
             "  {size:>5} B:            {:>10.3?}  ({:.3?} over {:.3?})",
@@ -131,7 +133,9 @@ fn main() -> Result<()> {
     // as for four thousand, so what is priced is the first use, not the bytes.
     println!(
         "  alloc, no parse:     {:>10.3?}",
-        p50("probe", b"")?.saturating_sub(p50("echo", b"{}")?)
+        p50("probe", b"")
+            .await?
+            .saturating_sub(p50("echo", b"{}").await?)
     );
 
     println!("invocations:           {ROUNDS}");
