@@ -8,7 +8,7 @@ comes back out through one, and nothing survives the call.
 let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
 berm.deploy("example", &wasm)?;
 
-match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
+match berm.call(None, "example", "echo", br#"{"query":"hello"}"#.to_vec()).await? {
     Ok(result) => println!("{result}"),
     Err(failure) => eprintln!("{failure}"),
 }
@@ -41,35 +41,8 @@ takes, where bytes persist — each is a decision about a host, and berm has no
 host. An embedder passes `System` values to `Berm::new`, and that list is the
 whole of what a guest can reach.
 
-The same argument appears one layer down in
-[Host Calls](../rvtime/design/host-calls.md): rvtime ships no standard function
-set for the same reason.
+## Where wasmtime stops and berm starts
 
-## Two backends, one ABI
+wasmtime loads an image, generates native code for it, and calls it. It has no idea what a program is — no tools, no manifest, no arguments, no JSON.
 
-berm compiles a WebAssembly module under wasmtime, and a statically linked RV64
-ELF under [rvtime](../rvtime/introduction.md). Which one a deploy reaches is
-read off the image's first four bytes — the image already says what it is, and a
-second answer beside it is one that can disagree.
-
-RISC-V is experimental. What it buys is that any language with a RISC-V target
-is a program without needing a wasm story of its own.
-
-The two answer the same ABI: the same syscall names hashed to the same numbers,
-the same length-prefixed framing, the same `berm_tool_*` exports, the same
-`.berm.abi` section. Every syscall is written once, against berm's own `Guest`
-trait, and a backend carries it across its own boundary and supplies nothing
-else. Only the transport differs — an `ecall` with the number in `a7` on one,
-one imported function taking it as an argument on the other.
-
-## Where a backend stops and berm starts
-
-rvtime and wasmtime load an image, generate native code for it, and call it.
-Neither has any idea what a program is — no tools, no manifest, no arguments, no
-JSON.
-
-berm is the layer that decides those things: that a tool is an export named
-`berm_tool_*`, that an image describes itself in a `.berm.abi` section, that
-arguments arrive as a blob the guest pulls in rather than as registers. Those
-are conventions, and keeping them out of the backends is what lets rvtime be
-used for something that is not a program at all.
+berm is the layer that decides those things: that a tool is an export named `berm_tool_*`, that an image describes itself in a `.berm.abi` section, and that arguments arrive as a blob the guest pulls in. Every syscall is the same number, request and staged reply, carried by one import, `berm.syscall`.

@@ -3,7 +3,6 @@
 	import { Check, Copy } from 'lucide-static';
 	import { base } from '$app/paths';
 	import Brand from '$lib/Brand.svelte';
-	import Disasm from '$lib/Disasm.svelte';
 	import { author, description, repo } from '$lib/meta.js';
 
 	const title = 'berm — the OS for agent harnesses';
@@ -11,7 +10,7 @@
 	// Marked by hand and rendered with `{@html}`, so a `pre` never inherits the
 	// template's indentation and Svelte never reads a brace in the source as an
 	// expression.
-	const rust = `<span class="mark">let</span> berm = Berm::load(&amp;engine, &amp;elf, &amp;[])?;
+	const rust = `<span class="mark">let</span> berm = Berm::load(&amp;engine, &amp;wasm, &amp;[])?;
 
 <span class="mark">match</span> berm.call(<span class="s">"echo"</span>, <span class="s">br#"{"query":"hello"}"#</span>.to_vec())? {
     Ok(result) =&gt; println!(<span class="s">"{result}"</span>),
@@ -20,18 +19,18 @@
 
 	const digest = '222890c498ed28f4bf60670a223141489d9879020bd1890111b8c11ac79fa31d';
 
-	const console_ = `<span class="c">$</span> berm push 127.0.0.1:5000/berm/fixture:v1 ./fixture
+	const console_ = `<span class="c">$</span> berm push 127.0.0.1:5000/berm/fixture:v1 ./fixture.wasm
 127.0.0.1:5000/berm/fixture:v1
   digest  <span class="mark">sha256:${digest}</span>
 
-<span class="c">$</span> shasum -a256 ./fixture
-<span class="mark">${digest}</span>  ./fixture`;
+<span class="c">$</span> shasum -a256 ./fixture.wasm
+<span class="mark">${digest}</span>  ./fixture.wasm`;
 
 	const running = `<span class="c">$</span> bermd &amp;
-<span class="c">$</span> berm deploy example ./program.elf
+<span class="c">$</span> berm deploy example ./program.wasm
 <span class="c">$</span> berm ls`;
 
-	const moving = `<span class="c">$</span> berm push ghcr.io/org/example:v1 ./program.elf
+	const moving = `<span class="c">$</span> berm push ghcr.io/org/example:v1 ./program.wasm
 <span class="c">$</span> berm publish ghcr.io/org/example:v1
 <span class="c">$</span> berm search <span class="s">"read a file"</span>`;
 
@@ -40,7 +39,7 @@
 	const pillars = [
 		{
 			title: 'Pinned by hash',
-			body: 'A program is one statically linked RV64 ELF. berm compiles it once and instantiates it per invocation — arguments go in through syscalls, the result comes back out of guest memory, and the instance is gone.'
+			body: 'A program is one WebAssembly module. berm compiles it once and instantiates it per invocation — arguments go in through syscalls, the result comes back out of guest memory, and the instance is gone.'
 		},
 		{
 			title: 'The linker is the boundary',
@@ -52,7 +51,7 @@
 		},
 		{
 			title: 'Read it without running it',
-			body: 'Manifest::from_elf reads what an image claims to be — its tools, their schemas, when to reach for them — without compiling it and without running it.'
+			body: 'Manifest::from_image reads what an image claims to be — its tools, their schemas, when to reach for them — without compiling it and without running it.'
 		}
 	];
 
@@ -65,9 +64,8 @@
 		programmingLanguage: 'Rust',
 		license: 'https://www.apache.org/licenses/LICENSE-2.0',
 		keywords: [
-			'RISC-V sandbox',
-			'RV64 ELF',
-			'Cranelift JIT',
+			'WebAssembly sandbox',
+			'wasmtime',
 			'MCP server',
 			'agent tools',
 			'LLM tool sandbox',
@@ -92,7 +90,7 @@
 		<h1>Nothing survives the call.</h1>
 
 		<p class="lede">
-			The OS for agent harnesses. One statically linked RV64 ELF, pinned by hash, compiled once,
+			The OS for agent harnesses. One WebAssembly module, pinned by hash, compiled once,
 			and instantiated per invocation.
 		</p>
 
@@ -113,7 +111,6 @@
 	</div>
 
 	<div class="act">
-		<Disasm />
 		<div class="cta">
 			<a class="button primary" href="{base}/book/">Read the docs</a>
 		</div>

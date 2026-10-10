@@ -14,18 +14,13 @@ A program is one WebAssembly module. berm pins it by hash, compiles it once, and
 instantiates it per invocation — arguments go in through syscalls, the result
 comes back out through one, and nothing survives the call.
 
-The same source also builds for RISC-V, which berm runs under
-[rvtime](rvtime/) instead of wasmtime. That backend is experimental; which one a
-deploy reaches is read off the image's first four bytes, so a program is
-deployed the same way either way.
-
 ```rust
 let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
 berm.deploy("example", &wasm)?;
 
 // The outer result is the host's — a missing tool, a trap. The inner one is
 // the program reporting failure, which is a result the model should see.
-match berm.call("example", "echo", br#"{"query":"hello"}"#.to_vec())? {
+match berm.call(None, "example", "echo", br#"{"query":"hello"}"#.to_vec()).await? {
     Ok(result) => println!("{result}"),
     Err(failure) => eprintln!("{failure}"),
 }
@@ -91,11 +86,6 @@ target:
 ```sh
 rustup target add wasm32-unknown-unknown
 ```
-
-For the experimental RISC-V backend, `rustup target add
-riscv64imac-unknown-none-elf` and build `berm` with `--features riscv`. Guests
-there must be linked with **`--emit-relocs`**, which is the first thing to check
-when one fails to load; `berm new --target riscv` writes that flag for you.
 
 ## License
 

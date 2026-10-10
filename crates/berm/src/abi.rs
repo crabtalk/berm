@@ -8,9 +8,8 @@
 //! Every one takes a request at `(ptr, len)` and answers with a single word.
 //! One shape for all of them: a call that needs no request is handed a pair it
 //! ignores, and one whose answer is longer than a word stages it for the guest
-//! to pull. That is what lets a backend register a table rather than a list of
-//! signatures — rvtime puts the number in `a7` and the pair in `a0`/`a1`,
-//! wasmtime takes all three as arguments to one import.
+//! to pull. That is what lets the engine register a table rather than a list
+//! of signatures: all three arrive as arguments to one import.
 //!
 //! The same hash is computed guest-side in `crates/lang/src/abi.rs`. The two
 //! must agree — and cannot drift quietly if they don't: a mismatched name
@@ -27,11 +26,8 @@ pub const HOST_ARG_READ: u64 = hash("berm.args.read");
 pub const HOST_DONE: u64 = hash("berm.done");
 /// Fail this invocation with a message. `(ptr, len) -> 0`
 ///
-/// The other half of [`HOST_DONE`], and the reason neither is a return value:
-/// what a tool answers with travels the same way everything else does, so an
-/// export takes nothing and returns nothing on every backend. A pointer pair
-/// in registers would have been two words on RV64 and a hidden out-parameter
-/// on wasm32, which is one convention too many for one ABI.
+/// The other half of [`HOST_DONE`]. What a tool answers with travels the same
+/// way everything else does, so an export takes nothing and returns nothing.
 pub const HOST_FAIL: u64 = hash("berm.fail");
 /// Copy the staged syscall result into guest memory. `(ptr, cap) -> full length`
 pub const HOST_RESULT_READ: u64 = hash("berm.result.read");
@@ -91,6 +87,17 @@ pub const CALL_AFTER: &str = "berm.call.after";
 /// which is what bounds a program to one and keeps it from fanning out.
 pub const HOST_CALL_AFTER: u64 = hash(CALL_AFTER);
 
+/// What a host registers to serve [`HOST_HTTP_FETCH`].
+pub const HTTP_FETCH: &str = "berm.http.fetch";
+
+/// Make one HTTP request. `(ptr, len) -> staged length`
+///
+/// Request fields are the method, the URL and the body, then header names and
+/// values in turn. The reply is the status as decimal text and the body, then
+/// header names and values in turn. A header value may carry `{secret:NAME}`,
+/// which the host substitutes; the guest never holds the value.
+pub const HOST_HTTP_FETCH: u64 = hash(HTTP_FETCH);
+
 /// What a host registers to serve [`HOST_GET`] and [`HOST_SET`].
 pub const GET: &str = "berm.get";
 pub const SET: &str = "berm.set";
@@ -110,37 +117,6 @@ pub const HOST_GET: u64 = hash(GET);
 /// Request fields are the key and the value; the reply is empty.
 pub const HOST_SET: u64 = hash(SET);
 
-/// What a host registers to serve the socket doors. berm serves none of them:
-/// a dialer needs an allowlist and a frame cap, which are a host's decisions.
-pub const WS_OPEN: &str = "berm.ws.open";
-pub const WS_SEND: &str = "berm.ws.send";
-pub const WS_CLOSE: &str = "berm.ws.close";
-
-/// Open a connection, naming the tool its events reach. `(ptr, len) -> staged length`
-///
-/// Request fields are the URL, the program and the tool, then header names and
-/// values in turn; the reply is the id the other two doors take. The dial
-/// outlives this call, so a connection that never comes up says so through a
-/// [`WS_EVENT_OPEN`] event carrying the error.
-pub const HOST_WS_OPEN: u64 = hash(WS_OPEN);
-
-/// Queue bytes on a connection. `(ptr, len) -> staged length`
-///
-/// Request fields are the id and the payload; the reply is empty. Queued: a
-/// guest that waited for the far end would hold its thread for a round trip.
-pub const HOST_WS_SEND: u64 = hash(WS_SEND);
-
-/// Close a connection. `(ptr, len) -> staged length`
-///
-/// The request is the id; the reply is empty.
-pub const HOST_WS_CLOSE: u64 = hash(WS_CLOSE);
-
-/// The first field of every invocation a connection starts, saying which of
-/// the three things happened. The body follows as the second field.
-pub const WS_EVENT_OPEN: &str = "open";
-pub const WS_EVENT_MESSAGE: &str = "message";
-pub const WS_EVENT_CLOSE: &str = "close";
-
 /// Milliseconds since the Unix epoch, as the host reads its clock. `() -> millis`
 ///
 /// berm serves this one itself: a clock needs no root, no cap and no
@@ -149,10 +125,6 @@ pub const WS_EVENT_CLOSE: &str = "close";
 /// while the process was down arrives late, and says so only against this.
 pub const HOST_NOW: u64 = hash("berm.now");
 
-/// Where this guest's heap starts. `() -> address`
-pub const HOST_HEAP_START: u64 = hash("berm.heap.start");
-/// How many bytes of it there are. `() -> length`
-pub const HOST_HEAP_SIZE: u64 = hash("berm.heap.size");
 /// Prefix on every tool's exported symbol. A tool is resolved by name like any
 /// other symbol; the prefix keeps one called `init` from colliding with the
 /// exports the ABI reserves.

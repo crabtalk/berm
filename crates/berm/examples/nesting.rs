@@ -1,7 +1,7 @@
 //! A program calling a program.
 //!
 //! The reference guest exports `nest`, which calls `echo` on whatever the
-//! runtime answers for as `inner`. Here that is the same ELF, deployed twice
+//! runtime answers for as `inner`. Here that is the same image, deployed twice
 //! under two names — which is all a nested call is: berm resolving a name
 //! against the set it already holds.
 //!
@@ -14,19 +14,13 @@ use anyhow::{Context, Result};
 use berm::{Berm, Config, Engine, storage, syscall::call};
 use std::{fs, path::PathBuf};
 
-/// Whichever image the backend this was built with can run.
-#[cfg(feature = "wasm")]
 const GUEST: (&str, &str) = (
     "target/wasm32-unknown-unknown/release/fixture.wasm",
     "wasm32-unknown-unknown",
 );
-#[cfg(not(feature = "wasm"))]
-const GUEST: (&str, &str) = (
-    "target/riscv64imac-unknown-none-elf/release/fixture",
-    "riscv64imac-unknown-none-elf",
-);
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::new("warn,program=info"))
         .init();
@@ -37,12 +31,13 @@ fn main() -> Result<()> {
         .context("no workspace root")?
         .to_path_buf();
     let (guest, target) = GUEST;
-    let elf = fs::read(root.join(guest)).with_context(|| {
+    let image = fs::read(root.join(guest)).with_context(|| {
         format!("build the guest first: cargo build --release -p berm-fixture --target {target} ({guest})")
     })?;
 
     let engine = Engine::new(&Config {
         cache_dir: Some(std::env::temp_dir().join("berm-nesting")),
+        ..Config::default()
     })?;
 
     let berm = Berm::new(
@@ -51,11 +46,12 @@ fn main() -> Result<()> {
         vec![],
         storage::Memory::new(),
     );
-    berm.deploy("inner", &elf)?;
-    berm.deploy("outer", &elf)?;
+    berm.deploy("inner", &image)?;
+    berm.deploy("outer", &image)?;
 
     let result = berm
-        .call("outer", "nest", br#"{"query":"hi"}"#.to_vec())?
+        .call(None, "outer", "nest", br#"{"query":"hi"}"#.to_vec())
+        .await?
         .map_err(anyhow::Error::msg)?;
     println!("reached:  {result}");
     assert!(
@@ -68,7 +64,8 @@ fn main() -> Result<()> {
     // once it is gone.
     assert!(berm.remove("inner")?);
     let failure = berm
-        .call("outer", "nest", br#"{"query":"hi"}"#.to_vec())?
+        .call(None, "outer", "nest", br#"{"query":"hi"}"#.to_vec())
+        .await?
         .expect_err("a refused call fails its caller");
     println!("refused:  {failure}");
     assert!(
@@ -79,9 +76,10 @@ fn main() -> Result<()> {
     // And the depth bound: `recurse` calls itself on `inner`, which is this
     // same image, until berm refuses to go deeper. What comes back is how many
     // levels got through — the runaway a limit exists to stop.
-    berm.deploy("inner", &elf)?;
+    berm.deploy("inner", &image)?;
     let reached = berm
-        .call("outer", "recurse", b"0".to_vec())?
+        .call(None, "outer", "recurse", b"0".to_vec())
+        .await?
         .map_err(anyhow::Error::msg)?;
     println!("depth:    {reached} levels before the runtime refused");
 

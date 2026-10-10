@@ -9,9 +9,8 @@ must not mean running it. `Manifest::from_image` parses the section with nothing
 compiled and nothing executed, which is what an embedder assembling a prompt, or
 a service listing a registry, actually needs.
 
-One name covers both formats: an ELF section and a wasm custom section are each
-what `#[link_section]` emits for the target, and each is what the same reader
-finds.
+The section is a wasm custom section, which is what `#[link_section]` emits on
+`wasm32`.
 
 ```rust,ignore
 let manifest = Manifest::from_image(&bytes)?;
@@ -34,11 +33,27 @@ file at compile time when it outgrows an attribute.
 
 ## Dependencies
 
-`#[program(deps = ["weather", "wss://slack.com"])]` is what an image says it
-will reach for once it runs — programs it calls by name, and hosts it dials,
-told apart by whether one carries a scheme. These are runtime and resolved
-wherever the image lands: nothing here is fetched, installed, or compiled in,
-which is what separates them from the crate's own `[dependencies]`.
+```rust,ignore
+#[berm_lang::program(
+    programs = ["weather"],
+    syscalls = { "berm.get", "berm.http.fetch" = ["api.example.com"] },
+    secrets = ["example"],
+)]
+```
+
+is what an image says it will reach for once it runs: programs it calls by
+name, syscalls it makes beyond the ABI's own, each beside what it reaches
+through that call, and secrets it names as `{secret:NAME}` in a header. The
+manifest carries them as
+`"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...]}`.
+
+`berm.http.fetch` holds a program to them: a host it does not declare, or a
+secret it does not declare, is refused before anything is sent. A declared
+secret is substituted by the host for the chain's caller, and the guest never
+holds its value. These are runtime
+and resolved wherever the image lands: nothing here is fetched, installed, or
+compiled in, which is what separates them from the crate's own
+`[dependencies]`.
 
 Declared by the author rather than found by reading the image, because a target
 the program computes at the call is invisible to any scan — a list built that
@@ -46,7 +61,8 @@ way would be quietly short, and the runtime `Refused` would still be needed
 underneath it.
 
 Nothing is refused for an unmet dependency. `berm deploy` says so and carries
-on, and `berm inspect` marks the ones this service answers to nothing for.
+on, and `berm inspect` marks the programs not deployed and the syscalls nothing
+registers. What a served syscall reaches through it is that syscall's to grant.
 Refusing would make deploy order significant, and a restart brings programs
 back in whatever order the filesystem lists them — two that name each other
 could then never come up at all.

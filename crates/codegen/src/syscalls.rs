@@ -266,16 +266,19 @@ impl Ty {
         }
     }
 
-    /// The owned type a host implementation answers with. [`Ty::owned`]'s
-    /// counterpart: the guest reaches these through `alloc`, a host through
-    /// std.
+    /// The owned type a host implementation takes and answers with.
+    /// [`Ty::owned`]'s counterpart: the guest reaches these through `alloc`, a
+    /// host through std.
     fn host_owned(&self) -> TokenStream {
         match self {
             Ty::Text => quote!(::std::string::String),
             Ty::Bytes => quote!(::std::vec::Vec<u8>),
             Ty::Int(16) => quote!(u16),
             Ty::Int(32) => quote!(u32),
-            _ => quote!(u64),
+            Ty::Int(_) => quote!(u64),
+            Ty::Pairs => {
+                quote!(::std::vec::Vec<(::std::string::String, ::std::string::String)>)
+            }
         }
     }
 
@@ -460,15 +463,15 @@ impl Declaration {
             .params
             .iter()
             .chain(&call.tail)
-            .map(|p| p.ty.borrowed())
+            .map(|p| p.ty.host_owned())
             .collect::<Vec<_>>();
 
         let reads = call.params.iter().enumerate().map(|(at, p)| {
             let binding = &p.name;
             let what = p.name.to_string();
             let value = match p.ty {
-                Ty::Text => quote!(::berm::wire::text(&fields, #at, #what)?),
-                Ty::Bytes => quote!(fields[#at]),
+                Ty::Text => quote!(::berm::wire::text(&fields, #at, #what)?.to_owned()),
+                Ty::Bytes => quote!(fields[#at].to_vec()),
                 Ty::Int(_) => {
                     let ty = p.ty.borrowed();
                     quote! {
@@ -523,15 +526,20 @@ impl Declaration {
                         let mut #binding = ::std::vec::Vec::with_capacity(trailing.len() / 2);
                         for pair in trailing.chunks(2) {
                             #binding.push((
-                                ::core::str::from_utf8(pair[0])?,
-                                ::core::str::from_utf8(pair[1])?,
+                                ::core::str::from_utf8(pair[0])?.to_owned(),
+                                ::core::str::from_utf8(pair[1])?.to_owned(),
                             ));
                         }
-                        let #binding = &#binding[..];
                     },
                     names,
                 )
             }
+        };
+
+        // What the request decodes to, bound as one pattern.
+        let tuple = match names.is_empty() {
+            true => quote!(()),
+            false => quote!((#(#names),*,)),
         };
 
         let (returns, reply, answer) = match &call.reply {
@@ -539,16 +547,12 @@ impl Declaration {
                 quote!(()),
                 quote!(),
                 quote! {
-                    serve(#(#names),*)?;
+                    served?;
                     ::core::result::Result::Ok(::std::vec::Vec::new())
                 },
             ),
             // Staged raw, exactly as the guest reads it back.
-            Reply::One(Ty::Bytes) => (
-                quote!(::std::vec::Vec<u8>),
-                quote!(),
-                quote!(serve(#(#names),*)),
-            ),
+            Reply::One(Ty::Bytes) => (quote!(::std::vec::Vec<u8>), quote!(), quote!(served)),
             Reply::One(ty) => {
                 let owned = ty.host_owned();
                 let into = match ty {
@@ -558,7 +562,7 @@ impl Declaration {
                 (
                     owned,
                     quote!(),
-                    quote!(::core::result::Result::Ok(serve(#(#names),*)? #into)),
+                    quote!(::core::result::Result::Ok(served? #into)),
                 )
             }
             Reply::Many(fields) => {
@@ -593,7 +597,7 @@ impl Declaration {
                         pub struct #ty { #(#declared),* }
                     },
                     quote! {
-                        let reply = serve(#(#names),*)?;
+                        let reply = served?;
                         #(#staged)*
                         ::core::result::Result::Ok(::berm::wire::frame(&[#(#borrowed),*]))
                     },
@@ -608,19 +612,38 @@ impl Declaration {
             pub const #konst: &str = #wire;
 
             #docs
-            pub fn #ident(
-                serve: impl Fn(#(#takes),*) -> ::berm::anyhow::Result<#returns>
-                    + Send + Sync + 'static,
-            ) -> ::berm::Syscall {
+            pub fn #ident<Serve, Served>(serve: Serve) -> ::berm::Syscall
+            where
+                Serve: Fn(::berm::Callsite, #(#takes),*) -> Served + Send + Sync + 'static,
+                Served: ::core::future::Future<Output = ::berm::anyhow::Result<#returns>>
+                    + Send + 'static,
+            {
                 ::berm::Syscall {
                     name: ::std::string::String::from(#konst),
-                    call: ::std::sync::Arc::new(move |_: &::berm::Callsite<'_>, request: &[u8]| {
-                        let fields = ::berm::wire::fields(request)?;
-                        #arity
-                        #(#reads)*
-                        #pairs
-                        #answer
-                    }),
+                    call: ::std::sync::Arc::new(
+                        move |at: ::berm::Callsite, request: ::std::vec::Vec<u8>| -> ::berm::Reply {
+                            let decoded = (|| -> ::berm::anyhow::Result<_> {
+                                let fields = ::berm::wire::fields(&request)?;
+                                #arity
+                                #(#reads)*
+                                #pairs
+                                ::core::result::Result::Ok(#tuple)
+                            })();
+                            let #tuple = match decoded {
+                                ::core::result::Result::Ok(decoded) => decoded,
+                                ::core::result::Result::Err(error) => {
+                                    return ::std::boxed::Box::pin(::core::future::ready(
+                                        ::core::result::Result::Err(error),
+                                    ));
+                                }
+                            };
+                            let pending = serve(at, #(#names),*);
+                            ::std::boxed::Box::pin(async move {
+                                let served = pending.await;
+                                #answer
+                            })
+                        },
+                    ),
                 }
             }
         }

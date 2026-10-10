@@ -17,7 +17,7 @@ The control API is resource-shaped, for the reason dockerd's is: the clients are
 a UI, a CLI, and `curl`.
 
 ```sh
-curl -X PUT --data-binary @program.elf http://127.0.0.1:7777/programs/example
+curl -X PUT --data-binary @program.wasm http://127.0.0.1:7777/programs/example
 curl http://127.0.0.1:7777/programs
 curl -X DELETE http://127.0.0.1:7777/programs/example
 ```
@@ -31,8 +31,8 @@ guest berm's own tests use — its tools price things rather than do them, so it
 proves the path works and is not something to leave deployed.
 
 ```sh
-cargo build --release -p berm-fixture --target riscv64imac-unknown-none-elf
-curl -X PUT --data-binary @target/riscv64imac-unknown-none-elf/release/fixture \
+cargo build --release -p berm-fixture --target wasm32-unknown-unknown
+curl -X PUT --data-binary @target/wasm32-unknown-unknown/release/fixture.wasm \
   http://127.0.0.1:7777/programs/fixture
 ```
 
@@ -49,14 +49,14 @@ turn.
 
 ## What a program can reach
 
-Its arguments, the log, its own stored keys, the clock, a callback timer, any
-connection this daemon was configured to let it dial, and any other program
-deployed beside it. There is no wiring step: what is deployed is reachable by
-name, the way containers on one network reach each other.
+Its arguments, the log, its own stored keys, the clock, a callback timer, HTTP
+to the hosts its manifest declares under `berm.http.fetch`, and any other
+program deployed beside it. There is no wiring step: what is deployed is
+reachable by name, the way containers on one network reach each other.
 
 ```sh
-berm deploy inner ./inner.elf
-berm deploy outer ./outer.elf
+berm deploy inner ./inner.wasm
+berm deploy outer ./outer.wasm
 ```
 
 ```rust
@@ -72,13 +72,23 @@ the target ran and said no.
 `--max-call-depth` bounds how far a chain may nest, 4 by default; `0` refuses
 the first nested call.
 
-That reach stops at the daemon. Everything outside it — files, commands, the
-network — is a syscall the embedder registers, and bermd registers none.
-The bound worth minding is therefore what an image *is*, not which of your
-programs it can call: read what one claims before deploying it.
+Outside the daemon, a program reaches only the hosts its manifest declares;
+bermd registers no files and no commands. The bound worth minding is therefore
+what an image *is*, not which of your programs it can call: read what one
+claims before deploying it.
 
 ```sh
 berm inspect ghcr.io/org/example:v1
+```
+
+A request header may name `{secret:NAME}` for a secret the manifest declares.
+bermd substitutes what `{root}/secrets.toml` grants that program for that host,
+read at every request:
+
+```toml
+[fixture.fixture]
+value = "..."
+hosts = ["127.0.0.1"]
 ```
 
 The endpoint carries no authorization and binds loopback by default.

@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/*", "crates/*", "rvtime/*"]
+members = ["apps/*", "crates/*"]
 resolver = "3"
 
 [workspace.package]
@@ -9,50 +9,34 @@ repository = "https://github.com/crabtalk/berm"
 license = "Apache-2.0"
 authors = ["clearloop <tianyi.gc@gmail.com>"]
 readme = "README.md"
-keywords = ["riscv", "jit", "compiler", "cranelift", "sandbox"]
-categories = ["compilers", "virtualization"]
+keywords = ["wasm", "sandbox", "mcp", "agent"]
+categories = ["virtualization", "wasm"]
 
 [workspace.dependencies]
-# Off by default down the chain from `compiler`, so that a build of bermd can
-# pick a backend.
-berm = { path = "crates/berm", version = "0.0.8", default-features = false }
+berm = { path = "crates/berm", version = "0.0.8" }
 berm-api = { path = "crates/api", version = "0.0.8" }
 berm-codegen = { path = "crates/codegen", version = "0.0.8" }
 berm-index = { path = "crates/index", version = "0.0.8" }
 berm-lang = { path = "crates/lang", version = "0.0.8" }
 berm-oci = { path = "crates/oci", version = "0.0.8" }
 bermd = { path = "apps/service", version = "0.0.8" }
-rv = { path = "rvtime/core", package = "rvtime-core", version = "0.0.8" }
-translator = { path = "rvtime/cranelift", package = "rvtime-cranelift", version = "0.0.8" }
-# Off by default: rvtime's own `jit` and `aot` features pick the backend, and a
-# member cannot turn off default features it inherits.
-compiler = { path = "rvtime/compiler", package = "rvtime-compiler", version = "0.0.8", default-features = false }
-rvtime = { path = "rvtime/rvtime", package = "rvtime", version = "0.0.8", default-features = false }
-# Off by default: berm-lang installs its own global allocator, and a guest can
-# only have one.
-guest = { path = "rvtime/guest", package = "rvtime-guest", version = "0.0.8", default-features = false }
 
 # crates-io
 anyhow = "1.0"
 axum = "0.8"
-bezel = "=0.1.1"
-cc = "1.4"
-clap = { version = "4", features = ["derive"] }
-cranelift = { version = "0.134.3", features = [
-    "jit",
-    "module",
-    "native",
-    "frontend",
+# Named rather than inherited: 0.1.11 emptied `default`, and a bezel without
+# these registers no font, leaving the window on the system stack.
+bezel = { version = "=0.1.11", features = [
+    "geist-sans",
+    "geist-mono",
+    "geist-weights",
 ] }
-cranelift-codegen = { version = "0.134.3", features = ["incremental-cache"] }
-cranelift-object = "0.134.3"
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+clap = { version = "4", features = ["derive"] }
 # The one thing the facade does not re-export. `gpui::Application` builds only
 # from a platform, and this is where the platform comes from.
-gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.3", features = [
+gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.10", features = [
     "font-kit",
 ] }
-libc = "0.2"
 linked_list_allocator = "0.10"
 object = { version = "0.40", features = ["wasm"] }
 proc-macro2 = "1"
@@ -86,23 +70,17 @@ tokio = { version = "1", features = [
     "sync",
     "time",
 ] }
-# rustls to match what reqwest already pulls. A second TLS stack is a second
-# set of root certificates, and the one that fails is whichever you did not
-# configure.
-tokio-tungstenite = { version = "0.30", default-features = false, features = [
-    "connect",
-    "handshake",
-    "rustls-tls-native-roots",
-] }
+toml = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-# Off by default down the chain, as `compiler` is: a build of bermd picks its
-# backends, and `cache` drags in a config format nothing here reads.
+# Off by default: `cache` drags in a config format nothing here reads.
 wasmtime = { version = "48", default-features = false, features = [
     "anyhow",
+    "async",
     "cache",
     "cranelift",
     "parallel-compilation",
+    "pooling-allocator",
     "runtime",
     "std",
 ] }

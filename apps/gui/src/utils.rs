@@ -3,8 +3,21 @@
 use anyhow::{Context, Result};
 use berm_index::Entry;
 use berm_oci::{Access, Reference, Registry};
+use bezel::{
+    gpui::{StyleRefinement, Styled},
+    theme::Theme,
+};
 use serde_json::{Map, Value};
 use std::{fs, path::Path, str::FromStr};
+
+/// The wash a row takes under the pointer.
+///
+/// bezel leaves this to the caller because gpui panics on a second `hover`, so
+/// a component that set one would take the call away from whoever wraps it.
+pub fn hover(theme: &Theme) -> impl FnOnce(StyleRefinement) -> StyleRefinement {
+    let wash = theme.element_hover;
+    move |style| style.bg(wash)
+}
 
 /// How much of a digest reads as an identity without taking the row.
 const DIGEST_SHORT: usize = 12;

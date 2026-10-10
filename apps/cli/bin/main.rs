@@ -22,12 +22,7 @@ struct Args {
 #[derive(Subcommand)]
 enum Command {
     /// Scaffold a program crate.
-    New {
-        name: String,
-        /// What to build it for. RISC-V is experimental.
-        #[arg(long, value_enum, default_value_t)]
-        target: cmd::new::Target,
-    },
+    New { name: String },
     /// List deployed programs.
     Ls,
     /// Deploy an image, from a file or a registry, replacing whatever holds
@@ -60,7 +55,7 @@ fn main() -> Result<ExitCode> {
     let client = Client::new(args.host);
 
     match &args.command {
-        Command::New { name, target } => cmd::new::run(name, *target)?,
+        Command::New { name } => cmd::new::run(name)?,
         Command::Ls => cmd::ls::run(&client)?,
         Command::Deploy { name, image } => cmd::deploy::run(&client, name, image)?,
         Command::Push { reference, image } => cmd::push::run(reference, image)?,

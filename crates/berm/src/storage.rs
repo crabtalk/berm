@@ -1,10 +1,9 @@
 //! What the runtime writes down, and where a host puts it.
 //!
-//! Three things outlive a process: the images that were deployed, the
-//! connections that were open, and the wakes that were pending. berm names
-//! them and reaches them through [`Storage`]; what a record costs to write and
-//! where it lands is a decision about a host, which is why the implementation
-//! is never here.
+//! Two things outlive a process: the images that were deployed and the wakes
+//! that were pending. berm names them and reaches them through [`Storage`];
+//! what a record costs to write and where it lands is a decision about a host,
+//! which is why the implementation is never here.
 //!
 //! Distinct from [`crate::syscall::store`], which is a *program's* own keyspace
 //! and something a guest reaches for. Nothing below is addressable from a
@@ -24,21 +23,18 @@ use std::{
 pub enum Records {
     /// Deployed images, by the name each answers to.
     Programs,
-    /// Open connections, by id.
-    Sockets,
     /// Pending wakes, by the program that armed each.
     Wakes,
 }
 
 impl Records {
     /// Every one, for a host that must open them all at once.
-    pub const ALL: [Records; 3] = [Records::Programs, Records::Sockets, Records::Wakes];
+    pub const ALL: [Records; 2] = [Records::Programs, Records::Wakes];
 
     /// A name a host can use for a directory, a table, or a key prefix.
     pub fn as_str(&self) -> &'static str {
         match self {
             Records::Programs => "programs",
-            Records::Sockets => "sockets",
             Records::Wakes => "wakes",
         }
     }
@@ -51,9 +47,8 @@ impl Records {
 /// coming back after a restart reads all of them, and everything else is
 /// already in memory.
 ///
-/// Synchronous because a write happens inside a guest's host call, where an
-/// async one cannot go. A host backing this with something remote pays a
-/// blocked thread for the call's duration.
+/// Synchronous. A host backing this with something remote blocks the thread
+/// it is called on for the call's duration.
 pub trait Storage: Send + Sync + 'static {
     fn put(&self, records: Records, key: &str, value: &[u8]) -> Result<()>;
 

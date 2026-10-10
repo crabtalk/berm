@@ -8,13 +8,10 @@
 //! ```ignore
 //! let berm = Berm::new(&engine, syscall::call::DEFAULT_CALL_DEPTH, vec![]);
 //! berm.deploy("example", &wasm)?;
-//! let result = berm.call("example", "echo", br#"{"query":"hi"}"#.to_vec())?;
+//! let result = berm.call(None, "example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
 //! ```
 //!
-//! An image is WebAssembly, run under wasmtime, or — experimentally — a
-//! statically linked RV64 ELF run under rvtime. Which one a deploy reaches is
-//! read off its first four bytes, and the two answer the same ABI: same
-//! syscall names, same framing, same exports.
+//! An image is a WebAssembly module, run under wasmtime.
 //!
 //! What is deployed is reachable, by name, from any other program deployed
 //! beside it — which is the one syscall berm serves itself, because it
@@ -23,23 +20,25 @@
 //! Everything else a program reaches is a [`Syscall`] the embedder passed in,
 //! and that list is the linker it is instantiated with: a call to anything else
 //! traps because nothing is registered for it, not because a check said no.
-//! berm ships none. What a filesystem is bounded by, what shape a command's
-//! result takes, where bytes persist — each is a decision about a host, and
-//! berm has no host.
+//! The standard ones — `berm.get`/`berm.set`, `berm.call.after`,
+//! `berm.http.fetch` — are built with [`syscall`]'s constructors, which read
+//! and check the request and hand the work to the embedder's closures.
 
 use anyhow::Result;
-pub use backend::{Config, Engine};
-pub use berm_api::{Manifest, ToolSpec};
+pub use berm_api::{Deps, Manifest, ToolSpec};
+pub use engine::{Config, Engine};
 pub use program::{Invocation, Program, Refused};
 use std::{
     collections::BTreeMap,
+    pin::Pin,
     sync::{Arc, RwLock, Weak},
+    time::Instant,
 };
 pub use storage::{Records, Storage};
 
 pub mod abi;
-mod backend;
 mod bound;
+mod engine;
 mod program;
 pub mod storage;
 pub mod syscall;
@@ -51,21 +50,32 @@ pub mod wire;
 pub use anyhow;
 pub use berm_codegen::hosts;
 
-/// What a syscall does: request bytes in, result bytes out. An `Err`
-/// reaches the guest as a failure message on the same wire as a result.
-pub type Call = Arc<dyn Fn(&Callsite<'_>, &[u8]) -> Result<Vec<u8>> + Send + Sync>;
+/// What a syscall answers with, once it has. An `Err` reaches the guest as a
+/// failure message on the same wire as a result.
+pub type Reply = Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send>>;
 
-/// Which program is asking, and how deep the chain that reached it already is.
+/// What a syscall does: request bytes in, result bytes out.
 ///
-/// The runtime knows both at the moment of the call, so a syscall is
-/// handed them rather than made to infer them: identity would otherwise be a
-/// closure built per deployed program, and depth a thread-local read from
-/// inside the guest's own stack.
-pub struct Callsite<'a> {
+/// The guest is suspended until the reply resolves, and its thread is free
+/// meanwhile.
+pub type Call = Arc<dyn Fn(Callsite, Vec<u8>) -> Reply + Send + Sync>;
+
+/// Which program is asking, on whose behalf, and the chain that reached it.
+#[derive(Clone, Debug)]
+pub struct Callsite {
     /// What this program was deployed as.
-    pub program: &'a str,
-    /// How many guests are already on this thread's stack, this one included.
+    pub program: Arc<str>,
+    /// What this program's manifest declares it reaches for.
+    pub deps: Arc<Deps>,
+    /// Who started the chain, as the embedder named them at its first call.
+    /// Carried unchanged into every nested call.
+    pub caller: Option<Arc<str>>,
+    /// How many guests the chain holds, this one included.
     pub depth: u32,
+    /// When the chain has to be done by. A guest suspended in a syscall cannot
+    /// notice it until the reply resolves, so a syscall bounds its own wait
+    /// inside this.
+    pub deadline: Instant,
 }
 
 /// The programs a host is running.
@@ -74,8 +84,8 @@ pub struct Callsite<'a> {
 /// so it hands them a [`Weak`] of itself rather than a table copied per deploy.
 pub struct Berm {
     engine: Engine,
-    /// Every deployed program, by the name it answers to. A `std` lock because
-    /// it is read from inside a guest's host call, where an async one cannot go.
+    /// Every deployed program, by the name it answers to. Never held across an
+    /// await.
     programs: RwLock<BTreeMap<String, Arc<Program>>>,
     /// See [`syscall::call::DEFAULT_CALL_DEPTH`].
     depth: u32,
@@ -113,7 +123,7 @@ impl Berm {
     }
 
     /// Where this runtime's records live, for whatever else a host keeps
-    /// beside the images — the connections and wakes it drives itself.
+    /// beside the images — the wakes it drives itself.
     pub fn storage(&self) -> &Arc<dyn Storage> {
         &self.storage
     }
@@ -152,6 +162,13 @@ impl Berm {
             }
         }
         Ok(())
+    }
+
+    /// Whether a program deployed here can make the syscall `name`.
+    pub fn serves(&self, name: &str) -> bool {
+        name == abi::CALL
+            || syscall::is_builtin(abi::hash(name))
+            || self.syscalls.iter().any(|syscall| syscall.name == name)
     }
 
     /// Compile an image against the syscalls this runtime serves.
@@ -204,8 +221,9 @@ impl Berm {
     /// The outer `Result` is the host's — no such program, no such tool, a
     /// trap. The inner one is the program's own reported failure, which is a
     /// tool result rather than an error.
-    pub fn call(
+    pub async fn call(
         &self,
+        caller: Option<Arc<str>>,
         program: &str,
         tool: &str,
         args: impl Into<Vec<u8>>,
@@ -213,7 +231,7 @@ impl Berm {
         let Some(program) = self.get(program) else {
             anyhow::bail!("no program named {program:?} is deployed");
         };
-        program.call(tool, args)
+        program.call(caller, tool, args).await
     }
 }
 
@@ -223,12 +241,12 @@ impl Berm {
 /// from its linker, and that absence is the enforcement — there is no check to
 /// write and none to forget. Whatever bounds it is whatever it closes over.
 ///
-/// The name is hashed to the number the guest puts in `a7`, and berm neither
-/// reserves a namespace nor recognises one: every name in the list belongs to
-/// the embedder that wrote it.
+/// The name is hashed to the number the guest passes to `berm.syscall`, and
+/// berm neither reserves a namespace nor recognises one: every name in the list
+/// belongs to the embedder that wrote it.
 #[derive(Clone)]
 pub struct Syscall {
-    /// What the guest calls it, e.g. `crabtalk.fs.read`.
+    /// What the guest calls it, e.g. `berm.http.fetch`.
     pub name: String,
     /// What it does.
     pub call: Call,

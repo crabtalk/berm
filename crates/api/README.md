@@ -6,13 +6,13 @@ Here rather than in the service, so a client can read an image and talk to the
 API without linking a compiler.
 
 ```rust
-let manifest = berm_api::Manifest::from_elf(&elf)?;
+let manifest = berm_api::Manifest::from_image(&wasm)?;
 for tool in &manifest.tools {
     println!("{}: {}", tool.name, tool.description);
 }
 ```
 
-`Manifest::from_elf` reads the `.berm.abi` section — a section rather than an
+`Manifest::from_image` reads the `.berm.abi` section — a section rather than an
 export, so learning what an image claims to be never means running it. An image
 built against a different `ABI_VERSION` is refused here, before a host can
 dispatch into a syscall its author did not mean.

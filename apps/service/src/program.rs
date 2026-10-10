@@ -18,9 +18,9 @@ impl Service {
         // Said rather than refused: a program deployed before the one it
         // calls is ordinary, and the call reports it again if it stays that
         // way.
-        let unresolved = self.unresolved(program.manifest());
+        let unresolved = self.unresolved(&program);
         if !unresolved.is_empty() {
-            tracing::warn!(name, "nothing here answers to {}", unresolved.join(", "));
+            tracing::warn!(name, "nothing here answers to {unresolved}");
         }
 
         let _ = self.changed.send(());
@@ -54,12 +54,8 @@ impl Service {
         let Some(program) = self.get(program) else {
             bail!("no program named {program:?} is deployed");
         };
-        let tool = tool.to_owned();
-        // Entering a guest blocks the thread until the guest returns, which is
-        // not something a runtime worker can afford to do.
-        tokio::task::spawn_blocking(move || program.call(&tool, args))
-            .await
-            .context("invocation panicked")?
+        // bermd authenticates no one, so no chain it starts has a caller.
+        program.call(None, tool, args).await
     }
 
     /// Compile an image into the runtime, off the async workers.

@@ -17,15 +17,14 @@ use tokio::{net::TcpListener, runtime::Handle, sync::broadcast};
 mod api;
 mod deps;
 mod files;
+mod http;
 mod mcp;
 mod program;
-mod socket;
+mod secrets;
 mod source;
 mod store;
 mod timer;
 mod utils;
-
-pub use socket::Policy;
 
 /// How many deploys may go unread by a session before it misses one. A missed
 /// notification costs a stale tool list until the next change, not a wrong one.
@@ -34,37 +33,36 @@ const CHANGE_BACKLOG: usize = 16;
 pub struct Service {
     /// The programs this service is running, and the records behind them.
     /// berm holds both; what is left here is everything it has no opinion
-    /// about — who is told when the set changes, and what a guest may dial.
+    /// about — who is told when the set changes.
     berm: Arc<Berm>,
     /// Fires when the deployed set changes. Connected MCP sessions turn this
     /// into `notifications/tools/list_changed`, because the tool set mutates
     /// under clients that are already holding a list.
     changed: broadcast::Sender<()>,
-    /// Connections programs have open, and the source of every invocation
-    /// they start.
-    pub(crate) sockets: socket::Sockets,
-    /// What a guest may reach the network for, held here because reopening a
-    /// connection after a restart reads the same bounds the dial did.
-    pub(crate) policy: Policy,
     /// What each program has asked to be called back for.
     pub(crate) wakes: timer::Wakes,
+    /// What each program may have substituted into its requests.
+    pub(crate) secrets: secrets::Secrets,
 }
 
 impl Service {
     /// Open `root`, restoring whatever was deployed before this process.
-    pub async fn new(root: PathBuf, depth: u32, policy: Policy) -> Result<Arc<Self>> {
+    pub async fn new(root: PathBuf, depth: u32) -> Result<Arc<Self>> {
         let engine = Engine::new(&Config {
             cache_dir: Some(root.join("cache")),
+            ..Config::default()
         })
         .context("failed to start the compiler")?;
 
-        // Cyclic for the reason `Berm` is: the socket doors reach back into
-        // the service holding the table they write to.
+        // Cyclic for the reason `Berm` is: the timer door reaches back into
+        // the service holding the table it writes to.
         let runtime = Handle::current();
+        let secrets = secrets::Secrets::open(&root);
+        let fetch = http::syscall(secrets.clone())?;
         let service = Arc::new_cyclic(|me| {
             let mut syscalls = store::syscalls(&root);
-            syscalls.extend(socket::syscalls(me.clone(), runtime.clone()));
             syscalls.push(timer::syscalls(me.clone(), runtime));
+            syscalls.push(fetch);
             Self {
                 berm: Berm::new(
                     &engine,
@@ -73,32 +71,38 @@ impl Service {
                     Arc::new(files::Files::open(&root)),
                 ),
                 changed: broadcast::channel(CHANGE_BACKLOG).0,
-                sockets: socket::Sockets::default(),
                 wakes: timer::Wakes::default(),
-                policy,
+                secrets,
             }
         });
-        // Images first: a connection's events name a program, which has to be
-        // deployed before the first frame lands on it.
+        // Images first: a wake names a program, which has to be deployed
+        // before it fires.
         let restoring = service.clone();
         tokio::task::spawn_blocking(move || restoring.berm.restore())
             .await
             .context("restoring panicked")??;
-        service.reopen().await?;
         service.rearm().await?;
         Ok(service)
     }
 
-    /// Serve on an already-bound listener.
+    /// Serve on an already-bound listener until `shutdown` resolves.
     ///
     /// Binding is the caller's because its failure — the port is taken, by a
     /// second berm holding the same root — is the one startup error that has to
     /// be known *before* anything claims to be serving.
-    pub async fn serve(self: Arc<Self>, listener: TcpListener) -> Result<()> {
+    ///
+    /// Shutdown is the caller's for a sharper reason: waiting on `SIGINT` here
+    /// would install a handler over the whole process, and tokio never puts the
+    /// default back. A daemon wants exactly that; the workbench embedding this
+    /// serves a window too, and would have had its endpoint quietly torn down
+    /// by a Ctrl+C its window never heard about.
+    pub async fn serve(
+        self: Arc<Self>,
+        listener: TcpListener,
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<()> {
         axum::serve(listener, api::router(self))
-            .with_graceful_shutdown(async {
-                let _ = tokio::signal::ctrl_c().await;
-            })
+            .with_graceful_shutdown(shutdown)
             .await
             .context("server failed")
     }

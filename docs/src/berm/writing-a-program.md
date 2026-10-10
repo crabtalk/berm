@@ -1,10 +1,10 @@
 # Writing a Program
 
 `berm-lang` is the guest side. It owns the ABI, so an author never sees a call
-number, a register, or a pointer pair.
+number or a pointer pair.
 
 ```rust,ignore
-#![cfg_attr(any(target_arch = "wasm32", target_arch = "riscv64"), no_std, no_main)]
+#![cfg_attr(target_arch = "wasm32", no_std, no_main)]
 
 extern crate alloc;
 
@@ -70,14 +70,7 @@ cd my-program
 cargo build --release --target wasm32-unknown-unknown
 ```
 
-`berm new --target riscv` scaffolds for the experimental RISC-V backend instead.
-The source is the same either way; what changes is the triple and one linker
-flag. That flag is worth knowing about, because a reader who does not will
-delete it: a RISC-V scaffold's `.cargo/config.toml` carries `--emit-relocs`,
-and the relocations are what identify indirect-call targets. A wasm scaffold
-needs no such file.
-
-What both share is that the tools live in `src/lib.rs` under a three-line
+The tools live in `src/lib.rs` under a three-line
 `src/bin/main.rs` that does nothing but `extern crate` them, because cargo emits
 an image for a bin target and an archive for a lib — the library alone never
 gets linked, and the binary alone cannot be reached from `tests/`.

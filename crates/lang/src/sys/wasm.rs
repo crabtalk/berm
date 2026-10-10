@@ -1,7 +1,7 @@
 //! WebAssembly, where a host call is an import.
 
 // Every syscall arrives through this one import, carrying the number its name
-// hashes to — the same number rvtime takes in `a7`.
+// hashes to.
 #[link(wasm_import_module = "berm")]
 unsafe extern "C" {
     #[link_name = "syscall"]

@@ -4,7 +4,7 @@ The command-line client for [bermd](../service).
 
 ```sh
 berm new example
-berm push ghcr.io/org/example:v1 ./program.elf
+berm push ghcr.io/org/example:v1 ./program.wasm
 berm publish ghcr.io/org/example:v1
 berm search "read a file"
 berm deploy example ghcr.io/org/example:v1

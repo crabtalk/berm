@@ -11,21 +11,30 @@
 //! host calls to price one, `probe` allocates to show the heap arrives without
 //! a second entry into the guest, and `boom` fails on purpose.
 //! `tick` arms itself, to show a wake outliving the invocation that asked for
-//! it; `dial` with `wire` hold a connection and echo down it; `observe` with
-//! `listen` hold one and answer nothing, which is what a service that echoes
-//! back can be pointed at.
-//! `crates/berm/examples/measure.rs` reads the numbers off them, and
-//! `tests/tools.rs` is the only exercise the SDK's host-side `test::call` gets.
+//! it, `wait` makes one host call a host can make slow, and `fetch` makes one
+//! HTTP request to a host its manifest declares.
+//! `crates/berm/examples/measure.rs` and `load.rs` read the numbers off them,
+//! and `tests/tools.rs` is the only exercise the SDK's host-side `test::call`
+//! gets.
 
 // `no_std` and `no_main` are the guest's shape. Off a guest target this is an
 // ordinary library, so `cargo test` runs the tools below natively.
-#![cfg_attr(any(target_arch = "wasm32", target_arch = "riscv64"), no_std, no_main)]
+#![cfg_attr(target_arch = "wasm32", no_std, no_main)]
 
 extern crate alloc;
 
-// `inner` is what `nest` and `recurse` reach for, `127.0.0.1` what `dial`
-// does in the tests. Neither is resolved here; both are declared.
-#[berm_lang::program(deps = ["inner", "ws://127.0.0.1"])]
+// `inner` is what `nest` and `recurse` reach for. It is not resolved here,
+// only declared.
+#[berm_lang::program(
+    programs = ["inner"],
+    syscalls = {
+        "berm.get",
+        "berm.set",
+        "berm.call.after",
+        "berm.http.fetch" = ["127.0.0.1"],
+    },
+    secrets = ["fixture"],
+)]
 mod tools {
     use berm_lang::{Failed, Out};
 
@@ -80,6 +89,43 @@ mod tools {
     pub fn probe(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let v = alloc::vec![7u8; 4096];
         out.write(&v[..2]);
+        Ok(())
+    }
+
+    /// Reads one stored key and answers whether it was set. Under
+    /// `examples/load.rs` the read stands in for a host call that waits on
+    /// I/O.
+    pub fn wait(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        match berm_lang::get("wait") {
+            Ok(Some(_)) => out.write(b"set"),
+            Ok(None) => out.write(b"unset"),
+            Err(_) => return Err(Failed),
+        }
+        Ok(())
+    }
+
+    /// Fetches the URL in its arguments and answers the status and the body's
+    /// length. A second word onward is one `Name: Value` header, which may
+    /// name `{secret:fixture}`.
+    pub fn fetch(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let args = core::str::from_utf8(args).unwrap_or("").trim();
+        let (url, header) = args.split_once(char::is_whitespace).unwrap_or((args, ""));
+        let header = header
+            .split_once(':')
+            .map(|(name, value)| (name.trim(), value.trim()));
+        let response = berm_lang::http::fetch("GET", url, header.as_slice(), b"")
+            .map_err(|error| berm_lang::tool::syscall::<()>(Err(error), out).unwrap_err())?;
+
+        let mut said = alloc::string::String::new();
+        let _ = core::fmt::Write::write_fmt(
+            &mut said,
+            format_args!(
+                r#"{{"status":{},"bytes":{}}}"#,
+                response.status,
+                response.body.len()
+            ),
+        );
+        out.write(said.as_bytes());
         Ok(())
     }
 
@@ -148,106 +194,6 @@ mod tools {
         );
         out.write(said.as_bytes());
         Ok(())
-    }
-
-    /// Dials the URL in its arguments, pointing everything that happens on it
-    /// at `wire` below. Answers with the connection's id.
-    pub fn dial(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let url = core::str::from_utf8(args).unwrap_or("").trim();
-        match berm_lang::socket::open(url, "fixture", "wire", &[]) {
-            Ok(id) => {
-                let mut buffer = alloc::string::String::new();
-                let _ = core::fmt::Write::write_fmt(&mut buffer, format_args!("{id}"));
-                out.write(buffer.as_bytes());
-                Ok(())
-            }
-            Err(error) => berm_lang::tool::syscall(Err(error), out).map(|_: ()| ()),
-        }
-    }
-
-    /// Where `dial`'s connection lands, echoing each frame back down the one it
-    /// arrived on — the whole loop in one tool: a host event starts an
-    /// invocation, and the invocation answers the connection that caused it.
-    pub fn wire(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        use berm_lang::socket::{Kind, event, send};
-
-        let Some(event) = event(args) else {
-            out.write(b"not a connection event");
-            return Err(Failed);
-        };
-        match event.kind {
-            Kind::Open("") => out.write(b"open"),
-            Kind::Open(failure) => {
-                out.write(b"dial failed: ");
-                out.write(failure.as_bytes());
-                return Err(Failed);
-            }
-            Kind::Message(frame) => {
-                send(event.connection, frame).map_err(|error| {
-                    berm_lang::tool::syscall::<()>(Err(error), out).unwrap_err()
-                })?;
-                out.write(b"echoed");
-            }
-            Kind::Close(_) => out.write(b"closed"),
-        }
-        Ok(())
-    }
-
-    /// Records what a connection delivered and answers nothing, keeping the
-    /// last event under `heard`. `wire` cannot be pointed at a service that
-    /// echoes without the two of them trading one frame forever; this can.
-    pub fn listen(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        use berm_lang::socket::{Kind, event};
-
-        let Some(event) = event(args) else {
-            out.write(b"not a connection event");
-            return Err(Failed);
-        };
-
-        let mut heard = alloc::string::String::new();
-        let _ = match event.kind {
-            Kind::Open("") => core::fmt::Write::write_fmt(&mut heard, format_args!("open")),
-            Kind::Open(failure) => {
-                core::fmt::Write::write_fmt(&mut heard, format_args!("dial failed: {failure}"))
-            }
-            Kind::Message(frame) => core::fmt::Write::write_fmt(
-                &mut heard,
-                format_args!(
-                    "message: {}",
-                    core::str::from_utf8(frame).unwrap_or("<binary>")
-                ),
-            ),
-            Kind::Close(why) => {
-                core::fmt::Write::write_fmt(&mut heard, format_args!("close: {why}"))
-            }
-        };
-
-        if berm_lang::set("heard", heard.as_bytes()).is_err() {
-            return Err(Failed);
-        }
-        out.write(heard.as_bytes());
-        Ok(())
-    }
-
-    /// Dials the URL in its arguments, pointing its events at `listen`. A
-    /// second word onward is one `Name: Value` header for the handshake.
-    pub fn observe(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let args = core::str::from_utf8(args).unwrap_or("").trim();
-        let (url, header) = args.split_once(char::is_whitespace).unwrap_or((args, ""));
-        let header = header
-            .split_once(':')
-            .map(|(name, value)| (name.trim(), value.trim()));
-        let headers = header.as_slice();
-
-        match berm_lang::socket::open(url.trim(), "fixture", "listen", headers) {
-            Ok(id) => {
-                let mut buffer = alloc::string::String::new();
-                let _ = core::fmt::Write::write_fmt(&mut buffer, format_args!("{id}"));
-                out.write(buffer.as_bytes());
-                Ok(())
-            }
-            Err(error) => berm_lang::tool::syscall(Err(error), out).map(|_: ()| ()),
-        }
     }
 
     /// Calls itself on `inner`, which is this same program when deployed under

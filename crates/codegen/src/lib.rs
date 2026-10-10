@@ -1,7 +1,6 @@
 //! `#[program]` — turns a module of plain functions into a loadable program.
 //!
-//! The exports an image needs are ceremony: an entry point that keeps the
-//! linker from discarding it, a heap handshake, a description the host reads at
+//! The exports an image needs are ceremony: a description the host reads at
 //! registration, and dispatch from a tool index back to a function. None of it
 //! is the author's problem, so none of it is in their source.
 
@@ -63,8 +62,13 @@ const TOOL_PREFIX: &str = "berm_tool_";
 struct Config {
     buffer: usize,
     usage: String,
-    /// What this program reaches for at runtime, as the author declares it.
-    deps: Vec<String>,
+    /// Programs this one calls by name, as the author declares them.
+    programs: Vec<String>,
+    /// Syscalls it makes beyond the ABI's own, each beside what it reaches
+    /// through that call.
+    syscalls: Vec<(String, Vec<String>)>,
+    /// Secrets it names in `{secret:NAME}`.
+    secrets: Vec<String>,
     /// Kept only to re-emit as an `include_str!`, so editing the file
     /// rebuilds the program.
     usage_file: Option<syn::LitStr>,
@@ -75,7 +79,9 @@ impl Parse for Config {
         let mut buffer = DEFAULT_BUFFER;
         let mut usage = String::new();
         let mut usage_file = None;
-        let mut deps = Vec::new();
+        let mut programs = Vec::new();
+        let mut syscalls = Vec::new();
+        let mut secrets = Vec::new();
 
         while !input.is_empty() {
             let key: syn::Ident = input.parse()?;
@@ -106,20 +112,39 @@ impl Parse for Config {
                 // Declared, never inferred: a target the program computes at
                 // the call is invisible to anything reading the image, so a
                 // scan of this crate would report a list that is quietly short.
-                "deps" => {
-                    let names;
-                    syn::bracketed!(names in input);
-                    deps = names
-                        .parse_terminated(<syn::LitStr as Parse>::parse, Token![,])?
-                        .iter()
-                        .map(syn::LitStr::value)
-                        .collect();
+                "programs" => programs = strings(input)?,
+                "secrets" => secrets = strings(input)?,
+                // `{ "berm.get", "berm.http.fetch" = ["example.com"] }`: each
+                // call, and what it reaches through that call.
+                "syscalls" => {
+                    let entries;
+                    syn::braced!(entries in input);
+                    while !entries.is_empty() {
+                        let name: syn::LitStr = entries.parse()?;
+                        let reached = match entries.peek(Token![=]) {
+                            true => {
+                                entries.parse::<Token![=]>()?;
+                                strings(&entries)?
+                            }
+                            false => Vec::new(),
+                        };
+                        if syscalls.iter().any(|(seen, _)| *seen == name.value()) {
+                            return Err(syn::Error::new(
+                                name.span(),
+                                "syscall declared twice; list everything it reaches in one entry",
+                            ));
+                        }
+                        syscalls.push((name.value(), reached));
+                        if !entries.is_empty() {
+                            entries.parse::<Token![,]>()?;
+                        }
+                    }
                 }
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
                         format!(
-                            "unknown argument: {other} (expected `buffer`, `usage_file` or `deps`)"
+                            "unknown argument: {other} (expected `buffer`, `usage_file`, `programs`, `syscalls` or `secrets`)"
                         ),
                     ));
                 }
@@ -134,9 +159,22 @@ impl Parse for Config {
             buffer,
             usage,
             usage_file,
-            deps,
+            programs,
+            syscalls,
+            secrets,
         })
     }
+}
+
+/// A bracketed list of string literals.
+fn strings(input: syn::parse::ParseStream) -> syn::Result<Vec<String>> {
+    let items;
+    syn::bracketed!(items in input);
+    Ok(items
+        .parse_terminated(<syn::LitStr as Parse>::parse, Token![,])?
+        .iter()
+        .map(syn::LitStr::value)
+        .collect())
 }
 
 /// One exported tool, as the description will see it.
@@ -194,8 +232,7 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
     let buffer = config.buffer;
 
     // One export per tool, so the host resolves it the way it resolves any
-    // other symbol. An index would couple the two sides by declaration order
-    // for no gain — both backends look entries up by name already.
+    // other symbol.
     let exports = tools.iter().map(|tool| {
         let ident = &tool.ident;
         let symbol = syn::Ident::new(&format!("{TOOL_PREFIX}{}", tool.name), ident.span());
@@ -228,11 +265,6 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
-    let anchors = tools.iter().map(|tool| {
-        let symbol = syn::Ident::new(&format!("{TOOL_PREFIX}{}", tool.name), tool.ident.span());
-        quote! { ^ #symbol as *const () as u64 }
-    });
-
     // The macro read the usage file itself, which cargo cannot see. This
     // makes the dependency visible so editing it rebuilds the program.
     let usage_rebuild = config.usage_file.as_ref().map(|path| {
@@ -254,39 +286,14 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
         /// What this program is, as a section rather than an export: the host
         /// reads it out of the image without compiling or running anything, so
         /// learning what a program claims never means executing it.
-        ///
-        /// One attribute for both targets — an ELF section and a wasm custom
-        /// section are what `link_section` emits for each.
         #[used]
-        #[cfg_attr(
-            any(target_arch = "wasm32", target_arch = "riscv64"),
-            unsafe(link_section = ".berm.abi")
-        )]
+        #[cfg_attr(target_arch = "wasm32", unsafe(link_section = ".berm.abi"))]
         static _CRABTALK_ABI: [u8; #description_len] = *#description_bytes;
 
         /// A program is a binary, and off a guest target a binary needs a
         /// `main` — which is what lets `cargo test` build one natively.
-        #[cfg(not(any(target_arch = "wasm32", target_arch = "riscv64")))]
+        #[cfg(not(target_arch = "wasm32"))]
         fn main() {}
-
-        /// The ELF entry point. Never called: it exists so `--gc-sections`
-        /// keeps the exports, which nothing else in the image references. wasm
-        /// needs no equivalent — an exported function is a root there.
-        /// Off the guest's target the C runtime owns `_start`, and defining a
-        /// second one fails the native test link on ELF platforms.
-        #[cfg(target_arch = "riscv64")]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn _start() {
-            static mut ANCHOR: u64 = 0;
-            unsafe {
-                ::core::ptr::write_volatile(
-                    &raw mut ANCHOR,
-                    _CRABTALK_ABI.as_ptr() as u64
-                        #(#anchors)*,
-                );
-            }
-        }
-
 
         #(#exports)*
     }
@@ -452,15 +459,24 @@ fn describe(config: &Config, tools: &[Tool]) -> String {
         .collect::<Vec<_>>()
         .join(",");
 
-    let deps = config
-        .deps
+    let list = |items: &[String]| {
+        items
+            .iter()
+            .map(|item| format!(r#""{}""#, escape(item)))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let programs = list(&config.programs);
+    let secrets = list(&config.secrets);
+    let syscalls = config
+        .syscalls
         .iter()
-        .map(|dep| format!(r#""{}""#, escape(dep)))
+        .map(|(name, reached)| format!(r#""{}":[{}]"#, escape(name), list(reached)))
         .collect::<Vec<_>>()
         .join(",");
 
     format!(
-        r#"{{"abi_version":1,"tools":[{tools}],"usage":"{}","deps":[{deps}]}}"#,
+        r#"{{"abi_version":2,"tools":[{tools}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}]}}}}"#,
         escape(&config.usage),
     )
 }

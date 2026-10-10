@@ -1,13 +1,13 @@
 # berm
 
-The runtime of programs. A program is one hash-pinned RV64 ELF; berm compiles
-it once, holds it by the name it answers to, and instantiates it per invocation
-under [rvtime](https://crates.io/crates/rvtime) — nothing survives the call.
+The runtime of programs. A program is one hash-pinned WebAssembly module; berm
+compiles it once, holds it by the name it answers to, and instantiates it per
+invocation under wasmtime — nothing survives the call.
 
 ```rust
 let berm = Berm::new(&engine, call::DEFAULT_CALL_DEPTH, vec![]);
-berm.deploy("example", &elf)?;
-let result = berm.call("example", "echo", br#"{"query":"hi"}"#.to_vec())?;
+berm.deploy("example", &wasm)?;
+let result = berm.call(None, "example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
 ```
 
 ## What a guest can reach
@@ -19,11 +19,14 @@ Neither storage door takes a program — the keyspace is whoever is asking, read
 off the `Callsite` — so a guest has no way to name another's keys. Where those
 bytes land is still a host's, and arrives as two closures.
 
-Everything else is a `System` the embedder registers, and that list is the
+Everything else is a `Syscall` the embedder registers, and that list is the
 linker a program is instantiated with: a call to anything else traps because
-nothing is registered for it, not because a check said no. berm ships no
-filesystem, no command runner and no network — each needs a policy invented to
-compile, and those are decisions about a host.
+nothing is registered for it, not because a check said no. The standard calls —
+`berm.get`/`berm.set`, `berm.call.after`, `berm.http.fetch` — come from
+`berm::syscall`'s constructors, which read and check the request and hand the
+work to closures the embedder supplies. `berm.http.fetch` refuses a host the
+program's manifest does not declare, and substitutes `{secret:NAME}` in header
+values so the guest never holds a secret.
 
 ## What an invocation runs under
 
@@ -31,7 +34,7 @@ compile, and those are decisions about a host.
 nest, and how long one may run. Unlike a syscall, these are conditions
 rather than something a guest reaches for.
 
-`Manifest::from_elf(elf)` reads what an image claims to be without compiling or
+`Manifest::from_image(bytes)` reads what an image claims to be without compiling or
 running it.
 
 ```sh

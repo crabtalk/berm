@@ -9,13 +9,13 @@ use anyhow::{Context as _, Result};
 use berm::Program;
 use berm::syscall::call;
 use berm_index::{Entry, Source};
-use bermd::{Policy, Service};
+use bermd::Service;
 use bezel::{
     gpui::{
         AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, ScrollHandle, Window, div,
         prelude::*, px,
     },
-    motion,
+    motion::Painter,
     theme::Theme,
     ui::{
         focus,
@@ -27,7 +27,11 @@ use bezel::{
 use deploy::Sheet;
 use run::Invocation;
 use std::{collections::HashSet, net::SocketAddr, path::PathBuf, sync::Arc};
-use tokio::{net::TcpListener, runtime::Runtime, sync::broadcast};
+use tokio::{
+    net::TcpListener,
+    runtime::Runtime,
+    sync::{broadcast, oneshot},
+};
 
 mod deploy;
 mod detail;
@@ -89,8 +93,8 @@ enum Found {
 }
 
 pub struct Workbench {
-    /// Beside gpui's own executor, because `Service` is tokio: the
-    /// `spawn_blocking` a call enters the guest on panics outside a runtime.
+    /// Beside gpui's own executor, because `Service` is tokio: a deploy
+    /// compiles on `spawn_blocking`, which panics outside a runtime.
     rt: Runtime,
     engine: Engine,
     /// What the service was holding as of the last refresh.
@@ -140,6 +144,24 @@ pub struct Workbench {
 impl Workbench {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let rt = Runtime::new().expect("failed to start a tokio runtime");
+
+        // Ctrl+C in the terminal that launched the window. Answered here
+        // because tokio's handler replaces SIGINT's default for the whole
+        // process and never restores it — so once anything in this app waits on
+        // a signal, nothing dies of one unless it is asked to.
+        let (interrupted, caught) = oneshot::channel();
+        rt.spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                let _ = interrupted.send(());
+            }
+        });
+        cx.spawn(async move |_, cx| {
+            if caught.await.is_ok() {
+                cx.update(|cx| cx.quit());
+            }
+        })
+        .detach();
+
         let starting = rt.spawn(start());
         cx.spawn(async move |this, cx| {
             let engine = match starting.await {
@@ -195,7 +217,7 @@ impl Workbench {
             found: Found::Idle,
             asked: 0,
             rail: ScrollHandle::new(),
-            rail_bar: TransientState::new(),
+            rail_bar: TransientState::new(Painter::of(cx)),
             expanded: HashSet::new(),
             tab: Tab::Tools,
             tool: None,
@@ -324,12 +346,8 @@ impl Workbench {
 }
 
 impl Render for Workbench {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::of(cx).clone();
-        // Hover fades paint once and stick unless a frame is asked for.
-        if motion::hover_fades_active() {
-            window.request_animation_frame();
-        }
         // Traversal on the root, so `tab` works wherever focus happens to be.
         focus::traversal(div())
             .track_focus(&self.focus_handle)
@@ -372,13 +390,7 @@ impl Render for Workbench {
 /// port is known before anything claims to be serving.
 async fn start() -> Result<(Arc<Service>, SocketAddr)> {
     let home = std::env::var("HOME").context("HOME is not set")?;
-    // The workbench exposes no network policy, so it grants none.
-    let service = Service::new(
-        PathBuf::from(home).join(".berm"),
-        call::DEFAULT_CALL_DEPTH,
-        Policy::default(),
-    )
-    .await?;
+    let service = Service::new(PathBuf::from(home).join(".berm"), call::DEFAULT_CALL_DEPTH).await?;
     let listener = TcpListener::bind(ADDR)
         .await
         .with_context(|| format!("failed to bind {ADDR}"))?;
@@ -386,6 +398,8 @@ async fn start() -> Result<(Arc<Service>, SocketAddr)> {
         .local_addr()
         .context("the listener has no address")?;
 
-    tokio::spawn(service.clone().serve(listener));
+    // Never: the window is what answers for this process, and `quit` below
+    // takes the endpoint down with it.
+    tokio::spawn(service.clone().serve(listener, std::future::pending()));
     Ok((service, addr))
 }
