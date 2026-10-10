@@ -10,6 +10,7 @@ berm search "read a file"
 berm deploy example ghcr.io/org/example:v1
 berm ls
 berm inspect example
+berm idl example
 berm rm example
 ```
 

@@ -14,7 +14,11 @@
 //! it, `wait` makes one host call a host can make slow, and `fetch` makes one
 //! HTTP request to a host its manifest declares. `note` writes and emits, and
 //! `relay` calls `note` on `inner`, to show what a failed call takes with it.
-//! `seen` takes the `note` logs of whatever is deployed as `fixture`.
+//! `seen` takes the `Noted` events of whatever is deployed as `fixture`, read
+//! through `declare_program!(fixture)`, the fixture's own IDL in `idls/`, and
+//! `ask` calls `peek` and `echo` on `fixture` through it. `peek`
+//! is a query: it reads `note`, tries to write, emit, arm a wake and call
+//! `note` on `inner`, and answers what each was told.
 //! `crates/berm/examples/measure.rs` and `load.rs` read the numbers off them,
 //! and `tests/tools.rs` is the only exercise the SDK's host-side `test::call`
 //! gets.
@@ -24,6 +28,8 @@
 #![cfg_attr(target_arch = "wasm32", no_std, no_main)]
 
 extern crate alloc;
+
+berm_lang::declare_program!(fixture);
 
 // `inner` is what `nest` and `recurse` reach for. It is not resolved here,
 // only declared.
@@ -198,15 +204,18 @@ mod tools {
         Ok(())
     }
 
-    /// Writes its argument under `note`, emits it under the topic `note`,
+    /// Writes its argument under `note`, emits it as a `Noted` event,
     /// answers what it reads back, and fails when the argument is `fail`.
     pub fn note(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let word = core::str::from_utf8(args).unwrap_or("").trim();
-        if berm_lang::set("note", word.as_bytes()).is_err()
-            || berm_lang::emit(&["note"], word).is_err()
-        {
-            return Err(Failed);
-        }
+        berm_lang::tool::syscall(berm_lang::set("note", word.as_bytes()), out)?;
+        berm_lang::tool::syscall(
+            berm_lang::emit!(Noted {
+                word: word.into(),
+                bytes: word.len() as u64,
+            }),
+            out,
+        )?;
         if word == "fail" {
             out.write(b"failed, as requested");
             return Err(Failed);
@@ -216,6 +225,14 @@ mod tools {
             _ => return Err(Failed),
         }
         Ok(())
+    }
+
+    /// A word `note` wrote.
+    #[event]
+    pub struct Noted {
+        pub word: alloc::string::String,
+        /// Its length in bytes.
+        pub bytes: u64,
     }
 
     /// Calls `note` on `inner` with its argument, carries on whether or not
@@ -235,19 +252,80 @@ mod tools {
         Ok(())
     }
 
-    /// Takes the `note` logs of `fixture` and keeps the last one's `seq` and
-    /// data under `seen`.
-    #[logs("fixture" = ["note"])]
+    /// Takes the `Noted` events of `fixture` and keeps the last one's `seq`
+    /// and word under `seen`.
+    #[logs("fixture" = ["Noted"])]
     pub fn seen(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        use crate::fixture::events::Event;
+
         let delivery: berm_lang::Delivery = berm_lang::tool::parse(args, out)?;
         let Some(last) = delivery.logs.last() else {
             return Ok(());
         };
+        let Some(Ok(Event::Noted(noted))) = Event::read(last) else {
+            return berm_lang::tool::failed("the last log is not a Noted event", out);
+        };
         let mut said = alloc::string::String::new();
-        let _ = core::fmt::Write::write_fmt(&mut said, format_args!("{} {}", last.seq, last.data));
+        let _ = core::fmt::Write::write_fmt(&mut said, format_args!("{} {}", last.seq, noted.word));
         berm_lang::tool::syscall(berm_lang::set("seen", said.as_bytes()), out)?;
         out.write(said.as_bytes());
         Ok(())
+    }
+
+    /// Calls `peek` on `fixture`, then `echo` on `fixture` with the note it
+    /// read, and answers what `echo` did.
+    pub fn ask(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        use crate::fixture::{calls, types::Echo};
+
+        let peek = berm_lang::tool::syscall(calls::peek(""), out)?;
+        let echo = Echo {
+            query: peek.note.unwrap_or_default(),
+            page: None,
+        };
+        let echoed = berm_lang::tool::syscall(calls::echo(&echo), out)?;
+        out.write(echoed.as_bytes());
+        Ok(())
+    }
+
+    /// Reads `note`, then tries to write it, emit under `note`, arm `tick` and
+    /// call `note` on `inner`, and answers what it read and what each attempt
+    /// was told.
+    #[query]
+    #[returns(Peek)]
+    pub fn peek(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let told = |attempt: Result<(), berm_lang::CallError>| match attempt {
+            Ok(()) => alloc::string::String::from("allowed"),
+            Err(error) => error.message().into(),
+        };
+        let note = berm_lang::get("note")
+            .ok()
+            .flatten()
+            .map(|value| alloc::string::String::from_utf8_lossy(&value).into_owned());
+        let peek = Peek {
+            note,
+            attempts: Attempts {
+                set: told(berm_lang::set("note", b"peeked")),
+                emit: told(berm_lang::emit(&["note"], "peeked")),
+                after: told(berm_lang::after(0, "fixture", "tick", "0")),
+                call: told(berm_lang::call("inner", "note", "peeked").map(|_| ())),
+            },
+        };
+        berm_lang::tool::reply(&peek, out)
+    }
+
+    /// What `peek` answers.
+    pub struct Peek {
+        /// What `note` held, if anything.
+        pub note: Option<alloc::string::String>,
+        pub attempts: Attempts,
+    }
+
+    /// What each of `peek`'s attempts was told.
+    pub struct Attempts {
+        pub set: alloc::string::String,
+        pub emit: alloc::string::String,
+        pub after: alloc::string::String,
+        pub call: alloc::string::String,
     }
 
     /// Calls itself on `inner`, which is this same program when deployed under

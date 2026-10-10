@@ -3,7 +3,7 @@
 //! berm reads the request; holding the wake, writing it down so a restart
 //! keeps it, and firing it are the host's, and arrive as the closure below.
 
-use crate::{Callsite, Syscall, abi, wire};
+use crate::{Callsite, Refused, Syscall, abi, wire};
 use anyhow::{Context, Result};
 use std::{future::Future, sync::Arc};
 
@@ -30,6 +30,10 @@ where
     Syscall {
         name: abi::CALL_AFTER.to_owned(),
         call: Arc::new(move |at: Callsite, request: Vec<u8>| match read(&request) {
+            Ok(_) if at.query => Box::pin(std::future::ready(Err(Refused(
+                "a query cannot arm a wake".to_owned(),
+            )
+            .into()))),
             Ok(wake) => {
                 let armed = arm(at, wake);
                 Box::pin(async move {

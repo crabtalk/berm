@@ -26,6 +26,7 @@ pub fn run(reference: &str, image: &Path) -> Result<()> {
         usage: manifest.usage,
         tools: manifest.tools,
         deps: manifest.deps,
+        events: manifest.events,
         // Nothing to resolve against: a registry runs no programs and dials
         // nowhere, so what this image needs is a question for whoever deploys it.
         unresolved: Default::default(),

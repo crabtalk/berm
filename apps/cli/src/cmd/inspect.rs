@@ -2,7 +2,7 @@
 
 use crate::Client;
 use anyhow::Result;
-use berm_api::{Program, ToolSpec};
+use berm_api::Program;
 use serde_json::Value;
 
 pub fn run(client: &Client, name: &str) -> Result<()> {
@@ -39,24 +39,41 @@ pub fn show(program: &Program) {
 
     for tool in &program.tools {
         println!();
-        println!("  {}", tool.name);
+        match tool.query {
+            true => println!("  {} (query)", tool.name),
+            false => println!("  {}", tool.name),
+        }
         println!("    {}", tool.description);
-        for parameter in parameters(tool) {
+        for parameter in properties(&tool.parameters) {
             println!("    {parameter}");
+        }
+        if let Some(returns) = &tool.returns {
+            println!("    returns");
+            for field in properties(returns) {
+                println!("      {field}");
+            }
+        }
+    }
+
+    for event in &program.events {
+        println!();
+        println!("  event {}", event.name);
+        println!("    {}", event.description);
+        for field in properties(&event.fields) {
+            println!("    {field}");
         }
     }
 }
 
-/// Render the tool's JSON Schema as the argument list it describes. A schema
+/// Render an object's JSON Schema as the field list it describes. A schema
 /// printed raw is something an operator has to read past to see the two fields
 /// it declares.
-fn parameters(tool: &ToolSpec) -> Vec<String> {
-    let Some(properties) = tool.parameters.get("properties").and_then(Value::as_object) else {
+fn properties(schema: &Value) -> Vec<String> {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return Vec::new();
     };
 
-    let required: Vec<&str> = tool
-        .parameters
+    let required: Vec<&str> = schema
         .get("required")
         .and_then(Value::as_array)
         .map(|names| names.iter().filter_map(Value::as_str).collect())

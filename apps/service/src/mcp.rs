@@ -6,7 +6,7 @@ use rmcp::{
     model::{
         CallToolRequestParams, CallToolResult, ContentBlock, Implementation, ListResourcesResult,
         ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult,
-        Resource, ResourceContents, ServerCapabilities, ServerInfo, Tool,
+        Resource, ResourceContents, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
     },
     service::{NotificationContext, RequestContext, RoleServer},
 };
@@ -78,11 +78,18 @@ impl ServerHandler for Mcp {
             .iter()
             .flat_map(|deployed| {
                 deployed.manifest().tools.iter().map(|tool| {
-                    Tool::new(
+                    let mut listed = Tool::new(
                         format!("{}.{}", deployed.name, tool.name),
                         tool.description.clone(),
                         Arc::new(tool.parameters.as_object().cloned().unwrap_or_default()),
-                    )
+                    );
+                    if let Some(returns) = tool.returns.as_ref().and_then(|v| v.as_object()) {
+                        listed = listed.with_raw_output_schema(Arc::new(returns.clone()));
+                    }
+                    if tool.query {
+                        listed = listed.annotate(ToolAnnotations::new().read_only(true));
+                    }
+                    listed
                 })
             })
             .collect();
@@ -112,7 +119,23 @@ impl ServerHandler for Mcp {
             None => Vec::new(),
         };
 
+        // A tool listed with an output schema answers with structured content
+        // as well, which MCP requires of it.
+        let structured = self.service.get(program).is_some_and(|deployed| {
+            deployed
+                .manifest()
+                .tools
+                .iter()
+                .any(|spec| spec.name == tool && spec.returns.is_some())
+        });
+
         match self.service.call(program, tool, args).await {
+            Ok(Ok(result)) if structured => match serde_json::from_str(&result) {
+                Ok(value) => Ok(CallToolResult::structured(value)),
+                Err(error) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "{program}.{tool} declares a result schema and answered something that is not JSON: {error}"
+                ))])),
+            },
             Ok(Ok(result)) => Ok(CallToolResult::success(vec![ContentBlock::text(result)])),
             // The program ran and reported failure. That is a tool result the
             // model should see and react to, not a protocol error.

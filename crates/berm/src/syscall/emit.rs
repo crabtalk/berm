@@ -4,11 +4,14 @@
 //! reaches the host in [`crate::Changes`], so there is nothing to hand an
 //! embedder while the chain runs.
 
-use crate::{Callsite, journal::Log, wire};
+use crate::{Callsite, Refused, journal::Log, wire};
 use anyhow::Result;
 
 /// Hold the log `request` describes. Fields are the data, then each topic.
 pub(crate) fn emit(at: &Callsite, request: &[u8]) -> Result<Vec<u8>> {
+    if at.query {
+        return Err(Refused("a query cannot emit logs".to_owned()).into());
+    }
     let fields = wire::fields(request)?;
     let data = wire::text(&fields, 0, "data")?.to_owned();
     let topics = (1..fields.len())

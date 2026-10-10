@@ -21,3 +21,32 @@ pub fn emit(topics: &[&str], data: &str) -> Result<(), CallError> {
     host::call(abi::HOST_EMIT, &request)?;
     Ok(())
 }
+
+/// A typed log: an `#[event]` struct in a `#[program]` module, or one
+/// `declare_program!` generated from another program's events. It is emitted
+/// under the topic [`Event::NAME`].
+pub trait Event {
+    const NAME: &'static str;
+}
+
+/// What [`crate::emit!`] expands to.
+#[cfg(feature = "args")]
+#[doc(hidden)]
+pub fn event<T: Event + serde_guest::Serialize>(event: &T) -> Result<(), CallError> {
+    let data = serde_json_guest::to_string(event)
+        .map_err(|error| CallError::Failed(alloc::format!("unserializable event: {error}")))?;
+    emit(&[T::NAME], &data)
+}
+
+/// Emit an `#[event]` struct as a log under its name.
+///
+/// ```ignore
+/// berm_lang::emit!(Posted { id: 1 })?;
+/// ```
+#[cfg(feature = "args")]
+#[macro_export]
+macro_rules! emit {
+    ($event:expr) => {
+        $crate::__event(&$event)
+    };
+}

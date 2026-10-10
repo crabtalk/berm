@@ -79,6 +79,9 @@ pub struct Callsite {
     pub caller: Option<Arc<str>>,
     /// How many guests the chain holds, this one included.
     pub depth: u32,
+    /// Whether this invocation is of a `query` tool, or sits under one. A
+    /// query is refused `berm.set`, `berm.emit` and `berm.call.after`.
+    pub query: bool,
     /// When the chain has to be done by. A guest suspended in a syscall cannot
     /// notice it until the reply resolves, so a syscall bounds its own wait
     /// inside this.

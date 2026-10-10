@@ -3,6 +3,7 @@
 //! The same shape as `berm_api::Delivery`, which the host serializes.
 #![cfg(feature = "args")]
 
+use crate::Event;
 use alloc::{string::String, vec::Vec};
 
 /// Logs of one program, oldest first.
@@ -25,4 +26,17 @@ pub struct Logged {
     pub seq: u64,
     pub topics: Vec<String>,
     pub data: String,
+}
+
+impl Logged {
+    /// This log as the event `T`, or `None` when its topics do not name `T`.
+    pub fn read<T>(&self) -> Option<Result<T, serde_json_guest::Error>>
+    where
+        T: Event + for<'de> serde_guest::Deserialize<'de>,
+    {
+        self.topics
+            .iter()
+            .any(|topic| topic == T::NAME)
+            .then(|| serde_json_guest::from_str(&self.data))
+    }
 }

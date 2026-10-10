@@ -22,6 +22,14 @@ curl http://127.0.0.1:7777/programs
 curl -X DELETE http://127.0.0.1:7777/programs/example
 ```
 
+A tool is called with `POST`; one marked `query` also takes `GET`, its
+arguments URL-encoded in `args`.
+
+```sh
+curl -X POST -d '{"query":"hi"}' http://127.0.0.1:7777/programs/fixture/tools/echo
+curl -G --data-urlencode 'args={}' http://127.0.0.1:7777/programs/fixture/tools/peek
+```
+
 An image is compiled before it is stored, so a broken one is refused by the
 deploy that introduced it rather than on a model's turn. What is stored is
 restored on the next start.

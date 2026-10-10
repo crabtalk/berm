@@ -28,8 +28,13 @@ pub struct Program {
     /// The manifest's deps, as every invocation's [`Callsite`] carries them.
     deps: Arc<Deps>,
     /// Each tool beside the symbol it is exported as, resolved once so a call
-    /// spends no allocation rebuilding the name.
-    tools: BTreeMap<String, String>,
+    /// spends no allocation rebuilding the name, and whether it is a query.
+    tools: BTreeMap<String, Tool>,
+}
+
+struct Tool {
+    symbol: String,
+    query: bool,
 }
 
 impl Program {
@@ -45,12 +50,23 @@ impl Program {
         let compiled = Image::compile(engine, image, syscall::table(syscalls)?)
             .context("failed to compile program")?;
 
-        let tools: BTreeMap<String, String> = compiled
+        let manifest = Manifest::from_image(image)?;
+        let tools: BTreeMap<String, Tool> = compiled
             .exports()
             .into_iter()
             .filter_map(|export| {
-                let tool = export.strip_prefix(abi::TOOL_PREFIX)?;
-                Some((tool.to_owned(), export.to_owned()))
+                let name = export.strip_prefix(abi::TOOL_PREFIX)?;
+                let query = manifest
+                    .tools
+                    .iter()
+                    .any(|spec| spec.name == name && spec.query);
+                Some((
+                    name.to_owned(),
+                    Tool {
+                        symbol: export.to_owned(),
+                        query,
+                    },
+                ))
             })
             .collect();
         if tools.is_empty() {
@@ -61,7 +77,6 @@ impl Program {
         // dispatch, on a model's turn, as a missing symbol. The export table
         // and the manifest are both in hand here, so disagreement is caught
         // before the program is ever offered.
-        let manifest = Manifest::from_image(image)?;
         for tool in &manifest.tools {
             if !tools.contains_key(&tool.name) {
                 bail!(
@@ -111,6 +126,7 @@ impl Program {
                 args.into(),
                 caller,
                 1,
+                false,
                 watchdog::fresh(),
                 journal.clone(),
             )
@@ -123,17 +139,24 @@ impl Program {
     }
 
     /// Run one tool as link `depth` of a chain started by `caller` that has to
-    /// be done by `deadline`, holding its writes and logs in `journal`.
+    /// be done by `deadline`, holding its writes and logs in `journal`. `query`
+    /// is whether a link above it is a query.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn invoke(
         &self,
         tool: &str,
         args: Vec<u8>,
         caller: Option<Arc<str>>,
         depth: u32,
+        query: bool,
         deadline: Instant,
         journal: Arc<Journal>,
     ) -> Result<Result<String, String>> {
-        let Some(symbol) = self.tools.get(tool) else {
+        let Some(Tool {
+            symbol,
+            query: declared,
+        }) = self.tools.get(tool)
+        else {
             bail!("program exports no tool named {tool:?}");
         };
 
@@ -143,6 +166,7 @@ impl Program {
                 deps: self.deps.clone(),
                 caller,
                 depth,
+                query: query || *declared,
                 deadline,
                 journal,
             },

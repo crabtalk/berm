@@ -1,4 +1,5 @@
 pub mod deploy;
+pub mod idl;
 pub mod inspect;
 pub mod ls;
 pub mod new;

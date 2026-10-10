@@ -73,6 +73,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, limit: u32) -> Syscall {
                         args.as_bytes().to_vec(),
                         at.caller.clone(),
                         at.depth + 1,
+                        at.query,
                         at.deadline,
                         at.journal.clone(),
                     )

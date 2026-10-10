@@ -8,8 +8,8 @@ use crate::Service;
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Path, State},
-    http::StatusCode,
+    extract::{Path, Query, State},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -18,6 +18,7 @@ use berm_api::{Failed, Output, Program as Wire};
 use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
 };
+use serde::Deserialize;
 use std::sync::Arc;
 
 pub fn router(service: Arc<Service>) -> Router {
@@ -39,7 +40,7 @@ pub fn router(service: Arc<Service>) -> Router {
             "/programs/{name}",
             get(inspect).put(deploy).delete(undeploy),
         )
-        .route("/programs/{name}/tools/{tool}", post(call))
+        .route("/programs/{name}/tools/{tool}", post(call).get(query))
         .route_service("/mcp", mcp)
         .with_state(service)
 }
@@ -55,6 +56,7 @@ impl Service {
             usage: manifest.usage.clone(),
             tools: manifest.tools.clone(),
             deps: manifest.deps.clone(),
+            events: manifest.events.clone(),
             unresolved: self.unresolved(deployed),
         }
     }
@@ -104,25 +106,58 @@ async fn call(
     Path((name, tool)): Path<(String, String)>,
     arguments: Bytes,
 ) -> Result<Json<Output>, Refused> {
-    let Some(deployed) = service.get(&name) else {
-        return Err(Refused::missing(&name));
+    run(&service, &name, &tool, arguments.to_vec(), false).await
+}
+
+/// `?args=` on a `GET`: the argument object, URL-encoded JSON.
+#[derive(Deserialize)]
+struct Arguments {
+    #[serde(default)]
+    args: String,
+}
+
+/// Run one `query` tool, its argument object in `?args=`.
+async fn query(
+    State(service): State<Arc<Service>>,
+    Path((name, tool)): Path<(String, String)>,
+    Query(arguments): Query<Arguments>,
+) -> Result<Json<Output>, Refused> {
+    run(&service, &name, &tool, arguments.args.into_bytes(), true).await
+}
+
+/// Run `tool` on `name`. `query` holds it to a tool its manifest marks `query`.
+async fn run(
+    service: &Service,
+    name: &str,
+    tool: &str,
+    arguments: Vec<u8>,
+    query: bool,
+) -> Result<Json<Output>, Refused> {
+    let Some(deployed) = service.get(name) else {
+        return Err(Refused::missing(name));
     };
     // Asked here rather than left to the invocation, which reports a missing
     // tool through the same error as a trap — and the two are not the same
     // status.
-    if !deployed
+    let Some(spec) = deployed
         .manifest()
         .tools
         .iter()
-        .any(|spec| spec.name == tool)
-    {
+        .find(|spec| spec.name == tool)
+    else {
         return Err(Refused(
             StatusCode::NOT_FOUND,
             format!("program {name:?} exports no tool named {tool:?}"),
         ));
+    };
+    if query && !spec.query {
+        return Err(Refused(
+            StatusCode::METHOD_NOT_ALLOWED,
+            format!("{name}.{tool} is not a query; POST it"),
+        ));
     }
 
-    match service.call(&name, &tool, arguments.to_vec()).await {
+    match service.call(name, tool, arguments).await {
         Ok(outcome) => Ok(Json(outcome.into())),
         // The program is there and so is the tool, so what is left is the
         // invocation: a trap, or a guest that came back unreadable.
@@ -160,6 +195,13 @@ impl Refused {
 
 impl IntoResponse for Refused {
     fn into_response(self) -> Response {
-        (self.0, Json(Failed { error: self.1 })).into_response()
+        let mut response = (self.0, Json(Failed { error: self.1 })).into_response();
+        // Only a tool answers `405`, and every tool takes `POST`.
+        if self.0 == StatusCode::METHOD_NOT_ALLOWED {
+            response
+                .headers_mut()
+                .insert(header::ALLOW, header::HeaderValue::from_static("POST"));
+        }
+        response
     }
 }

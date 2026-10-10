@@ -8,7 +8,7 @@
 //! [`crate::Changes`]; a read sees the chain's own writes first, then asks the
 //! host through the closure below.
 
-use crate::{Callsite, Syscall, abi, wire};
+use crate::{Callsite, Refused, Syscall, abi, wire};
 use anyhow::{Result, bail};
 use std::sync::Arc;
 
@@ -43,6 +43,9 @@ pub fn programs(
         let Some(value) = fields.get(1) else {
             bail!("request has no value");
         };
+        if at.query {
+            return Err(Refused(format!("a query cannot write; {key:?} was not set")).into());
+        }
         at.journal.write(&at.program, key, value)?;
         Ok(Vec::new())
     };

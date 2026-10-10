@@ -46,6 +46,13 @@ enum Command {
     },
     /// Show a program's tools and their arguments.
     Inspect { name: String },
+    /// Write a deployed program's IDL, which `declare_program!` reads.
+    Idl {
+        name: String,
+        /// Where to write `{name}.json`.
+        #[arg(long, default_value = "idls")]
+        out: PathBuf,
+    },
     /// Remove a program.
     Rm { name: String },
 }
@@ -62,6 +69,7 @@ fn main() -> Result<ExitCode> {
         Command::Publish { reference } => cmd::publish::run(args.index.as_deref(), reference)?,
         Command::Search { term } => cmd::search::run(args.index.as_deref(), term)?,
         Command::Inspect { name } => cmd::inspect::run(&client, name)?,
+        Command::Idl { name, out } => cmd::idl::run(&client, name, out)?,
         Command::Rm { name } => cmd::rm::run(&client, name)?,
         // The one command whose exit code carries a result rather than a
         // verdict on berm.

@@ -25,6 +25,11 @@ nothing behind, rather than a file that fails again on every restart. What is
 stored is restored on the next start, and one unloadable image is reported and
 skipped rather than taking the service down with it.
 
+A tool is called with `POST /programs/{name}/tools/{tool}`, the body its
+argument object. A tool its manifest marks `query` also answers
+`GET /programs/{name}/tools/{tool}?args=<json>`, the argument object URL-encoded;
+any other tool answers that with `405`.
+
 There is no container here, so there is nothing to start or stop: a program is
 deployed or it is not, and dockerd's lifecycle verbs have nothing to attach to.
 

@@ -19,9 +19,12 @@ for tool in &manifest.tools {
 }
 ```
 
-A `ToolSpec` carries the tool's name, the description a model reads, and a JSON
-Schema for its arguments. The `#[program]` macro writes all three at compile
-time from the module it expands.
+A `ToolSpec` carries the tool's name, the description a model reads, a JSON
+Schema for its arguments, and optionally `returns`, a JSON Schema for its
+result, and `"query": true` for a read-only tool. `events` lists the typed logs
+the program emits, each with a name, a description and a JSON Schema of its
+`fields`. The `#[program]` macro writes them at compile time from the module it
+expands. Every object schema carries the struct's name as `title`.
 
 ## Usage
 

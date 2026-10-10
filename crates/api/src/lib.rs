@@ -39,6 +39,19 @@ pub struct Manifest {
     /// call cannot be read off the image at all.
     #[serde(default)]
     pub deps: Deps,
+    /// The typed logs it emits.
+    #[serde(default)]
+    pub events: Vec<EventSpec>,
+}
+
+/// One typed log a program emits, from an `#[event]` struct. Emitted under the
+/// topic `name`, its data the JSON `fields` describes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventSpec {
+    pub name: String,
+    pub description: String,
+    /// JSON Schema for the log's data.
+    pub fields: serde_json::Value,
 }
 
 /// What a program reaches for once it runs, by kind.
@@ -179,8 +192,10 @@ pub struct Program {
     pub tools: Vec<ToolSpec>,
     #[serde(default)]
     pub deps: Deps,
-    /// The part of `deps` this service answers to nothing for.
     #[serde(default)]
+    pub events: Vec<EventSpec>,
+    /// The part of `deps` this service answers to nothing for.
+    #[serde(default, skip_serializing_if = "Deps::is_empty")]
     pub unresolved: Deps,
 }
 
@@ -190,6 +205,13 @@ pub struct ToolSpec {
     pub description: String,
     /// JSON Schema for the tool's arguments, as the model receives it.
     pub parameters: serde_json::Value,
+    /// JSON Schema for the tool's result. `None` declares no shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub returns: Option<serde_json::Value>,
+    /// Read-only: a call to it, and every call it makes, is refused
+    /// `berm.set`, `berm.emit` and `berm.call.after`, so it commits nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub query: bool,
 }
 
 /// What running a tool produced.

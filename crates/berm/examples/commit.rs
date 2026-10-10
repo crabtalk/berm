@@ -3,7 +3,8 @@
 //! The reference guest's `note` writes and emits; `relay` calls `note` on
 //! `inner` and carries on whether or not it failed. A chain that returns a
 //! result hands back every write and log it kept, one that fails hands back
-//! nothing, and a failed nested call takes its own with it.
+//! nothing, and a failed nested call takes its own with it. `peek` is a query:
+//! everything it tries to leave behind is refused, nested calls included.
 //!
 //! ```sh
 //! cargo build --release -p berm-fixture --target wasm32-unknown-unknown
@@ -13,7 +14,7 @@
 use anyhow::{Context, Result, ensure};
 use berm::{
     Berm, Changes, Config, Engine, storage,
-    syscall::{call, store},
+    syscall::{after, call, store},
 };
 use std::{
     collections::HashMap,
@@ -43,16 +44,18 @@ async fn main() -> Result<()> {
     })?;
     let committed = Committed::default();
     let reading = committed.clone();
+    let mut syscalls = store::programs(move |program, key| {
+        Ok(reading
+            .lock()
+            .expect("committed")
+            .get(&(program.to_owned(), key.to_owned()))
+            .cloned())
+    });
+    syscalls.push(after::programs(|_, _| async { Ok(()) }));
     let berm = Berm::new(
         &engine,
         call::DEFAULT_CALL_DEPTH,
-        store::programs(move |program, key| {
-            Ok(reading
-                .lock()
-                .expect("committed")
-                .get(&(program.to_owned(), key.to_owned()))
-                .cloned())
-        }),
+        syscalls,
         storage::Memory::new(),
     );
     berm.deploy("outer", &image)?;
@@ -66,7 +69,11 @@ async fn main() -> Result<()> {
         outcome.result
     );
     ensure!(
-        said(&outcome.changes) == ["write outer note one", "log outer [note] one"],
+        said(&outcome.changes)
+            == [
+                "write outer note one",
+                r#"log outer [Noted] {"word":"one","bytes":3}"#
+            ],
         "{:?}",
         outcome.changes
     );
@@ -100,13 +107,26 @@ async fn main() -> Result<()> {
         said(&outcome.changes)
             == [
                 "write inner note two",
-                "log inner [note] two",
+                r#"log inner [Noted] {"word":"two","bytes":3}"#,
                 "log outer [relay] two",
             ],
         "{:?}",
         outcome.changes
     );
     println!("nested:   {:?}", said(&outcome.changes));
+
+    // A query reads what is committed and leaves nothing: its writes, logs and
+    // wakes are refused, and so are those of a tool it calls.
+    let outcome = berm.call(None, "outer", "peek", "").await?;
+    let answered = outcome.result.as_deref().map_err(Clone::clone);
+    let peek: serde_json::Value = serde_json::from_str(answered.map_err(anyhow::Error::msg)?)?;
+    ensure!(peek["note"] == "one", "{peek}");
+    for attempt in ["set", "emit", "after", "call"] {
+        let told = peek["attempts"][attempt].as_str().unwrap_or_default();
+        ensure!(told.starts_with("a query cannot"), "{attempt}: {told}");
+    }
+    ensure!(said(&outcome.changes).is_empty(), "{:?}", outcome.changes);
+    println!("query:    {peek}");
 
     println!("\nok");
     Ok(())

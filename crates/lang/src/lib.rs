@@ -28,7 +28,8 @@
 //!
 //! This crate declares the standard syscalls: [`call`] and [`after`] for
 //! reaching programs, [`get`] and [`set`] for a program's own bytes, [`emit`]
-//! for logs, and [`http::fetch`] for the network. berm serves [`call`] and
+//! for logs ([`emit!`] for an `#[event]` struct), and [`http::fetch`] for the
+//! network. berm serves [`call`] and
 //! [`emit`] itself; the rest run only under a host that registers them, and
 //! trap as unknown host calls otherwise.
 //!
@@ -51,6 +52,8 @@ mod call;
 mod emit;
 mod heap;
 pub mod http;
+#[doc(hidden)]
+pub mod json;
 mod logs;
 mod out;
 mod store;
@@ -65,13 +68,16 @@ pub mod tool;
 mod sys;
 
 pub use abi::{args_len, now, trace};
-pub use berm_codegen::{program, syscalls};
+pub use berm_codegen::{declare_program, program, syscalls};
 pub use out::Out;
 
 #[cfg(feature = "alloc")]
 pub use call::{CallError, after, call};
+#[cfg(feature = "args")]
+#[doc(hidden)]
+pub use emit::event as __event;
 #[cfg(feature = "alloc")]
-pub use emit::emit;
+pub use emit::{Event, emit};
 #[cfg(feature = "args")]
 pub use logs::{Delivery, Logged};
 #[cfg(feature = "alloc")]
@@ -86,6 +92,14 @@ pub use store::{get, set};
 pub use serde_guest as serde;
 #[cfg(feature = "args")]
 pub use serde_json_guest as serde_json;
+
+/// What `declare_program!`'s types are written in, so an author need not
+/// declare `extern crate alloc` for them.
+#[cfg(feature = "args")]
+#[doc(hidden)]
+pub mod __private {
+    pub use alloc::{collections::BTreeMap, string::String, vec::Vec};
+}
 
 /// The ABI this SDK generates against. A host that does not recognise it
 /// refuses the program rather than guessing.
