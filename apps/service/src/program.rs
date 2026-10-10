@@ -9,16 +9,43 @@ use std::sync::Arc;
 impl Service {
     /// Compile `image`, store it, and make its tools reachable under `name`,
     /// answering with how it breaks callers of the program it replaced.
+    /// Refused while a tool it makes public that the program it replaces did
+    /// not is missing from `public`.
     ///
     /// Compile, then store, then publish — berm does the first two in that
     /// order, so a rejected image leaves no record that would fail again on
     /// every restart, and a tool that is served is one a restart brings back.
-    pub async fn deploy(&self, name: &str, image: Vec<u8>) -> Result<(Arc<Program>, Vec<Break>)> {
+    pub async fn deploy(
+        &self,
+        name: &str,
+        image: Vec<u8>,
+        public: &[String],
+    ) -> Result<(Arc<Program>, Vec<Break>)> {
         validate(name)?;
         let replaced = self.get(name);
+        let manifest = berm::Manifest::from_image(&image)?;
+        let published: Vec<&str> = match &replaced {
+            Some(replaced) => replaced.manifest().publishes(&manifest),
+            None => manifest
+                .tools
+                .iter()
+                .filter(|tool| tool.public)
+                .map(|tool| tool.name.as_str())
+                .collect(),
+        };
+        let unconfirmed: Vec<&str> = published
+            .into_iter()
+            .filter(|tool| !public.iter().any(|confirmed| confirmed == tool))
+            .collect();
+        if !unconfirmed.is_empty() {
+            bail!(
+                "this deploy makes {} public; confirm each with `public`",
+                unconfirmed.join(", ")
+            );
+        }
         // Migrated before the image is compiled: a failed migration refuses
         // the deploy, and the program it replaces goes on serving.
-        if let Some(database) = berm::Manifest::from_image(&image)?.database {
+        if let Some(database) = manifest.database {
             let applied = self
                 .databases
                 .get(name)?

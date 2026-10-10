@@ -73,7 +73,7 @@ pub use berm_codegen::{declare_program, program, syscalls};
 pub use out::Out;
 
 #[cfg(feature = "alloc")]
-pub use call::{CallError, after, call};
+pub use call::{CallError, Caller, after, call, caller};
 #[cfg(feature = "args")]
 #[doc(hidden)]
 pub use emit::event as __event;
@@ -106,10 +106,10 @@ pub mod __private {
 
 /// The ABI this SDK generates against. A host that does not recognise it
 /// refuses the program rather than guessing.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 #[doc(hidden)]
-pub const ABI_VERSION_TEXT: &str = "3";
+pub const ABI_VERSION_TEXT: &str = "4";
 
 /// Returned by a handler that failed. Whatever it wrote to its [`Out`] becomes
 /// the failure message, so an error can be specific without an allocator.

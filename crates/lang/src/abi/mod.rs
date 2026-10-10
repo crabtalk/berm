@@ -55,6 +55,8 @@ pub const HOST_HTTP_FETCH: u64 = hash("berm.http.fetch");
 pub const HOST_SQL: u64 = hash("berm.sql");
 /// Milliseconds since the Unix epoch, as the host reads its clock.
 pub const HOST_NOW: u64 = hash("berm.now");
+/// Who made this call.
+pub const HOST_CALLER: u64 = hash("berm.caller");
 
 /// Set on the length a syscall returns when the staged bytes are an error
 /// message rather than a result. A length never reaches this bit on its own,

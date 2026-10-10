@@ -48,6 +48,7 @@ mod tools {
 
     /// Echo the argument blob back inside a JSON envelope.
     #[args(Echo)]
+    #[public]
     pub fn echo(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         out.write(br#"{"echo":"#);
         out.write(args);
@@ -64,6 +65,7 @@ mod tools {
     }
 
     /// Makes 100 host calls, to price one.
+    #[public]
     pub fn chatty(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let mut total = 0;
         for _ in 0..100 {
@@ -79,6 +81,7 @@ mod tools {
     /// Deserializes its arguments, to price a JSON parse against `echo`, which
     /// carries the same payload without reading it.
     #[args(Typed)]
+    #[public]
     pub fn typed(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let parsed: Typed = berm_lang::tool::parse(args, out)?;
         out.write(parsed.query.as_bytes());
@@ -94,6 +97,7 @@ mod tools {
     }
 
     /// Allocates, to prove the heap arrives without a second entry.
+    #[public]
     pub fn probe(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let v = alloc::vec![7u8; 4096];
         out.write(&v[..2]);
@@ -103,6 +107,7 @@ mod tools {
     /// Reads one stored key and answers whether it was set. Under
     /// `examples/load.rs` the read stands in for a host call that waits on
     /// I/O.
+    #[public]
     pub fn wait(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
         match berm_lang::get("wait") {
             Ok(Some(_)) => out.write(b"set"),
@@ -115,6 +120,7 @@ mod tools {
     /// Fetches the URL in its arguments and answers the status and the body's
     /// length. A second word onward is one `Name: Value` header, which may
     /// name `{secret:fixture}`.
+    #[public]
     pub fn fetch(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let args = core::str::from_utf8(args).unwrap_or("").trim();
         let (url, header) = args.split_once(char::is_whitespace).unwrap_or((args, ""));
@@ -137,7 +143,33 @@ mod tools {
         Ok(())
     }
 
+    /// Says who called: `outside NAME`, `program NAME`, or `none`.
+    #[public]
+    pub fn whoami(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        match berm_lang::tool::syscall(berm_lang::caller(), out)? {
+            Some(berm_lang::Caller::Outside(name)) => {
+                out.write(b"outside ");
+                out.write(name.as_bytes());
+            }
+            Some(berm_lang::Caller::Program(name)) => {
+                out.write(b"program ");
+                out.write(name.as_bytes());
+            }
+            None => out.write(b"none"),
+        }
+        Ok(())
+    }
+
+    /// Calls `whoami` on `fixture`, and answers what it said.
+    #[public]
+    pub fn askwho(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let said = berm_lang::tool::syscall(berm_lang::call("fixture", "whoami", ""), out)?;
+        out.write(said.as_bytes());
+        Ok(())
+    }
+
     /// Always fails, to exercise the error path.
+    #[public]
     pub fn boom(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
         out.write(b"boom, as requested");
         Err(Failed)
@@ -147,6 +179,7 @@ mod tools {
     /// reach a program. Says which kind of failure came back, because telling
     /// "it ran and said no" from "it was never there" is the point of the
     /// second bit on the wire.
+    #[public]
     pub fn nest(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let args = core::str::from_utf8(args).unwrap_or("{}");
         match berm_lang::call("inner", "echo", args) {
@@ -206,6 +239,7 @@ mod tools {
 
     /// Writes its argument under `note`, emits it as a `Noted` event,
     /// answers what it reads back, and fails when the argument is `fail`.
+    #[public]
     pub fn note(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let word = core::str::from_utf8(args).unwrap_or("").trim();
         berm_lang::tool::syscall(berm_lang::set("note", word.as_bytes()), out)?;
@@ -238,6 +272,7 @@ mod tools {
     /// Calls `note` on `inner` with its argument, carries on whether or not
     /// that failed, emits under the topic `relay`, and answers what this
     /// program reads back under `note`.
+    #[public]
     pub fn relay(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let word = core::str::from_utf8(args).unwrap_or("").trim();
         let _ = berm_lang::call("inner", "note", word);
@@ -274,6 +309,7 @@ mod tools {
 
     /// Calls `peek` on `fixture`, then `echo` on `fixture` with the note it
     /// read, and answers what `echo` did.
+    #[public]
     pub fn ask(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
         use crate::fixture::{calls, types::Echo};
 
@@ -292,6 +328,7 @@ mod tools {
     /// was told.
     #[query]
     #[returns(Peek)]
+    #[public]
     pub fn peek(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let told = |attempt: Result<(), berm_lang::CallError>| match attempt {
             Ok(()) => alloc::string::String::from("allowed"),
@@ -331,6 +368,7 @@ mod tools {
     /// Calls itself on `inner`, which is this same program when deployed under
     /// that name — the runaway a depth limit exists to stop. Reports how many
     /// levels got through before the host refused.
+    #[public]
     pub fn recurse(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         let args = core::str::from_utf8(args).unwrap_or("0");
         let depth: u32 = args.trim().parse().unwrap_or(0);

@@ -77,20 +77,25 @@ impl ServerHandler for Mcp {
             .list()
             .iter()
             .flat_map(|deployed| {
-                deployed.manifest().tools.iter().map(|tool| {
-                    let mut listed = Tool::new(
-                        format!("{}.{}", deployed.name, tool.name),
-                        tool.description.clone(),
-                        Arc::new(tool.parameters.as_object().cloned().unwrap_or_default()),
-                    );
-                    if let Some(returns) = tool.returns.as_ref().and_then(|v| v.as_object()) {
-                        listed = listed.with_raw_output_schema(Arc::new(returns.clone()));
-                    }
-                    if tool.query {
-                        listed = listed.annotate(ToolAnnotations::new().read_only(true));
-                    }
-                    listed
-                })
+                deployed
+                    .manifest()
+                    .tools
+                    .iter()
+                    .filter(|tool| tool.public)
+                    .map(|tool| {
+                        let mut listed = Tool::new(
+                            format!("{}.{}", deployed.name, tool.name),
+                            tool.description.clone(),
+                            Arc::new(tool.parameters.as_object().cloned().unwrap_or_default()),
+                        );
+                        if let Some(returns) = tool.returns.as_ref().and_then(|v| v.as_object()) {
+                            listed = listed.with_raw_output_schema(Arc::new(returns.clone()));
+                        }
+                        if tool.query {
+                            listed = listed.annotate(ToolAnnotations::new().read_only(true));
+                        }
+                        listed
+                    })
             })
             .collect();
         Ok(ListToolsResult::with_all_items(tools))
@@ -118,6 +123,17 @@ impl ServerHandler for Mcp {
                 .map_err(|error| McpError::invalid_params(error.to_string(), None))?,
             None => Vec::new(),
         };
+
+        if !self
+            .service
+            .get(program)
+            .is_some_and(|deployed| deployed.public(tool))
+        {
+            return Err(McpError::invalid_params(
+                format!("{program} has no public tool named {tool:?}"),
+                None,
+            ));
+        }
 
         // A tool listed with an output schema answers with structured content
         // as well, which MCP requires of it.

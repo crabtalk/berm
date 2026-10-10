@@ -56,3 +56,41 @@ pub fn after(delay: u64, program: &str, tool: &str, args: &str) -> Result<(), Ca
     host::call(abi::HOST_CALL_AFTER, &request)?;
     Ok(())
 }
+
+/// Who made a call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Caller {
+    /// Someone the host authenticated: an account, as the host names it.
+    Outside(String),
+    /// Another program, through [`call`], as the host names it.
+    Program(String),
+}
+
+/// Who made this call, as the host says. `None` when the host started it on
+/// this program's own behalf: a subscription's delivery or a wake.
+///
+/// Set by the host, never by the caller, so it can be checked:
+///
+/// ```ignore
+/// if berm_lang::caller()? != Some(Caller::Program("lake".into())) {
+///     return Err(Failed);
+/// }
+/// ```
+pub fn caller() -> Result<Option<Caller>, CallError> {
+    let reply = host::call(abi::HOST_CALLER, &[])?;
+    let unreadable =
+        || CallError::Failed(String::from("host framed a reply this guest cannot read"));
+    let fields = wire::fields(&reply).ok_or_else(unreadable)?;
+    match fields.as_slice() {
+        [] => Ok(None),
+        [kind, name] => {
+            let name = String::from_utf8_lossy(name).into_owned();
+            match *kind {
+                b"outside" => Ok(Some(Caller::Outside(name))),
+                b"program" => Ok(Some(Caller::Program(name))),
+                _ => Err(unreadable()),
+            }
+        }
+        _ => Err(unreadable()),
+    }
+}

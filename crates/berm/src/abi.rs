@@ -135,6 +135,13 @@ pub const HOST_GET: u64 = hash(GET);
 /// held in the chain's journal until it reaches the host in [`crate::Changes`].
 pub const HOST_SET: u64 = hash(SET);
 
+/// Who made this call. `(ptr, len) -> staged length`, the pair ignored.
+///
+/// The reply is no fields when the host started the chain on the program's
+/// own behalf, else two: `outside` or `program`, then the name. berm serves
+/// this one itself, from the [`crate::Callsite`].
+pub const HOST_CALLER: u64 = hash("berm.caller");
+
 /// Milliseconds since the Unix epoch, as the host reads its clock. `() -> millis`
 ///
 /// berm serves this one itself: a clock needs no root, no cap and no

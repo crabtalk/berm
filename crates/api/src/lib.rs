@@ -14,7 +14,7 @@ pub use compat::{Break, Surface};
 /// The ABI this host speaks. A program built against a different one is
 /// refused rather than dispatched into a syscall its author did not
 /// mean.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 /// The section carrying the manifest. A section rather than an export, so
 /// reading what a program claims to be never means running it.
@@ -246,6 +246,10 @@ pub struct ToolSpec {
     pub query: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deprecated: bool,
+    /// Callable by accounts and other programs. A tool that is not is only
+    /// called by its host, for the program's own subscriptions and wakes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub public: bool,
 }
 
 /// What running a tool produced.

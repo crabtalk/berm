@@ -84,15 +84,29 @@ async fn inspect(
     }
 }
 
+/// `?public=a,b` on a deploy: the tools it may make public.
+#[derive(Deserialize)]
+struct Confirmed {
+    #[serde(default)]
+    public: String,
+}
+
 /// Deploy the image in the body under `name`. `PUT` because the name is the
 /// address and redeploying the same name replaces what is there.
 async fn deploy(
     State(service): State<Arc<Service>>,
     Path(name): Path<String>,
+    Query(confirmed): Query<Confirmed>,
     image: Bytes,
 ) -> Result<Json<Wire>, Refused> {
+    let public: Vec<String> = confirmed
+        .public
+        .split(',')
+        .filter(|tool| !tool.is_empty())
+        .map(str::to_owned)
+        .collect();
     let (deployed, breaks) = service
-        .deploy(&name, image.to_vec())
+        .deploy(&name, image.to_vec(), &public)
         .await
         // A rejected image is the client's, not the service's fault: a bad
         // name, an unreadable image, a manifest that disagrees with its
@@ -147,11 +161,11 @@ async fn run(
         .manifest()
         .tools
         .iter()
-        .find(|spec| spec.name == tool)
+        .find(|spec| spec.name == tool && spec.public)
     else {
         return Err(Refused(
             StatusCode::NOT_FOUND,
-            format!("program {name:?} exports no tool named {tool:?}"),
+            format!("program {name:?} has no public tool named {tool:?}"),
         ));
     };
     if query && !spec.query {

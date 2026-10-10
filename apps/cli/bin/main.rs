@@ -27,7 +27,13 @@ enum Command {
     Ls,
     /// Deploy an image, from a file or a registry, replacing whatever holds
     /// the name.
-    Deploy { name: String, image: String },
+    Deploy {
+        name: String,
+        image: String,
+        /// A tool this deploy may make public, without asking.
+        #[arg(long)]
+        public: Vec<String>,
+    },
     /// Run one of a program's tools.
     Run {
         program: String,
@@ -64,7 +70,11 @@ fn main() -> Result<ExitCode> {
     match &args.command {
         Command::New { name } => cmd::new::run(name)?,
         Command::Ls => cmd::ls::run(&client)?,
-        Command::Deploy { name, image } => cmd::deploy::run(&client, name, image)?,
+        Command::Deploy {
+            name,
+            image,
+            public,
+        } => cmd::deploy::run(&client, name, image, public)?,
         Command::Push { reference, image } => cmd::push::run(reference, image)?,
         Command::Publish { reference } => cmd::publish::run(args.index.as_deref(), reference)?,
         Command::Search { term } => cmd::search::run(args.index.as_deref(), term)?,

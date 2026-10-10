@@ -45,7 +45,11 @@ pub fn show(program: &Program) {
 
     for tool in &program.tools {
         println!();
-        let marks = [(tool.query, " (query)"), (tool.deprecated, " (deprecated)")];
+        let marks = [
+            (tool.public, " (public)"),
+            (tool.query, " (query)"),
+            (tool.deprecated, " (deprecated)"),
+        ];
         let marks: String = marks
             .iter()
             .filter(|(set, _)| *set)

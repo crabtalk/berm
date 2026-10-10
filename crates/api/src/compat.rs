@@ -31,11 +31,26 @@ impl std::fmt::Display for Break {
 }
 
 impl Manifest {
-    /// Every way `next` breaks a caller of this manifest. Empty when it is
-    /// compatible.
+    /// The tools `next` makes public that this manifest does not.
+    pub fn publishes<'a>(&self, next: &'a Manifest) -> Vec<&'a str> {
+        next.tools
+            .iter()
+            .filter(|tool| tool.public)
+            .filter(|tool| {
+                !self
+                    .tools
+                    .iter()
+                    .any(|old| old.public && old.name == tool.name)
+            })
+            .map(|tool| tool.name.as_str())
+            .collect()
+    }
+
+    /// Every way `next` breaks a caller of this manifest: its public tools,
+    /// and its events. Empty when it is compatible.
     pub fn breaks(&self, next: &Manifest) -> Vec<Break> {
         let mut breaks = Vec::new();
-        for old in &self.tools {
+        for old in self.tools.iter().filter(|tool| tool.public) {
             let surface = Surface::Tool(old.name.clone());
             let mut found = Vec::new();
             match next.tools.iter().find(|tool| tool.name == old.name) {
@@ -64,6 +79,10 @@ impl Manifest {
 }
 
 fn tool(old: &ToolSpec, new: &ToolSpec, found: &mut Vec<String>) {
+    if !new.public {
+        found.push("no longer public".to_owned());
+        return;
+    }
     if old.query && !new.query {
         found.push("no longer a query".to_owned());
     }

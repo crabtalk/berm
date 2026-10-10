@@ -12,6 +12,7 @@ mod tools {
     use berm_lang::{Failed, Out};
 
     /// Echo the query back.
+    #[public]
     #[args(Echo)]
     pub fn echo(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         out.write(args);
@@ -33,6 +34,8 @@ deciding to call it. `#[args(Echo)]` derives the JSON Schema from that struct's
 fields — their types, their doc comments, and `Option` for the ones the model
 may omit. Nothing is deserialized for you, so a program that wants no JSON
 parser links none.
+
+**A tool is internal unless marked `#[public]`.** Only the host calls an internal tool, for the program's own subscriptions and wakes. A `#[public]` tool can be called by any account the host authenticates and any program allowed to reach it, with arguments the caller chooses. `berm_lang::caller()` says who called, as the host set it; a tool that limits its callers checks it.
 
 Off the guest's target this is an ordinary binary, which is why the `cfg_attr`
 above is worth copying: tools then run under `cargo test` with no wasm

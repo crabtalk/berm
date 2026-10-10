@@ -99,6 +99,13 @@ async fn main() -> Result<()> {
                     .context("deployed without an owner")?;
                 Ok(format!("{owner}/{target}"))
             }),
+            // A callee is told the caller's name within the owner.
+            named: Arc::new(|program| {
+                program
+                    .split_once('/')
+                    .map_or(program, |(_, name)| name)
+                    .to_owned()
+            }),
         },
         vec![],
         storage::Memory::new(),

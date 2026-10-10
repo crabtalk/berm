@@ -13,7 +13,7 @@
 //! Every one of them, berm's own included, is reached through the one table
 //! below.
 
-use crate::{Call, Callsite, Invocation, Refused, Syscall, abi, engine};
+use crate::{Call, Caller as Asking, Callsite, Invocation, Refused, Syscall, abi, engine, wire};
 use anyhow::{Result, bail};
 use std::{collections::HashMap, sync::Arc};
 use wasmtime::Caller;
@@ -127,6 +127,18 @@ fn builtins() -> Table {
             let request = engine::read(guest, ptr, len)?;
             let answer = emit::emit(&guest.data().at, &request);
             Ok(stage(guest, answer))
+        }),
+    );
+
+    table.insert(
+        abi::HOST_CALLER,
+        handler(|guest, _, _| {
+            let reply = match &guest.data().at.caller {
+                Some(Asking::Outside(name)) => wire::frame(&[b"outside", name.as_bytes()]),
+                Some(Asking::Program(name)) => wire::frame(&[b"program", name.as_bytes()]),
+                None => Vec::new(),
+            };
+            Ok(stage(guest, Ok(reply)))
         }),
     );
 

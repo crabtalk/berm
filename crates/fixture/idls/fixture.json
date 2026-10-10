@@ -1,7 +1,7 @@
 {
   "name": "fixture",
   "version": "0.0.8",
-  "digest": "95cf3032c09dc70e680957ba829c01a250aa3d7f77b9445489981fe53615b5cd",
+  "digest": "1a374f67fad98bb1dc09dc760c50c1cd5ceaece43be15478a1a6d45dbd6cb425",
   "usage": "",
   "tools": [
     {
@@ -24,14 +24,16 @@
         ],
         "title": "Echo",
         "type": "object"
-      }
+      },
+      "public": true
     },
     {
       "name": "chatty",
       "description": "Makes 100 host calls, to price one.",
       "parameters": {
         "type": "object"
-      }
+      },
+      "public": true
     },
     {
       "name": "typed",
@@ -53,77 +55,88 @@
         ],
         "title": "Typed",
         "type": "object"
-      }
+      },
+      "public": true
     },
     {
       "name": "probe",
       "description": "Allocates, to prove the heap arrives without a second entry.",
       "parameters": {
         "type": "object"
-      }
+      },
+      "public": true
     },
     {
       "name": "wait",
       "description": "Reads one stored key and answers whether it was set. Under `examples/load.rs` the read stands in for a host call that waits on I/O.",
       "parameters": {
         "type": "object"
-      }
+      },
+      "public": true
     },
     {
       "name": "fetch",
       "description": "Fetches the URL in its arguments and answers the status and the body's length. A second word onward is one `Name: Value` header, which may name `{secret:fixture}`.",
       "parameters": {
         "type": "object"
-      }
+      },
+      "public": true
+    },
+    {
+      "name": "whoami",
+      "description": "Says who called: `outside NAME`, `program NAME`, or `none`.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "askwho",
+      "description": "Calls `whoami` on `fixture`, and answers what it said.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
     },
     {
       "name": "boom",
       "description": "Always fails, to exercise the error path.",
       "parameters": {
         "type": "object"
-      }
+      },
+      "public": true
     },
     {
       "name": "nest",
       "description": "Calls `echo` on whatever is deployed as `inner`, to prove a program can reach a program. Says which kind of failure came back, because telling \"it ran and said no\" from \"it was never there\" is the point of the second bit on the wire.",
       "parameters": {
         "type": "object"
-      }
-    },
-    {
-      "name": "tick",
-      "description": "Counts how many times it has run, arming itself to run again in the milliseconds its arguments name until it has run three times. Proves an invocation can outlive the one that asked for it, and that what crosses the gap is the program's own keys.",
-      "parameters": {
-        "type": "object"
-      }
+      },
+      "public": true
     },
     {
       "name": "note",
       "description": "Writes its argument under `note`, emits it as a `Noted` event, answers what it reads back, and fails when the argument is `fail`.",
       "parameters": {
         "type": "object"
-      }
+      },
+      "public": true
     },
     {
       "name": "relay",
       "description": "Calls `note` on `inner` with its argument, carries on whether or not that failed, emits under the topic `relay`, and answers what this program reads back under `note`.",
       "parameters": {
         "type": "object"
-      }
-    },
-    {
-      "name": "seen",
-      "description": "Takes the `Noted` events of `fixture` and keeps the last one's `seq` and word under `seen`.",
-      "parameters": {
-        "type": "object"
-      }
+      },
+      "public": true
     },
     {
       "name": "ask",
       "description": "Calls `peek` on `fixture`, then `echo` on `fixture` with the note it read, and answers what `echo` did.",
       "parameters": {
         "type": "object"
-      }
+      },
+      "public": true
     },
     {
       "name": "peek",
@@ -168,14 +181,16 @@
         "title": "Peek",
         "type": "object"
       },
-      "query": true
+      "query": true,
+      "public": true
     },
     {
       "name": "recurse",
       "description": "Calls itself on `inner`, which is this same program when deployed under that name — the runaway a depth limit exists to stop. Reports how many levels got through before the host refused.",
       "parameters": {
         "type": "object"
-      }
+      },
+      "public": true
     }
   ],
   "deps": {

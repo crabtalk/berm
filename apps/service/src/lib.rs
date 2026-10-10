@@ -101,6 +101,7 @@ impl Service {
                     }
                     Ok(target.to_owned())
                 }),
+                named: Arc::new(str::to_owned),
             };
             Self {
                 berm: Berm::new(

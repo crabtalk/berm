@@ -1,7 +1,7 @@
 //! One compiled program, and the state of one invocation of it.
 
 use crate::{
-    Callsite, Deps, Syscall, abi,
+    Caller, Callsite, Deps, Syscall, abi,
     bound::watchdog,
     engine::{Engine, Image},
     journal::{Changes, Journal},
@@ -101,6 +101,14 @@ impl Program {
         self.tools.keys().map(String::as_str)
     }
 
+    /// Whether `tool` is one any caller may reach.
+    pub fn public(&self, tool: &str) -> bool {
+        self.manifest
+            .tools
+            .iter()
+            .any(|spec| spec.name == tool && spec.public)
+    }
+
     /// What the program says it is: ABI version, tools, and usage.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
@@ -111,8 +119,10 @@ impl Program {
     /// `Err` is the host's — a missing tool, a trap, a broken image. The
     /// program's own reported failure is [`Outcome::result`].
     ///
-    /// `caller` is who the chain runs on behalf of, as the embedder names
-    /// them; a syscall reads it off its [`Callsite`].
+    /// `caller` is who is calling, as the embedder names them; a syscall reads
+    /// it off its [`Callsite`] as [`Caller::Outside`]. Any tool may be called
+    /// this way: which tools an outside caller reaches is the embedder's to
+    /// decide.
     pub async fn call(
         &self,
         caller: Option<Arc<str>>,
@@ -124,7 +134,7 @@ impl Program {
             .invoke(
                 tool,
                 args.into(),
-                caller,
+                caller.map(Caller::Outside),
                 1,
                 false,
                 watchdog::fresh(),
@@ -138,7 +148,7 @@ impl Program {
         Ok(Outcome { result, changes })
     }
 
-    /// Run one tool as link `depth` of a chain started by `caller` that has to
+    /// Run one tool as link `depth` of a chain, called by `caller`, that has to
     /// be done by `deadline`, holding its writes and logs in `journal`. `query`
     /// is whether a link above it is a query.
     #[allow(clippy::too_many_arguments)]
@@ -146,7 +156,7 @@ impl Program {
         &self,
         tool: &str,
         args: Vec<u8>,
-        caller: Option<Arc<str>>,
+        caller: Option<Caller>,
         depth: u32,
         query: bool,
         deadline: Instant,

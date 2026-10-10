@@ -43,7 +43,7 @@ use std::{
     time::Instant,
 };
 pub use storage::{Records, Storage};
-pub use syscall::call::{Calls, Resolve};
+pub use syscall::call::{Calls, Named, Resolve};
 
 pub mod abi;
 mod bound;
@@ -79,9 +79,10 @@ pub struct Callsite {
     pub program: Arc<str>,
     /// What this program's manifest declares it reaches for.
     pub deps: Arc<Deps>,
-    /// Who started the chain, as the embedder named them at its first call.
-    /// Carried unchanged into every nested call.
-    pub caller: Option<Arc<str>>,
+    /// Who made this call: whoever the embedder named at the chain's first
+    /// call, or the program that called this one. `None` when the host
+    /// started the chain on the program's own behalf.
+    pub caller: Option<Caller>,
     /// How many guests the chain holds, this one included.
     pub depth: u32,
     /// Whether this invocation is of a `query` tool, or sits under one. A
@@ -93,6 +94,16 @@ pub struct Callsite {
     pub deadline: Instant,
     /// What the chain has written and emitted so far.
     pub(crate) journal: Arc<Journal>,
+}
+
+/// Who made a call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Caller {
+    /// Named by the embedder at the chain's first call.
+    Outside(Arc<str>),
+    /// The program that called through `berm.call`, as [`Calls::named`] names
+    /// it.
+    Program(Arc<str>),
 }
 
 /// The programs a host is running.

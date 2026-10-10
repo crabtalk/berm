@@ -5,7 +5,7 @@
 //! works against whatever it was deployed beside; which deployed program a name
 //! reaches is the embedder's [`Calls::resolve`].
 
-use crate::{Berm, Callsite, Refused, Syscall, abi, wire};
+use crate::{Berm, Caller, Callsite, Refused, Syscall, abi, wire};
 use anyhow::{Result, bail};
 use std::sync::{Arc, Weak};
 
@@ -22,20 +22,27 @@ pub const DEFAULT_CALL_DEPTH: u32 = 4;
 /// the tool called. An `Err` refuses the call.
 pub type Resolve = Arc<dyn Fn(&Callsite, &str, &str) -> Result<String> + Send + Sync>;
 
+/// What a called program is told the program calling it is named, given the
+/// name that one was deployed as.
+pub type Named = Arc<dyn Fn(&str) -> String + Send + Sync>;
+
 /// How `berm.call` reaches programs.
 #[derive(Clone)]
 pub struct Calls {
     /// See [`DEFAULT_CALL_DEPTH`].
     pub depth: u32,
     pub resolve: Resolve,
+    pub named: Named,
 }
 
 impl Calls {
-    /// A target reaches the program deployed under that name.
+    /// A target reaches the program deployed under that name, and is told the
+    /// caller's deployed name.
     pub fn by_name(depth: u32) -> Self {
         Self {
             depth,
             resolve: Arc::new(|_, target, _| Ok(target.to_owned())),
+            named: Arc::new(str::to_owned),
         }
     }
 }
@@ -45,12 +52,13 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
     let Calls {
         depth: limit,
         resolve,
+        named,
     } = calls;
     Syscall {
         name: abi::CALL.to_owned(),
         call: Arc::new(move |at: Callsite, request: Vec<u8>| {
             let runtime = runtime.clone();
-            let resolve = resolve.clone();
+            let (resolve, named) = (resolve.clone(), named.clone());
             Box::pin(async move {
                 let fields = wire::fields(&request)?;
                 let program = wire::text(&fields, 0, "program")?;
@@ -96,6 +104,11 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                     };
                     return Err(Refused(missing).into());
                 };
+                if !target.public(tool) {
+                    return Err(
+                        Refused(format!("{program} has no public tool named {tool:?}")).into(),
+                    );
+                }
 
                 // A failed target takes what it held with it; the caller
                 // goes on from where it was.
@@ -104,7 +117,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                     .invoke(
                         tool,
                         args.as_bytes().to_vec(),
-                        at.caller.clone(),
+                        Some(Caller::Program(named(&at.program).into())),
                         at.depth + 1,
                         at.query,
                         at.deadline,

@@ -257,6 +257,8 @@ struct Tool {
     query: bool,
     /// From `#[deprecated]`.
     deprecated: bool,
+    /// From `#[public]`: any caller may reach it.
+    public: bool,
     /// Programs whose logs this tool takes, each beside the topics it takes.
     logs: Vec<(String, Vec<String>)>,
 }
@@ -287,7 +289,14 @@ struct Event {
 /// ```
 ///
 /// Every `pub fn` in the module becomes a tool. Its doc comment is the
-/// description the model reads. `#[args(Struct)]` and `#[returns(Struct)]` name
+/// description the model reads.
+///
+/// **A tool is internal unless marked `#[public]`.** An internal tool is only
+/// called by the host, for the program's own subscriptions and wakes. A
+/// `#[public]` tool can be called by any account the host authenticates and
+/// any program allowed to reach this one, with arguments the caller chooses.
+/// `berm_lang::caller()` says who called.
+/// `#[args(Struct)]` and `#[returns(Struct)]` name
 /// structs declared in the module that give the schemas of its arguments and
 /// result, and `#[params("…")]` carries an argument schema literal instead.
 /// `#[query]` marks it read-only: the host refuses its writes, logs and wakes.
@@ -525,6 +534,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     let mut parameters = None;
     let mut returns = None;
     let mut query = false;
+    let mut public = false;
     let deprecated = function
         .attrs
         .iter()
@@ -541,6 +551,10 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         if attribute.path().is_ident("query") {
             attribute.meta.require_path_only()?;
             query = true;
+        }
+        if attribute.path().is_ident("public") {
+            attribute.meta.require_path_only()?;
+            public = true;
         }
         if attribute.path().is_ident("logs") {
             let (program, topics) =
@@ -568,7 +582,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     // These exist for this macro to read; leaving them would reach the
     // compiler as unknown attributes.
     function.attrs.retain(|a| {
-        !["params", "returns", "query", "logs", "deprecated"]
+        !["params", "returns", "query", "public", "logs", "deprecated"]
             .iter()
             .any(|name| a.path().is_ident(name))
     });
@@ -590,6 +604,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         output: None,
         query,
         deprecated,
+        public,
         logs,
     })
 }
@@ -658,8 +673,12 @@ fn describe(config: &Config, tools: &[Tool], events: &[Event]) -> String {
                 true => r#","deprecated":true"#,
                 false => "",
             };
+            let public = match t.public {
+                true => r#","public":true"#,
+                false => "",
+            };
             format!(
-                r#"{{"name":"{}","description":"{}","parameters":{}{returns}{query}{deprecated}}}"#,
+                r#"{{"name":"{}","description":"{}","parameters":{}{returns}{query}{deprecated}{public}}}"#,
                 escape(&t.name),
                 escape(&t.description),
                 t.parameters,
@@ -732,7 +751,7 @@ fn describe(config: &Config, tools: &[Tool], events: &[Event]) -> String {
     };
 
     format!(
-        r#"{{"abi_version":3,"version":"{}","tools":[{specs}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}],"logs":[{logs}]}},"events":[{events}]{database}}}"#,
+        r#"{{"abi_version":4,"version":"{}","tools":[{specs}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}],"logs":[{logs}]}},"events":[{events}]{database}}}"#,
         escape(&std::env::var("CARGO_PKG_VERSION").unwrap_or_default()),
         escape(&config.usage),
     )

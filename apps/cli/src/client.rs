@@ -30,8 +30,14 @@ impl Client {
             .context("bermd returned something that is not a program")
     }
 
-    pub fn deploy(&self, name: &str, image: Vec<u8>) -> Result<Program> {
-        http::read(&self.host, self.http.put(self.url(name)).body(image).send())?
+    /// Deploy `image` as `name`, confirming the tools it may make public.
+    pub fn deploy(&self, name: &str, image: Vec<u8>, public: &[String]) -> Result<Program> {
+        let request = self
+            .http
+            .put(self.url(name))
+            .query(&[("public", public.join(","))])
+            .body(image);
+        http::read(&self.host, request.send())?
             .json()
             .context("bermd returned something that is not a program")
     }
