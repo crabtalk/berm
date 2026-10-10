@@ -34,11 +34,20 @@ file at compile time when it outgrows an attribute.
 
 ## Dependencies
 
-`#[program(deps = ["weather", "wss://slack.com"])]` is what an image says it
-will reach for once it runs — programs it calls by name, and hosts it dials,
-told apart by whether one carries a scheme. These are runtime and resolved
-wherever the image lands: nothing here is fetched, installed, or compiled in,
-which is what separates them from the crate's own `[dependencies]`.
+```rust,ignore
+#[berm_lang::program(
+    programs = ["weather"],
+    syscalls = { "berm.get", "berm.http.fetch" = ["api.example.com"] },
+)]
+```
+
+is what an image says it will reach for once it runs: programs it calls by
+name, and syscalls it makes beyond the ABI's own, each beside what it reaches
+through that call. The manifest carries them as
+`"deps": {"programs": [...], "syscalls": {"name": [...]}}`. These are runtime
+and resolved wherever the image lands: nothing here is fetched, installed, or
+compiled in, which is what separates them from the crate's own
+`[dependencies]`.
 
 Declared by the author rather than found by reading the image, because a target
 the program computes at the call is invisible to any scan — a list built that
@@ -46,7 +55,8 @@ way would be quietly short, and the runtime `Refused` would still be needed
 underneath it.
 
 Nothing is refused for an unmet dependency. `berm deploy` says so and carries
-on, and `berm inspect` marks the ones this service answers to nothing for.
+on, and `berm inspect` marks the programs not deployed and the syscalls nothing
+registers. What a served syscall reaches through it is that syscall's to grant.
 Refusing would make deploy order significant, and a restart brings programs
 back in whatever order the filesystem lists them — two that name each other
 could then never come up at all.

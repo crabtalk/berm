@@ -28,7 +28,7 @@ pub fn run(reference: &str, image: &Path) -> Result<()> {
         deps: manifest.deps,
         // Nothing to resolve against: a registry runs no programs and dials
         // nowhere, so what this image needs is a question for whoever deploys it.
-        unresolved: Vec::new(),
+        unresolved: Default::default(),
     });
     Ok(())
 }

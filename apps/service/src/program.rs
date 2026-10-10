@@ -20,7 +20,7 @@ impl Service {
         // way.
         let unresolved = self.unresolved(program.manifest());
         if !unresolved.is_empty() {
-            tracing::warn!(name, "nothing here answers to {}", unresolved.join(", "));
+            tracing::warn!(name, "nothing here answers to {unresolved}");
         }
 
         let _ = self.changed.send(());

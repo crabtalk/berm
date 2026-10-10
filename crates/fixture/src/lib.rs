@@ -24,7 +24,10 @@ extern crate alloc;
 
 // `inner` is what `nest` and `recurse` reach for. It is not resolved here,
 // only declared.
-#[berm_lang::program(deps = ["inner"])]
+#[berm_lang::program(
+    programs = ["inner"],
+    syscalls = { "berm.get", "berm.set", "berm.call.after" },
+)]
 mod tools {
     use berm_lang::{Failed, Out};
 

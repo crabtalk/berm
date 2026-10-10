@@ -163,6 +163,13 @@ impl Berm {
         Ok(())
     }
 
+    /// Whether a program deployed here can make the syscall `name`.
+    pub fn serves(&self, name: &str) -> bool {
+        name == abi::CALL
+            || syscall::is_builtin(abi::hash(name))
+            || self.syscalls.iter().any(|syscall| syscall.name == name)
+    }
+
     /// Compile an image against the syscalls this runtime serves.
     fn load(&self, name: &str, image: &[u8]) -> Result<Arc<Program>> {
         let mut syscalls = self.syscalls.clone();

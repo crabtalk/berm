@@ -94,10 +94,10 @@ pub use serde_json_guest as serde_json;
 
 /// The ABI this SDK generates against. A host that does not recognise it
 /// refuses the program rather than guessing.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 #[doc(hidden)]
-pub const ABI_VERSION_TEXT: &str = "1";
+pub const ABI_VERSION_TEXT: &str = "2";
 
 /// Returned by a handler that failed. Whatever it wrote to its [`Out`] becomes
 /// the failure message, so an error can be specific without an allocator.

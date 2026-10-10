@@ -6,11 +6,12 @@
 use anyhow::{Context, Result, bail};
 use object::{Object, ObjectSection};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// The ABI this host speaks. A program built against a different one is
 /// refused rather than dispatched into a syscall its author did not
 /// mean.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 /// The section carrying the manifest. A section rather than an export, so
 /// reading what a program claims to be never means running it.
@@ -31,15 +32,50 @@ pub struct Manifest {
     /// manual.
     #[serde(default)]
     pub usage: String,
-    /// What this program reaches for once it runs: programs it calls by name,
-    /// and hosts it dials, told apart by whether one carries a scheme.
+    /// What this program reaches for once it runs.
     ///
     /// Runtime, and resolved wherever the image lands — nothing here is
     /// fetched or installed, and a name nothing answers to is reported rather
     /// than refused. Declared by the author because a target computed at the
     /// call cannot be read off the image at all.
     #[serde(default)]
-    pub deps: Vec<String>,
+    pub deps: Deps,
+}
+
+/// What a program reaches for once it runs, by kind.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Deps {
+    /// Programs it calls by name.
+    #[serde(default)]
+    pub programs: Vec<String>,
+    /// Syscalls it makes beyond the ABI's own, each beside what it reaches
+    /// through that call — the hosts a fetch goes to, the names a secret is
+    /// read by. An empty list is the call alone.
+    #[serde(default)]
+    pub syscalls: BTreeMap<String, Vec<String>>,
+}
+
+impl Deps {
+    pub fn is_empty(&self) -> bool {
+        self.programs.is_empty() && self.syscalls.is_empty()
+    }
+}
+
+/// `inner, berm.http.fetch (example.com)` — every program, then every
+/// syscall with what it reaches.
+impl std::fmt::Display for Deps {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut items = self.programs.clone();
+        items.extend(
+            self.syscalls
+                .iter()
+                .map(|(name, reached)| match reached.is_empty() {
+                    true => name.clone(),
+                    false => format!("{name} ({})", reached.join(", ")),
+                }),
+        );
+        f.write_str(&items.join(", "))
+    }
 }
 
 impl Manifest {
@@ -88,10 +124,10 @@ pub struct Program {
     pub usage: String,
     pub tools: Vec<ToolSpec>,
     #[serde(default)]
-    pub deps: Vec<String>,
-    /// The subset of `deps` this service answers to nothing for.
+    pub deps: Deps,
+    /// The part of `deps` this service answers to nothing for.
     #[serde(default)]
-    pub unresolved: Vec<String>,
+    pub unresolved: Deps,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

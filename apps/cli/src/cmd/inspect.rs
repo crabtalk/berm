@@ -16,13 +16,21 @@ pub fn show(program: &Program) {
     if !program.usage.is_empty() {
         println!("  usage   {}", program.usage);
     }
-    for dep in &program.deps {
-        let answered = if program.unresolved.contains(dep) {
-            "  (nothing answers to it here)"
-        } else {
-            ""
+    let answered = |missing: bool| match missing {
+        true => "  (nothing answers to it here)",
+        false => "",
+    };
+    for dep in &program.deps.programs {
+        let missing = program.unresolved.programs.contains(dep);
+        println!("  program {dep}{}", answered(missing));
+    }
+    for (name, reached) in &program.deps.syscalls {
+        let missing = program.unresolved.syscalls.contains_key(name);
+        let reached = match reached.is_empty() {
+            true => String::new(),
+            false => format!(" -> {}", reached.join(", ")),
         };
-        println!("  dep     {dep}{answered}");
+        println!("  syscall {name}{reached}{}", answered(missing));
     }
 
     for tool in &program.tools {

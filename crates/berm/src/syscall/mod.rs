@@ -61,6 +61,11 @@ pub(crate) fn table(syscalls: &[Syscall]) -> Result<Table> {
     Ok(table)
 }
 
+/// Whether `number` is one of the ABI's own doors.
+pub(crate) fn is_builtin(number: u64) -> bool {
+    builtins().contains_key(&number)
+}
+
 /// Copy a hosted syscall's request out of the guest, beside the callsite it
 /// came from.
 pub(crate) fn request(guest: &mut dyn Guest, ptr: u64, len: u64) -> Result<(Callsite, Vec<u8>)> {

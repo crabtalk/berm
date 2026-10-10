@@ -63,8 +63,11 @@ const TOOL_PREFIX: &str = "berm_tool_";
 struct Config {
     buffer: usize,
     usage: String,
-    /// What this program reaches for at runtime, as the author declares it.
-    deps: Vec<String>,
+    /// Programs this one calls by name, as the author declares them.
+    programs: Vec<String>,
+    /// Syscalls it makes beyond the ABI's own, each beside what it reaches
+    /// through that call.
+    syscalls: Vec<(String, Vec<String>)>,
     /// Kept only to re-emit as an `include_str!`, so editing the file
     /// rebuilds the program.
     usage_file: Option<syn::LitStr>,
@@ -75,7 +78,8 @@ impl Parse for Config {
         let mut buffer = DEFAULT_BUFFER;
         let mut usage = String::new();
         let mut usage_file = None;
-        let mut deps = Vec::new();
+        let mut programs = Vec::new();
+        let mut syscalls = Vec::new();
 
         while !input.is_empty() {
             let key: syn::Ident = input.parse()?;
@@ -106,20 +110,38 @@ impl Parse for Config {
                 // Declared, never inferred: a target the program computes at
                 // the call is invisible to anything reading the image, so a
                 // scan of this crate would report a list that is quietly short.
-                "deps" => {
-                    let names;
-                    syn::bracketed!(names in input);
-                    deps = names
-                        .parse_terminated(<syn::LitStr as Parse>::parse, Token![,])?
-                        .iter()
-                        .map(syn::LitStr::value)
-                        .collect();
+                "programs" => programs = strings(input)?,
+                // `{ "berm.get", "berm.http.fetch" = ["example.com"] }`: each
+                // call, and what it reaches through that call.
+                "syscalls" => {
+                    let entries;
+                    syn::braced!(entries in input);
+                    while !entries.is_empty() {
+                        let name: syn::LitStr = entries.parse()?;
+                        let reached = match entries.peek(Token![=]) {
+                            true => {
+                                entries.parse::<Token![=]>()?;
+                                strings(&entries)?
+                            }
+                            false => Vec::new(),
+                        };
+                        if syscalls.iter().any(|(seen, _)| *seen == name.value()) {
+                            return Err(syn::Error::new(
+                                name.span(),
+                                "syscall declared twice; list everything it reaches in one entry",
+                            ));
+                        }
+                        syscalls.push((name.value(), reached));
+                        if !entries.is_empty() {
+                            entries.parse::<Token![,]>()?;
+                        }
+                    }
                 }
                 other => {
                     return Err(syn::Error::new(
                         key.span(),
                         format!(
-                            "unknown argument: {other} (expected `buffer`, `usage_file` or `deps`)"
+                            "unknown argument: {other} (expected `buffer`, `usage_file`, `programs` or `syscalls`)"
                         ),
                     ));
                 }
@@ -134,9 +156,21 @@ impl Parse for Config {
             buffer,
             usage,
             usage_file,
-            deps,
+            programs,
+            syscalls,
         })
     }
+}
+
+/// A bracketed list of string literals.
+fn strings(input: syn::parse::ParseStream) -> syn::Result<Vec<String>> {
+    let items;
+    syn::bracketed!(items in input);
+    Ok(items
+        .parse_terminated(<syn::LitStr as Parse>::parse, Token![,])?
+        .iter()
+        .map(syn::LitStr::value)
+        .collect())
 }
 
 /// One exported tool, as the description will see it.
@@ -452,15 +486,23 @@ fn describe(config: &Config, tools: &[Tool]) -> String {
         .collect::<Vec<_>>()
         .join(",");
 
-    let deps = config
-        .deps
+    let list = |items: &[String]| {
+        items
+            .iter()
+            .map(|item| format!(r#""{}""#, escape(item)))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let programs = list(&config.programs);
+    let syscalls = config
+        .syscalls
         .iter()
-        .map(|dep| format!(r#""{}""#, escape(dep)))
+        .map(|(name, reached)| format!(r#""{}":[{}]"#, escape(name), list(reached)))
         .collect::<Vec<_>>()
         .join(",");
 
     format!(
-        r#"{{"abi_version":1,"tools":[{tools}],"usage":"{}","deps":[{deps}]}}"#,
+        r#"{{"abi_version":2,"tools":[{tools}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}}}}}}"#,
         escape(&config.usage),
     )
 }
