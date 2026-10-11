@@ -2,15 +2,15 @@
 
 use crate::Client;
 use anyhow::Result;
-use berm_api::Program;
+use berm_api::{Program, Terms};
 use serde_json::Value;
 
 pub fn run(client: &Client, name: &str) -> Result<()> {
-    show(&client.inspect(name)?);
+    show(&client.inspect(name)?, &client.terms(name)?);
     Ok(())
 }
 
-pub fn show(program: &Program) {
+pub fn show(program: &Program, terms: &Terms) {
     println!("{}", program.name);
     if !program.version.is_empty() {
         println!("  version {}", program.version);
@@ -57,6 +57,12 @@ pub fn show(program: &Program) {
             .collect();
         println!("  {}{marks}", tool.name);
         println!("    {}", tool.description);
+        if let Some(held) = terms.tools.get(&tool.name) {
+            println!(
+                "    at most {} instructions and {} rows a call",
+                held.budget.instructions, held.budget.rows
+            );
+        }
         for parameter in properties(&tool.parameters) {
             println!("    {parameter}");
         }

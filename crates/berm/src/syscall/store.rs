@@ -6,9 +6,10 @@
 //!
 //! The host takes a write through the closure below, or leaves it to the
 //! chain's journal, which hands it back in [`crate::Changes`]. A read sees the
-//! chain's journal first, then asks the host.
+//! chain's journal first, then asks the host. Each read is metered as one row
+//! read and each write as one row written.
 
-use crate::{Callsite, Refused, Syscall, abi, wire};
+use crate::{Callsite, Meter, Refused, Syscall, abi, wire};
 use anyhow::{Result, bail};
 use std::{future::Future, sync::Arc};
 
@@ -31,10 +32,15 @@ where
         async move {
             let fields = wire::fields(&request)?;
             let key = wire::text(&fields, 0, "key")?;
+            at.rows_left()?;
             let value = match at.journal.read(&at.program, key) {
                 Some(held) => Some(held),
                 None => read(at.clone(), key.to_owned()).await?,
             };
+            at.meter(Meter {
+                read: 1,
+                ..Meter::default()
+            });
             // One field for a value, none for an absent key. Framed rather
             // than bare, so a stored empty value is not read as one that was
             // never written.
@@ -55,9 +61,14 @@ where
             if at.query {
                 return Err(Refused(format!("a query cannot write; {key:?} was not set")).into());
             }
+            at.rows_left()?;
             if !write(at.clone(), key.to_owned(), value.to_vec()).await? {
                 at.journal.write(&at.program, key, value)?;
             }
+            at.meter(Meter {
+                written: 1,
+                ..Meter::default()
+            });
             Ok(Vec::new())
         }
     };

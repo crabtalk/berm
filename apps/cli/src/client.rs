@@ -6,8 +6,8 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use berm_api::{
-    Logged, Output, Program,
-    host::{self, Caller},
+    Budget, Logged, Meter, Output, Program, Terms,
+    host::{self, Caller, Metered},
 };
 use reqwest::blocking::RequestBuilder;
 
@@ -96,7 +96,7 @@ impl Client {
         tool: &str,
         arguments: Vec<u8>,
         caller: Option<&Caller>,
-    ) -> Result<Output> {
+    ) -> Result<(Output, Option<Meter>)> {
         let url = format!("{}/tools/{tool}", self.url(program));
         let mut request = self.http.post(url).body(arguments);
         if let Some(caller) = caller {
@@ -105,9 +105,36 @@ impl Client {
             }
             request = request.header(host::CALLER, serde_json::to_string(caller)?);
         }
-        self.read(request)?
+        let response = self.read(request)?;
+        let meter = response
+            .headers()
+            .get(host::METER)
+            .and_then(|value| serde_json::from_slice(value.as_bytes()).ok());
+        let output = response
             .json()
-            .context("the host returned something that is not a tool result")
+            .context("the host returned something that is not a tool result")?;
+        Ok((output, meter))
+    }
+
+    /// What a call of each of `name`'s public tools is held to.
+    pub fn terms(&self, name: &str) -> Result<Terms> {
+        self.read(self.http.get(format!("{}/terms", self.url(name))))?
+            .json()
+            .context("the host returned something that is not terms")
+    }
+
+    /// Set what one call of `tool` of `name` may use.
+    pub fn budget(&self, name: &str, tool: &str, budget: Budget) -> Result<()> {
+        let url = format!("{}/tools/{tool}/budget", self.url(name));
+        self.read(self.http.put(url).json(&budget))?;
+        Ok(())
+    }
+
+    /// `name`'s meters over the last 30 days, a day each.
+    pub fn meters(&self, name: &str) -> Result<Vec<Metered>> {
+        self.read(self.http.get(format!("{}/meters", self.url(name))))?
+            .json()
+            .context("the host returned something that is not a list of meters")
     }
 
     pub fn undeploy(&self, name: &str) -> Result<()> {

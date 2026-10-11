@@ -1,6 +1,12 @@
 //! What a host's daemons and peers send it, and what it answers with.
 
+use crate::Meter;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// Header carrying a tool call's [`Meter`], summed over every
+/// program the call reached, as JSON.
+pub const METER: &str = "berm-meter";
 
 /// Header carrying the [`Caller`] a call to bermd is made as, as JSON. bermd
 /// verifies none of it.
@@ -76,6 +82,9 @@ pub struct Reply {
     pub result: Result<String, String>,
     /// The service refused its caller, through `berm.deny`.
     pub denied: bool,
+    /// What the call used, by each service it reached.
+    #[serde(default)]
+    pub meters: BTreeMap<String, Meter>,
 }
 
 /// Uses of a service counted on another host, for the host it runs on.
@@ -130,4 +139,25 @@ pub struct Page {
 
 fn limit() -> i64 {
     100
+}
+
+/// One day of a service's meter.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Metered {
+    /// Days since the Unix epoch.
+    pub day: i32,
+    /// Invocations of the service: from outside, from other services, wakes
+    /// and deliveries.
+    pub calls: u64,
+    /// Wasm instructions those invocations executed.
+    pub instructions: u64,
+    /// The largest linear memory one of them reached, in bytes.
+    pub memory: u64,
+    /// Rows read and written in the service's database and state.
+    pub read: u64,
+    pub written: u64,
+    /// Bytes the service stored when the day was sampled: its database file,
+    /// state and logs.
+    pub stored: u64,
 }

@@ -49,7 +49,7 @@ pub fn run(
     };
     // The host compiled it to answer, so what comes back is what it will
     // serve — worth showing rather than saying "ok".
-    inspect::show(&program);
+    inspect::show(&program, &client.terms(name)?);
     Ok(())
 }
 

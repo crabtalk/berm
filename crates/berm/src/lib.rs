@@ -32,10 +32,12 @@
 //! [`Calls::enter`].
 
 use anyhow::Result;
-pub use berm_api::{Delivery, Deps, Logged, Manifest, Subscription, ToolSpec};
+pub use berm_api::{Budget, Delivery, Deps, Logged, Manifest, Meter, Subscription, ToolSpec};
 pub use engine::{Config, Engine};
 use journal::Journal;
 pub use journal::{Changes, Log, Write};
+pub use meter::Meters;
+use meter::Rows;
 pub use program::{Ended, Invocation, Link, Outcome, Program, Refused};
 use std::{
     collections::BTreeMap,
@@ -45,7 +47,7 @@ use std::{
 };
 pub use storage::{Records, Storage};
 pub use syscall::call::{
-    Called, Calls, Enter, Named, Opening, Reaching, Remote, Reported, Resolve, Scope,
+    Budgeted, Called, Calls, Enter, Named, Opening, Reaching, Remote, Reported, Resolve, Scope,
 };
 
 pub mod abi;
@@ -54,6 +56,7 @@ mod bound;
 pub mod database;
 mod engine;
 mod journal;
+mod meter;
 mod program;
 pub mod storage;
 pub mod syscall;
@@ -104,6 +107,29 @@ pub struct Callsite {
     pub deadline: Instant,
     /// What the chain has written and emitted so far.
     pub(crate) journal: Arc<Journal>,
+    /// What the chain has used so far, by program.
+    pub(crate) meters: Arc<Meters>,
+    /// This invocation's rows, against its budget.
+    pub(crate) rows: Arc<Rows>,
+}
+
+impl Callsite {
+    /// Count `used` against this program in the chain, its rows against this
+    /// invocation's budget.
+    pub fn meter(&self, used: Meter) {
+        self.rows.add(used.read + used.written);
+        self.meters.add(&self.program, used);
+    }
+
+    /// Refused once this invocation has used its budget of rows.
+    pub fn rows_left(&self) -> Result<()> {
+        self.rows.left()
+    }
+
+    /// Count `used` against `program`, run elsewhere for this chain.
+    pub fn meter_of(&self, program: &str, used: Meter) {
+        self.meters.add(program, used);
+    }
 }
 
 /// Who made a call.
@@ -227,6 +253,7 @@ impl Berm {
             name,
             &syscalls,
             self.calls.enter.clone(),
+            self.calls.budget.clone(),
         )?))
     }
 

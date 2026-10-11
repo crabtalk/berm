@@ -1,11 +1,15 @@
 //! One compiled program, and the state of one invocation of it.
 
 use crate::{
-    Caller, Callsite, Deps, Syscall, User, abi,
+    Caller, Callsite, Deps, Meter, Meters, Syscall, User, abi,
     bound::watchdog,
     engine::{Engine, Image},
     journal::{Changes, Journal},
-    syscall::{self, call::Enter},
+    meter::Rows,
+    syscall::{
+        self,
+        call::{Budgeted, Enter},
+    },
 };
 use anyhow::{Context, Result, bail};
 use berm_api::{Callers, Manifest};
@@ -42,6 +46,8 @@ pub struct Program {
     tools: BTreeMap<String, Tool>,
     /// What each invocation runs inside.
     enter: Enter,
+    /// Each invocation's budget, by tool.
+    budget: Budgeted,
 }
 
 struct Tool {
@@ -59,6 +65,7 @@ impl Program {
         name: impl Into<Arc<str>>,
         syscalls: &[Syscall],
         enter: Enter,
+        budget: Budgeted,
     ) -> Result<Self> {
         let compiled = Image::compile(engine, image, syscall::table(syscalls)?)
             .context("failed to compile program")?;
@@ -107,6 +114,7 @@ impl Program {
             manifest,
             tools,
             enter,
+            budget,
         })
     }
 
@@ -161,17 +169,18 @@ impl Program {
         tool: &str,
         args: impl Into<Vec<u8>>,
     ) -> Result<Outcome> {
-        self.call_as(caller, None, tool, args).await
+        self.call_as(caller, None, tool, args, Arc::default()).await
     }
 
     /// [`Program::call`] on behalf of `user`, which every call in the chain
-    /// reads off its [`Callsite`].
+    /// reads off its [`Callsite`], metered in `meters`.
     pub async fn call_as(
         &self,
         caller: Option<Arc<str>>,
         user: Option<User>,
         tool: &str,
         args: impl Into<Vec<u8>>,
+        meters: Arc<Meters>,
     ) -> Result<Outcome> {
         let journal = Arc::new(Journal::default());
         let Ended { result, denied } = self
@@ -185,6 +194,7 @@ impl Program {
                 watchdog::fresh(),
                 CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
                 journal.clone(),
+                meters,
                 Arc::from([self.name.clone()]),
             )
             .await?;
@@ -199,10 +209,16 @@ impl Program {
         })
     }
 
-    /// Run one tool as `link`, a link of a chain another runtime holds. The
-    /// chain's journal starts here, and what this link changes is handed back
-    /// as [`Outcome::changes`] like a first call's.
-    pub async fn link(&self, link: Link, tool: &str, args: impl Into<Vec<u8>>) -> Result<Outcome> {
+    /// Run one tool as `link`, a link of a chain another runtime holds,
+    /// metered in `meters`. The chain's journal starts here, and what this link
+    /// changes is handed back as [`Outcome::changes`] like a first call's.
+    pub async fn link(
+        &self,
+        link: Link,
+        tool: &str,
+        args: impl Into<Vec<u8>>,
+        meters: Arc<Meters>,
+    ) -> Result<Outcome> {
         let Link {
             caller,
             user,
@@ -223,6 +239,7 @@ impl Program {
                 deadline,
                 CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
                 journal.clone(),
+                meters,
                 stack,
             )
             .await?;
@@ -240,7 +257,8 @@ impl Program {
     /// Run one tool as link `depth` of chain `chain`, called by `caller`, that
     /// has to be done by `deadline`, under the programs in `stack`. `query` is
     /// whether a link above it is a query. What it keeps lands in `journal`,
-    /// and a failure takes it back out.
+    /// and a failure takes it back out; what it uses lands in `meters`, failed
+    /// or not.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn invoke(
         &self,
@@ -253,6 +271,7 @@ impl Program {
         deadline: Instant,
         chain: u64,
         journal: Arc<Journal>,
+        meters: Arc<Meters>,
         stack: Arc<[Arc<str>]>,
     ) -> Result<Ended> {
         let Some(Tool {
@@ -263,6 +282,7 @@ impl Program {
             bail!("program exports no tool named {tool:?}");
         };
 
+        let budget = (self.budget)(&self.name, tool).unwrap_or(self.image.budget);
         let mut at = Callsite {
             program: self.name.clone(),
             deps: self.deps.clone(),
@@ -274,7 +294,13 @@ impl Program {
             deadline,
             chain,
             journal: journal.clone(),
+            meters,
+            rows: Arc::new(Rows::new(budget.rows)),
         };
+        at.meter(Meter {
+            calls: 1,
+            ..Meter::default()
+        });
         let scope = (self.enter)(self, &at).await?;
         let own = scope.own();
         if own {
@@ -293,7 +319,7 @@ impl Program {
         let ended = async {
             let finished = self
                 .image
-                .call(symbol, invocation)
+                .call(symbol, invocation, budget.instructions)
                 .await
                 .with_context(|| format!("program trapped in {tool}"))?;
 

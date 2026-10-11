@@ -2,7 +2,7 @@
 
 use crate::cmd::inspect;
 use anyhow::{Context, Result};
-use berm_api::{Manifest, Program};
+use berm_api::{Manifest, Program, Terms};
 use berm_oci::{Access, Reference, Registry};
 use std::{fs, path::Path, str::FromStr};
 
@@ -15,19 +15,22 @@ pub fn run(reference: &str, image: &Path) -> Result<()> {
 
     // What the registry will now serve, rendered the way `inspect` renders
     // what the service serves.
-    inspect::show(&Program {
-        name: reference.to_string(),
-        version: manifest.version,
-        digest,
-        usage: manifest.usage,
-        tools: manifest.tools,
-        deps: manifest.deps,
-        events: manifest.events,
-        // Nothing to resolve against: a registry runs no programs and dials
-        // nowhere, so what this image needs is a question for whoever deploys it.
-        unresolved: Default::default(),
-        breaks: Vec::new(),
-    });
+    inspect::show(
+        &Program {
+            name: reference.to_string(),
+            version: manifest.version,
+            digest,
+            usage: manifest.usage,
+            tools: manifest.tools,
+            deps: manifest.deps,
+            events: manifest.events,
+            // Nothing to resolve against: a registry runs no programs and dials
+            // nowhere, so what this image needs is a question for whoever deploys it.
+            unresolved: Default::default(),
+            breaks: Vec::new(),
+        },
+        &Terms::default(),
+    );
     Ok(())
 }
 

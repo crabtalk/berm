@@ -272,7 +272,7 @@ impl Database {
     }
 
     /// Run the program's statement inside the transaction `chain` holds.
-    pub async fn exec(&self, chain: u64, statement: Statement) -> Result<String> {
+    pub async fn exec(&self, chain: u64, statement: Statement) -> Result<Answer> {
         self.held(chain)?;
         on(&self.jobs, move |w| {
             run(&w.conn, &w.guest, &statement, false)
@@ -282,7 +282,7 @@ impl Database {
 
     /// Run the program's statement, refusing one that writes: inside the
     /// transaction `chain` holds, or against the last commit.
-    pub async fn read(&self, chain: u64, statement: Statement) -> Result<String> {
+    pub async fn read(&self, chain: u64, statement: Statement) -> Result<Answer> {
         if self.holds(chain) {
             return on(&self.jobs, move |w| {
                 run(&w.conn, &w.guest, &statement, true)
@@ -592,13 +592,21 @@ fn guard(conn: &Connection, guest: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-/// Run one of the program's statements and answer the reply's JSON.
+/// What one statement answered: the reply's JSON, and the rows it read and
+/// wrote.
+pub struct Answer {
+    pub json: String,
+    pub read: u64,
+    pub written: u64,
+}
+
+/// Run one of the program's statements.
 fn run(
     conn: &Connection,
     guest: &AtomicBool,
     statement: &Statement,
     read_only: bool,
-) -> Result<String> {
+) -> Result<Answer> {
     let params: Vec<serde_json::Value> =
         serde_json::from_str(&statement.params).context("the parameters are not a JSON array")?;
     guest.store(true, Ordering::SeqCst);
@@ -635,10 +643,14 @@ fn run(
             rows.push(out);
         }
         drop(found);
-        let read = prepared.get_status(StatementStatus::RowsRead);
-        let written = prepared.get_status(StatementStatus::RowsWritten);
-        Ok(serde_json::json!({ "columns": columns, "rows": rows, "read": read, "written": written })
-            .to_string())
+        let read = prepared.get_status(StatementStatus::RowsRead) as u64;
+        let written = prepared.get_status(StatementStatus::RowsWritten) as u64;
+        Ok(Answer {
+            json: serde_json::json!({ "columns": columns, "rows": rows, "read": read, "written": written })
+                .to_string(),
+            read,
+            written,
+        })
     })();
     guest.store(false, Ordering::SeqCst);
     ran

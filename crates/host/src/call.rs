@@ -5,14 +5,14 @@ use crate::{
     Denied, deny,
     env::{Admit, Env},
     host::{self, Host},
-    service,
+    meter, service,
     usage::{self, Kind, Outcome, Source},
 };
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
-use berm::{Program, Refused};
+use berm::{Budget, Meters, Program, Refused};
 use berm_api::{
-    Logged, Output,
-    host::{Caller, Link, Reply, Route, Usage, Used},
+    Logged, Output, Terms, ToolTerms,
+    host::{self as wire, Caller, Link, Metered, Reply, Route, Usage, Used},
 };
 use std::{
     sync::Arc,
@@ -32,9 +32,59 @@ impl<E: Env> Host<E> {
     /// The IDL of every service in `scope` this host runs.
     pub fn idls(&self, scope: &str) -> Vec<berm_api::Program> {
         self.list(scope)
-            .iter()
-            .map(|(name, program)| host::idl(name, program))
+            .into_iter()
+            .map(|(name, program)| host::idl(&name, &program))
             .collect()
+    }
+
+    /// `service`'s terms: each public tool's budget, what its owner set or
+    /// else this host's.
+    pub fn terms(&self, service: &str) -> Result<Terms, Denied> {
+        let program = self
+            .get(service)
+            .ok_or_else(|| deny(StatusCode::NOT_FOUND, "no such service"))?;
+        let tools = program
+            .manifest()
+            .tools
+            .iter()
+            .filter(|tool| tool.public)
+            .map(|tool| {
+                let budget = self.budgets.get(service, &tool.name).unwrap_or(self.budget);
+                (tool.name.clone(), ToolTerms { budget })
+            })
+            .collect();
+        Ok(Terms { tools })
+    }
+
+    /// Set what one invocation of `tool` of `service` may use, from its next
+    /// call. Refused past this host's budget.
+    pub async fn set_budget(
+        &self,
+        service: &str,
+        tool: &str,
+        budget: Budget,
+    ) -> Result<(), Denied> {
+        let (program, _) = self.deployed(service).await?;
+        if !program.tools().any(|exported| exported == tool) {
+            return Err(deny(
+                StatusCode::NOT_FOUND,
+                format!("the service has no tool named {tool:?}"),
+            ));
+        }
+        if budget.instructions == 0
+            || budget.rows == 0
+            || budget.instructions > self.budget.instructions
+            || budget.rows > self.budget.rows
+        {
+            return Err(deny(
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "a budget is between 1 and {} instructions, and 1 and {} rows",
+                    self.budget.instructions, self.budget.rows
+                ),
+            ));
+        }
+        Ok(self.budgets.set(&self.store, service, tool, budget).await?)
     }
 
     /// `service`'s commit count.
@@ -126,6 +176,11 @@ impl<E: Env> Host<E> {
             .map_err(|e| deny(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
         self.usage
             .record(service, Kind::Tool, tool, source, who, invoked.outcome());
+        headers.insert(
+            HeaderName::from_static(wire::METER),
+            HeaderValue::from_str(&serde_json::to_string(&invoked.meter).expect("a meter is JSON"))
+                .expect("JSON of numbers is a header value"),
+        );
         Ok((headers, invoked.result.into()))
     }
 
@@ -210,6 +265,7 @@ impl<E: Env> Host<E> {
             return refused(format!("{service}.{tool} takes no calls from programs"));
         }
         let _slot = self.gate.acquire().await.map_err(anyhow::Error::from)?;
+        let meters = Arc::new(Meters::default());
         let outcome = program
             .link(
                 berm::Link {
@@ -229,8 +285,11 @@ impl<E: Env> Host<E> {
                 },
                 tool,
                 args,
+                meters.clone(),
             )
             .await;
+        let used = meters.take();
+        self.metered(used.clone());
         let outcome = match outcome {
             Ok(outcome) => outcome,
             Err(error) => match error.downcast::<Refused>() {
@@ -257,7 +316,19 @@ impl<E: Env> Host<E> {
         Ok(Reply {
             result: outcome.result,
             denied: outcome.denied,
+            meters: used
+                .into_iter()
+                .map(|(service, used)| (service.to_string(), used))
+                .collect(),
         })
+    }
+
+    /// `service`'s meters over the last 30 days, oldest first.
+    pub async fn meters(&self, service: &str) -> Result<Vec<Metered>, Denied> {
+        self.deployed(service).await?;
+        self.flush().await?;
+        let (scope, name) = host::split(service);
+        Ok(meter::read(&self.store, scope, name).await?)
     }
 
     /// Hold `routes` in place of the routes held.

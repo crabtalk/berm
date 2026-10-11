@@ -107,6 +107,28 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE service_usage RENAME COLUMN owner_id TO scope;
     ALTER TABLE service_deprecations RENAME COLUMN owner_id TO scope;
     ALTER TABLE routes RENAME COLUMN owner_id TO scope;",
+    "CREATE TABLE service_meters (
+        scope TEXT NOT NULL,
+        name TEXT NOT NULL,
+        day INTEGER NOT NULL,
+        calls INTEGER NOT NULL DEFAULT 0,
+        instructions INTEGER NOT NULL DEFAULT 0,
+        memory INTEGER NOT NULL DEFAULT 0,
+        read INTEGER NOT NULL DEFAULT 0,
+        written INTEGER NOT NULL DEFAULT 0,
+        stored INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (scope, name, day),
+        FOREIGN KEY (scope, name) REFERENCES services (scope, name) ON DELETE CASCADE
+    );",
+    "CREATE TABLE service_budgets (
+        scope TEXT NOT NULL,
+        name TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        instructions INTEGER NOT NULL,
+        rows INTEGER NOT NULL,
+        PRIMARY KEY (scope, name, tool),
+        FOREIGN KEY (scope, name) REFERENCES services (scope, name) ON DELETE CASCADE
+    );",
 ];
 
 /// One connection, shared. Every statement runs off the async workers.

@@ -4,12 +4,14 @@
 
 use crate::{
     Denied,
+    budget::Budgets,
     commit::{self, Commits},
     config::Config,
     deliver::Deliveries,
     deny,
     env::{Env, Images, Peers},
     fetch,
+    meter::{self, Meters as Pending},
     routes::Routes,
     service,
     store::Store,
@@ -19,7 +21,8 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use axum::http::StatusCode;
 use berm::{
-    Berm, Called, Calls, Callsite, Ended, Engine, Log, Program, Records, Storage, User,
+    Berm, Called, Calls, Callsite, Ended, Engine, Log, Meter, Meters, Program, Records, Storage,
+    User,
     database::Databases,
     syscall::{
         emit,
@@ -28,14 +31,17 @@ use berm::{
     },
 };
 use berm_api::{
-    Deps, Manifest, Surface,
+    Budget, Deps, Manifest, Surface,
     host::{self, Deploy, Reply, Used},
 };
 use parking_lot::Mutex;
 use std::{
-    collections::HashMap,
-    path::Path,
-    sync::{Arc, OnceLock, Weak},
+    collections::{BTreeMap, HashMap},
+    path::{Path, PathBuf},
+    sync::{
+        Arc, OnceLock, Weak,
+        atomic::{AtomicI32, Ordering},
+    },
     time::Instant,
 };
 use tokio::sync::{Notify, Semaphore};
@@ -53,6 +59,12 @@ pub struct Host<E: Env> {
     pub(crate) waking: Arc<Notify>,
     /// Uses not yet written.
     pub(crate) usage: Arc<Counts>,
+    /// Meters not yet written.
+    pub(crate) meters: Arc<Pending>,
+    /// Where the databases of the services that keep one live.
+    databases_dir: PathBuf,
+    /// The last day stored bytes were sampled, in days since the Unix epoch.
+    sampled: Arc<AtomicI32>,
     /// The databases of the services that keep one.
     databases: Arc<Databases>,
     /// Where a chain's changes are committed.
@@ -63,6 +75,11 @@ pub struct Host<E: Env> {
     images: Arc<E::Images>,
     /// What a call from outside is put to.
     pub admit: Arc<E::Admit>,
+    /// The most one invocation may use, and what a tool's owner has not set
+    /// takes.
+    pub budget: Budget,
+    /// Each tool's budget its owner set.
+    pub(crate) budgets: Arc<Budgets>,
     /// Held by a deploy of the service keyed by its key.
     deploying: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
@@ -76,12 +93,17 @@ impl<E: Env> Clone for Host<E> {
             deliveries: self.deliveries.clone(),
             waking: self.waking.clone(),
             usage: self.usage.clone(),
+            meters: self.meters.clone(),
+            databases_dir: self.databases_dir.clone(),
+            sampled: self.sampled.clone(),
             databases: self.databases.clone(),
             commits: self.commits.clone(),
             routes: self.routes.clone(),
             peers: self.peers.clone(),
             images: self.images.clone(),
             admit: self.admit.clone(),
+            budget: self.budget,
+            budgets: self.budgets.clone(),
             deploying: self.deploying.clone(),
         }
     }
@@ -110,6 +132,8 @@ impl<E: Env> Host<E> {
         let engine = Engine::new(&berm::Config {
             cache_dir: config.cache_dir.clone(),
             instances: config.instances,
+            fuel: config.fuel,
+            rows: config.rows,
             ..Default::default()
         })?;
         let mut syscalls = vec![fetch::syscall::<E>(fetch, Arc::new(secrets))];
@@ -174,10 +198,16 @@ impl<E: Env> Host<E> {
                     bail!("this service keeps no database");
                 };
                 let database = database?;
-                match at.query {
-                    true => database.read(at.chain, statement).await,
-                    false => database.exec(at.chain, statement).await,
-                }
+                let answer = match at.query {
+                    true => database.read(at.chain, statement).await?,
+                    false => database.exec(at.chain, statement).await?,
+                };
+                at.meter(Meter {
+                    read: answer.read,
+                    written: answer.written,
+                    ..Meter::default()
+                });
+                Ok(answer.json)
             }
         }));
         let waking = Arc::new(Notify::new());
@@ -190,7 +220,11 @@ impl<E: Env> Host<E> {
         let deliveries = Arc::new(Deliveries::default());
         let commits = Commits::new(store.clone(), databases.clone(), deliveries.clone());
         let usage = Arc::new(Counts::default());
+        let meters = Arc::new(Pending::default());
         let (reporting, reported) = (usage.clone(), deployed);
+        let budgets = Arc::new(Budgets::default());
+        budgets.load(&store).await?;
+        let budgeting = budgets.clone();
         let (reaching, routing) = (peers.clone(), routes.clone());
         let calls = Calls {
             depth: config.depth,
@@ -215,6 +249,7 @@ impl<E: Env> Host<E> {
             // scope.
             named: Arc::new(|program: &str| split(program).1.to_owned()),
             enter: commit::enter(commits.clone()),
+            budget: Arc::new(move |service: &str, tool: &str| budgeting.get(service, tool)),
             remote: Arc::new(move |at, deployed, tool, args, link| {
                 let peer = routing.peer(deployed)?;
                 let (peers, from) = (reaching.clone(), at.program.to_string());
@@ -242,9 +277,16 @@ impl<E: Env> Host<E> {
                         .map(|program| program.to_string())
                         .collect(),
                 };
+                let at = at.clone();
                 Some(Box::pin(async move {
-                    let Reply { result, denied } =
-                        peers.link(&peer, &service, &tool, args, link).await?;
+                    let Reply {
+                        result,
+                        denied,
+                        meters,
+                    } = peers.link(&peer, &service, &tool, args, link).await?;
+                    for (service, used) in meters {
+                        at.meter_of(&service, used);
+                    }
                     Ok(Ended { result, denied })
                 }))
             }),
@@ -259,12 +301,20 @@ impl<E: Env> Host<E> {
             deliveries,
             waking,
             usage,
+            meters,
+            databases_dir: config.databases.clone(),
+            sampled: Arc::default(),
             databases,
             commits,
             routes,
             peers,
             images: Arc::new(images),
             admit: Arc::new(admit),
+            budget: Budget {
+                instructions: config.fuel,
+                rows: config.rows,
+            },
+            budgets,
             deploying: Arc::default(),
         })
     }
@@ -345,6 +395,18 @@ impl<E: Env> Host<E> {
                 tracing::warn!(peer, "handing over service usage failed: {e:#}");
             }
         }
+        meter::write(&self.store, self.meters.take()).await?;
+        let today = (usage::now() / 86_400) as i32;
+        if self.sampled.swap(today, Ordering::Relaxed) != today {
+            for program in self.berm.list() {
+                meter::sample(
+                    &self.store,
+                    &program.name,
+                    &self.databases_dir.join(&*program.name),
+                )
+                .await?;
+            }
+        }
         Ok(())
     }
 
@@ -380,6 +442,7 @@ impl<E: Env> Host<E> {
         let (scope, name) = split(service);
         let removed = service::remove(&self.store, scope, name).await?;
         self.berm.remove(service)?;
+        self.budgets.forget(service);
         self.subscribe();
         Ok(removed)
     }
@@ -543,14 +606,18 @@ impl<E: Env> Host<E> {
         args: Vec<u8>,
         advance: Option<Advance>,
     ) -> Result<Invoked> {
+        let meters = Arc::new(Meters::default());
         let outcome = program
-            .call_as(caller.map(Into::into), user, tool, args)
-            .await?;
+            .call_as(caller.map(Into::into), user, tool, args, meters.clone())
+            .await;
+        let meter = self.metered(meters.take());
+        let outcome = outcome?;
         if outcome.result.is_err() {
             return Ok(Invoked {
                 result: outcome.result,
                 denied: outcome.denied,
                 committed: true,
+                meter,
             });
         }
         let committed = self.commits.commit(&outcome.changes, advance).await?;
@@ -558,7 +625,21 @@ impl<E: Env> Host<E> {
             result: outcome.result,
             denied: false,
             committed,
+            meter,
         })
+    }
+
+    /// Count a chain's `meters` against the services this host runs, and
+    /// answer their sum over every service the chain reached.
+    pub(crate) fn metered(&self, meters: BTreeMap<Arc<str>, Meter>) -> Meter {
+        let mut total = Meter::default();
+        for (service, used) in meters {
+            if self.berm.get(&service).is_some() {
+                self.meters.record(&service, used);
+            }
+            total += used;
+        }
+        total
     }
 
     /// Compile an image into the runtime, off the async workers.
@@ -578,6 +659,8 @@ pub(crate) struct Invoked {
     /// `false` when a delivery's position lost to another and nothing was
     /// committed.
     pub committed: bool,
+    /// What the chain used, over every service it reached.
+    pub meter: Meter,
 }
 
 impl Invoked {

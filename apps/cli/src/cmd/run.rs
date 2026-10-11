@@ -19,7 +19,17 @@ pub fn run(
     inline: Option<&str>,
     caller: Option<&Caller>,
 ) -> Result<ExitCode> {
-    match client.run(program, tool, arguments(inline)?, caller)? {
+    let (output, meter) = client.run(program, tool, arguments(inline)?, caller)?;
+    if let Some(meter) = meter {
+        eprintln!(
+            "{} instructions, {} rows read, {} written, {} KiB memory",
+            meter.instructions,
+            meter.read,
+            meter.written,
+            meter.memory / 1024
+        );
+    }
+    match output {
         Output::Done(result) => {
             println!("{result}");
             Ok(ExitCode::SUCCESS)

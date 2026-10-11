@@ -6,8 +6,9 @@ use rmcp::{
     ErrorData as McpError, ServerHandler,
     model::{
         CallToolRequestParams, CallToolResult, ContentBlock, Implementation, ListResourcesResult,
-        ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult,
-        Resource, ResourceContents, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+        ListToolsResult, Meta, PaginatedRequestParams, ReadResourceRequestParams,
+        ReadResourceResult, Resource, ResourceContents, ServerCapabilities, ServerInfo, Tool,
+        ToolAnnotations,
     },
     service::{NotificationContext, RequestContext, RoleServer},
 };
@@ -23,6 +24,8 @@ const INSTRUCTIONS: &str = "Tools are named `{program}.{tool}`. Each program pub
 
 const USAGE_SCHEME: &str = "berm://";
 const USAGE_PATH: &str = "/usage";
+/// The `_meta` key a listed tool carries its terms under.
+const TERMS: &str = "terms";
 
 pub struct Mcp {
     service: Arc<Service>,
@@ -78,12 +81,13 @@ impl ServerHandler for Mcp {
             .list()
             .iter()
             .flat_map(|deployed| {
+                let terms = self.service.host.terms(&deployed.name).unwrap_or_default();
                 deployed
                     .manifest()
                     .tools
                     .iter()
                     .filter(|tool| tool.public && tool.callers != Some(Callers::Services))
-                    .map(|tool| {
+                    .map(move |tool| {
                         let mut listed = Tool::new(
                             format!("{}.{}", deployed.name, tool.name),
                             tool.description.clone(),
@@ -94,6 +98,11 @@ impl ServerHandler for Mcp {
                         }
                         if tool.query {
                             listed = listed.annotate(ToolAnnotations::new().read_only(true));
+                        }
+                        if let Some(held) = terms.tools.get(&tool.name) {
+                            let mut meta = Meta::new();
+                            meta.insert(TERMS.into(), serde_json::json!(held));
+                            listed = listed.with_meta(meta);
                         }
                         listed
                     })

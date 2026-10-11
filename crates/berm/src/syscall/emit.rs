@@ -2,9 +2,9 @@
 //!
 //! berm reads and checks the request. The host takes the log through the
 //! closure below, or leaves it to the chain's journal, which hands it back in
-//! [`crate::Changes`].
+//! [`crate::Changes`]. Each log is metered as one row written.
 
-use crate::{Callsite, Refused, Syscall, abi, journal::Log, wire};
+use crate::{Callsite, Meter, Refused, Syscall, abi, journal::Log, wire};
 use anyhow::Result;
 use std::{future::Future, sync::Arc};
 
@@ -24,6 +24,7 @@ where
                 if at.query {
                     return Err(Refused("a query cannot emit logs".to_owned()).into());
                 }
+                at.rows_left()?;
                 let fields = wire::fields(&request)?;
                 let data = wire::text(&fields, 0, "data")?.to_owned();
                 let topics = (1..fields.len())
@@ -37,6 +38,10 @@ where
                 if !take(at.clone(), log.clone()).await? {
                     at.journal.emit(log)?;
                 }
+                at.meter(Meter {
+                    written: 1,
+                    ..Meter::default()
+                });
                 Ok(Vec::new())
             })
         }),

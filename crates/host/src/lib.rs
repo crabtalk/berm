@@ -15,6 +15,7 @@ pub use config::Config;
 pub use env::{Admit, Env, Images, Peers, Secrets};
 pub use host::Host;
 
+mod budget;
 mod call;
 mod commit;
 mod config;
@@ -22,6 +23,7 @@ mod deliver;
 mod env;
 mod fetch;
 mod host;
+mod meter;
 mod routes;
 mod service;
 mod store;

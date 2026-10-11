@@ -233,6 +233,31 @@ pub struct Program {
     pub breaks: Vec<String>,
 }
 
+/// What a service's owner set for calling it, as the host answering holds it.
+/// Changes live, from the next call.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Terms {
+    /// Each public tool's, by name.
+    pub tools: BTreeMap<String, ToolTerms>,
+}
+
+/// What one call of a tool is held to.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolTerms {
+    pub budget: Budget,
+}
+
+/// The most one invocation may use: wasm instructions, and rows read and
+/// written together.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Budget {
+    pub instructions: u64,
+    pub rows: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSpec {
     pub name: String,
@@ -294,6 +319,29 @@ impl From<Output> for Result<String, String> {
             Output::Done(result) => Ok(result),
             Output::Failed(failure) => Err(failure),
         }
+    }
+}
+
+/// What a call used of one program: its invocations, the wasm instructions
+/// they executed, the largest linear memory one reached, in bytes, and the
+/// rows they read and wrote.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Meter {
+    pub calls: u64,
+    pub instructions: u64,
+    pub memory: u64,
+    pub read: u64,
+    pub written: u64,
+}
+
+impl std::ops::AddAssign for Meter {
+    /// Sums every count but `memory`, which keeps the larger.
+    fn add_assign(&mut self, other: Meter) {
+        self.calls += other.calls;
+        self.instructions += other.instructions;
+        self.memory = self.memory.max(other.memory);
+        self.read += other.read;
+        self.written += other.written;
     }
 }
 

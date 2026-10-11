@@ -30,6 +30,7 @@ where
             let exec = exec.clone();
             Box::pin(async move {
                 let fields = wire::fields(&request)?;
+                at.rows_left()?;
                 let statement = Statement {
                     sql: wire::text(&fields, 0, "statement")?.to_owned(),
                     params: wire::text(&fields, 1, "parameters")?.to_owned(),

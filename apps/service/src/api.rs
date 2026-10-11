@@ -10,12 +10,13 @@ use axum::{
     body::Bytes,
     extract::{FromRequestParts, Path, Query, State},
     http::{StatusCode, request::Parts},
-    routing::{get, post},
+    response::{IntoResponse, Response},
+    routing::{get, post, put},
 };
 use berm::Program;
 use berm_api::{
-    Logged, Output, Program as Wire,
-    host::{self, Caller, Page},
+    Budget, Logged, Program as Wire, Terms,
+    host::{self, Caller, Metered, Page},
 };
 use berm_host::{Denied, deny};
 use rmcp::transport::{
@@ -45,13 +46,16 @@ pub fn router(service: Arc<Service>) -> Router {
         )
         .route("/programs/{name}/tools/{tool}", post(call).get(query))
         .route("/programs/{name}/logs", get(logs))
+        .route("/programs/{name}/meters", get(meters))
+        .route("/programs/{name}/terms", get(terms))
+        .route("/programs/{name}/tools/{tool}/budget", put(budget))
         .route_service("/mcp", mcp)
         .with_state(service)
 }
 
 impl Service {
-    /// What berm read out of the image, on the wire, and what of it this service
-    /// has nothing to answer with.
+    /// What berm read out of the image, on the wire, and what of it this
+    /// service has nothing to answer with.
     fn describe(&self, deployed: &Program) -> Wire {
         let manifest = deployed.manifest();
         Wire {
@@ -86,6 +90,24 @@ async fn inspect(
         Some(deployed) => Ok(Json(service.describe(&deployed))),
         None => Err(missing(&name)),
     }
+}
+
+/// What a call of each public tool is held to.
+async fn terms(
+    State(service): State<Arc<Service>>,
+    Path(name): Path<String>,
+) -> Result<Json<Terms>, Denied> {
+    Ok(Json(service.host.terms(&name)?))
+}
+
+/// Set what one call of a tool may use, from its next call.
+async fn budget(
+    State(service): State<Arc<Service>>,
+    Path((name, tool)): Path<(String, String)>,
+    Json(budget): Json<Budget>,
+) -> Result<StatusCode, Denied> {
+    service.host.set_budget(&name, &tool, budget).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `?public=a,b&force=true` on a deploy: the tools it may make public, and
@@ -147,7 +169,7 @@ async fn call(
     Called(caller): Called,
     Path((name, tool)): Path<(String, String)>,
     arguments: Bytes,
-) -> Result<Json<Output>, Denied> {
+) -> Result<Response, Denied> {
     run(&service, &name, caller, &tool, arguments.to_vec(), false).await
 }
 
@@ -164,7 +186,7 @@ async fn query(
     Called(caller): Called,
     Path((name, tool)): Path<(String, String)>,
     Query(arguments): Query<Arguments>,
-) -> Result<Json<Output>, Denied> {
+) -> Result<Response, Denied> {
     run(
         &service,
         &name,
@@ -176,8 +198,9 @@ async fn query(
     .await
 }
 
-/// Run `tool` on `name` as `caller`. `query` holds it to a tool its manifest
-/// marks `query`.
+/// Run `tool` on `name` as `caller`, answering with the headers the host
+/// gives the answer, its meter among them. `query` holds it to a tool its
+/// manifest marks `query`.
 async fn run(
     service: &Service,
     name: &str,
@@ -185,12 +208,20 @@ async fn run(
     tool: &str,
     arguments: Vec<u8>,
     query: bool,
-) -> Result<Json<Output>, Denied> {
-    let (_, output) = service
+) -> Result<Response, Denied> {
+    let (headers, output) = service
         .host
         .call(name, caller.as_ref(), tool, arguments, query)
         .await?;
-    Ok(Json(output))
+    Ok((headers, Json(output)).into_response())
+}
+
+/// A program's meters over the last 30 days, a day each.
+async fn meters(
+    State(service): State<Arc<Service>>,
+    Path(name): Path<String>,
+) -> Result<Json<Vec<Metered>>, Denied> {
+    Ok(Json(service.host.meters(&name).await?))
 }
 
 /// A program's logs, oldest first, after the sequence number `after`.

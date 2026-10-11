@@ -1,5 +1,8 @@
 use anyhow::Result;
-use berm_api::host::{Caller, User};
+use berm_api::{
+    Budget,
+    host::{Caller, User},
+};
 use berm_cli::{
     Client, cmd,
     context::{Contexts, Owner},
@@ -93,6 +96,17 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         after: u64,
     },
+    /// Show what a program used over the last 30 days, a day each.
+    Usage { name: String },
+    /// Set the most one call of a tool may use, from its next call.
+    Budget {
+        name: String,
+        tool: String,
+        #[arg(long)]
+        instructions: u64,
+        #[arg(long)]
+        rows: u64,
+    },
     /// Name the hosts `berm` talks to, and pick one.
     #[command(subcommand)]
     Context(ContextCommand),
@@ -176,6 +190,23 @@ fn main() -> Result<ExitCode> {
         Command::Idl { name, out } => cmd::idl::run(&client()?, name, out)?,
         Command::Rm { name } => cmd::rm::run(&client()?, name)?,
         Command::Logs { name, after } => cmd::logs::run(&client()?, name, *after)?,
+        Command::Usage { name } => cmd::usage::run(&client()?, name)?,
+        Command::Budget {
+            name,
+            tool,
+            instructions,
+            rows,
+        } => {
+            client()?.budget(
+                name,
+                tool,
+                Budget {
+                    instructions: *instructions,
+                    rows: *rows,
+                },
+            )?;
+            println!("{name}.{tool}: at most {instructions} instructions and {rows} rows a call");
+        }
         // The one command whose exit code carries a result rather than a
         // verdict on berm.
         Command::Run {

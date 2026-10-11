@@ -10,3 +10,4 @@ pub mod push;
 pub mod rm;
 pub mod run;
 pub mod search;
+pub mod usage;

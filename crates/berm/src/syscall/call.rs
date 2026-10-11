@@ -5,7 +5,9 @@
 //! works against whatever it was deployed beside; which deployed program a name
 //! reaches is the embedder's [`Calls::resolve`].
 
-use crate::{Berm, Caller, Callsite, Changes, Ended, Link, Program, Refused, Syscall, abi, wire};
+use crate::{
+    Berm, Budget, Caller, Callsite, Changes, Ended, Link, Program, Refused, Syscall, abi, wire,
+};
 use anyhow::{Result, bail};
 use std::{
     future::Future,
@@ -33,6 +35,10 @@ pub type Named = Arc<dyn Fn(&str) -> String + Send + Sync>;
 /// What an invocation of `program` runs inside, asked with the invocation's
 /// site before it runs: the chain's first call and every nested one.
 pub type Enter = Arc<dyn Fn(&Program, &Callsite) -> Opening + Send + Sync>;
+
+/// The budget of one invocation of `tool` of the program deployed as
+/// `program`. `None` takes the engine's [`crate::Config`].
+pub type Budgeted = Arc<dyn Fn(&str, &str) -> Option<Budget> + Send + Sync>;
 
 /// How a nested call to a deployed program's tool ended, as a host is told it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +109,7 @@ pub struct Calls {
     pub resolve: Resolve,
     pub named: Named,
     pub enter: Enter,
+    pub budget: Budgeted,
     pub called: Reported,
     pub remote: Remote,
 }
@@ -116,6 +123,7 @@ impl Calls {
             resolve: Arc::new(|_, target, _| Ok(target.to_owned())),
             named: Arc::new(str::to_owned),
             enter: Arc::new(|_, _| Box::pin(async { Ok(Box::new(Unheld) as Box<dyn Scope>) })),
+            budget: Arc::new(|_, _| None),
             called: Arc::new(|_, _, _, _| {}),
             remote: Arc::new(|_, _, _, _, _| None),
         }
@@ -129,6 +137,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
         resolve,
         named,
         enter: _,
+        budget: _,
         called,
         remote,
     } = calls;
@@ -238,6 +247,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                         at.deadline,
                         at.chain,
                         at.journal.clone(),
+                        at.meters.clone(),
                         stack,
                     )
                     .await;
