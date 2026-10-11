@@ -1,21 +1,23 @@
 //! bermd — deploys programs and serves their tools over MCP.
 //!
-//! A thin daemon over [`Host`]: one local owner owns every program, and one
-//! local account calls them. Every deployed program appears on one MCP
-//! endpoint, its tools namespaced `{program}.{tool}`.
+//! A thin daemon over [`Host`], with one flat namespace of programs. Every
+//! deployed program appears on one MCP endpoint, its tools namespaced
+//! `{program}.{tool}`.
 
 use anyhow::{Context, Result};
 use berm::Program;
 use berm_host::{Config, Host};
-use std::{ops::Deref, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::broadcast};
 
+pub use admit::Open;
 pub use env::Local;
 pub use fetch::Fetch;
 pub use images::Stored;
 pub use peers::Alone;
 pub use secrets::Grants;
 
+mod admit;
 mod api;
 mod deps;
 mod env;
@@ -30,10 +32,6 @@ mod secrets;
 /// notification costs a stale tool list until the next change, not a wrong one.
 const CHANGE_BACKLOG: usize = 16;
 
-/// The owner every program is deployed under, and the account every call is
-/// made as.
-pub const LOCAL: &str = "local";
-
 pub struct Service {
     host: Host<Local>,
     /// Where uploaded images are kept for the host to pull.
@@ -43,21 +41,6 @@ pub struct Service {
     /// Fires when the deployed set changes. Connected MCP sessions turn this
     /// into `notifications/tools/list_changed`.
     changed: broadcast::Sender<()>,
-}
-
-/// A deployed program, by the name it is deployed under.
-#[derive(Clone)]
-pub struct Deployed {
-    pub name: Arc<str>,
-    pub program: Arc<Program>,
-}
-
-impl Deref for Deployed {
-    type Target = Program;
-
-    fn deref(&self) -> &Program {
-        &self.program
-    }
 }
 
 impl Service {
@@ -79,6 +62,7 @@ impl Service {
             images.clone(),
             Alone,
             secrets.clone(),
+            Open,
         )
         .await
         .context("failed to open the host")?;
@@ -110,28 +94,20 @@ impl Service {
             .context("server failed")
     }
 
-    /// Every deployed program, by name, as a snapshot the caller can hold
-    /// across awaits.
-    pub fn list(&self) -> Vec<Deployed> {
-        let mut deployed: Vec<Deployed> = self
+    /// Every deployed program, as a snapshot the caller can hold across awaits.
+    pub fn list(&self) -> Vec<Arc<Program>> {
+        let mut programs: Vec<Arc<Program>> = self
             .host
-            .list(LOCAL)
+            .list("")
             .into_iter()
-            .map(|(name, program)| Deployed {
-                name: name.into(),
-                program,
-            })
+            .map(|(_, program)| program)
             .collect();
-        deployed.sort_by(|a, b| a.name.cmp(&b.name));
-        deployed
+        programs.sort_by(|a, b| a.name.cmp(&b.name));
+        programs
     }
 
-    pub fn get(&self, name: &str) -> Option<Deployed> {
-        let program = self.host.get(LOCAL, name)?;
-        Some(Deployed {
-            name: name.into(),
-            program,
-        })
+    pub fn get(&self, name: &str) -> Option<Arc<Program>> {
+        self.host.get(name)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<()> {

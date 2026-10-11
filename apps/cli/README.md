@@ -47,7 +47,7 @@ means holding a credential for the repository.
 `inspect` renders a tool's JSON Schema as the argument list it describes, since
 a schema printed raw is something to read past rather than read.
 
-`run` calls one public tool as the context's account; agents reach tools over MCP.
+`run` calls one public tool; agents reach tools over MCP. On bermd, `--caller alice --issuer https://id.example --user 42` makes the call as that caller and user, unchecked, so a program reading `berm_lang::caller()` and `user()` runs as it would for them on Cloud.
 
 ## License
 

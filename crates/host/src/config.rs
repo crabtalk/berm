@@ -19,12 +19,6 @@ pub struct Config {
     /// Where the databases of the services that keep one live.
     #[serde(default = "databases")]
     pub databases: PathBuf,
-    /// Calls a minute per account, app user or service.
-    #[serde(default = "rpm")]
-    pub rpm: u32,
-    /// Calls a minute per client address for an app's anonymous calls.
-    #[serde(default = "anonymous_rpm")]
-    pub anonymous_rpm: u32,
 }
 
 impl Default for Config {
@@ -34,8 +28,6 @@ impl Default for Config {
             depth: depth(),
             cache_dir: None,
             databases: databases(),
-            rpm: rpm(),
-            anonymous_rpm: anonymous_rpm(),
         }
     }
 }
@@ -50,12 +42,4 @@ fn depth() -> u32 {
 
 fn databases() -> PathBuf {
     PathBuf::from("databases")
-}
-
-fn rpm() -> u32 {
-    600
-}
-
-fn anonymous_rpm() -> u32 {
-    60
 }

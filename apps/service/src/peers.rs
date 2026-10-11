@@ -9,19 +9,11 @@ use berm_host::Peers;
 pub struct Alone;
 
 impl Peers for Alone {
-    async fn link(
-        &self,
-        peer: &str,
-        _: &str,
-        _: &str,
-        _: &str,
-        _: Vec<u8>,
-        _: Link,
-    ) -> Result<Reply> {
+    async fn link(&self, peer: &str, _: &str, _: &str, _: Vec<u8>, _: Link) -> Result<Reply> {
         bail!("no peer {peer:?}")
     }
 
-    async fn logs(&self, peer: &str, _: &str, _: &str, _: i64, _: i64) -> Result<Vec<Logged>> {
+    async fn logs(&self, peer: &str, _: &str, _: i64, _: i64) -> Result<Vec<Logged>> {
         bail!("no peer {peer:?}")
     }
 

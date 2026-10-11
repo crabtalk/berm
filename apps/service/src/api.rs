@@ -4,15 +4,19 @@
 //! a UI, a CLI and `curl`, and a program is a resource. The MCP endpoint that
 //! agents reach sits on the same server at `/mcp`.
 
-use crate::{Deployed, LOCAL, Service, program};
+use crate::Service;
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{FromRequestParts, Path, Query, State},
+    http::{StatusCode, request::Parts},
     routing::{get, post},
 };
-use berm_api::{Logged, Output, Program as Wire, host::Page};
+use berm::Program;
+use berm_api::{
+    Logged, Output, Program as Wire,
+    host::{self, Caller, Page},
+};
 use berm_host::{Denied, deny};
 use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
@@ -48,7 +52,7 @@ pub fn router(service: Arc<Service>) -> Router {
 impl Service {
     /// What berm read out of the image, on the wire, and what of it this service
     /// has nothing to answer with.
-    fn describe(&self, deployed: &Deployed) -> Wire {
+    fn describe(&self, deployed: &Program) -> Wire {
         let manifest = deployed.manifest();
         Wire {
             name: deployed.name.to_string(),
@@ -116,14 +120,35 @@ async fn deploy(
     Ok(Json(wire))
 }
 
+/// The caller a tool call is made as, from [`host::CALLER`], unverified.
+struct Called(Option<Caller>);
+
+impl<S: Send + Sync> FromRequestParts<S> for Called {
+    type Rejection = Denied;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Denied> {
+        let Some(value) = parts.headers.get(host::CALLER) else {
+            return Ok(Self(None));
+        };
+        let caller = serde_json::from_slice(value.as_bytes()).map_err(|e| {
+            deny(
+                StatusCode::BAD_REQUEST,
+                format!("{} is not a caller: {e}", host::CALLER),
+            )
+        })?;
+        Ok(Self(Some(caller)))
+    }
+}
+
 /// Run one tool. `POST` because an invocation is not idempotent, and the body
 /// is the argument object byte for byte as the program will read it.
 async fn call(
     State(service): State<Arc<Service>>,
+    Called(caller): Called,
     Path((name, tool)): Path<(String, String)>,
     arguments: Bytes,
 ) -> Result<Json<Output>, Denied> {
-    run(&service, &name, &tool, arguments.to_vec(), false).await
+    run(&service, &name, caller, &tool, arguments.to_vec(), false).await
 }
 
 /// `?args=` on a `GET`: the argument object, URL-encoded JSON.
@@ -136,24 +161,34 @@ struct Arguments {
 /// Run one `query` tool, its argument object in `?args=`.
 async fn query(
     State(service): State<Arc<Service>>,
+    Called(caller): Called,
     Path((name, tool)): Path<(String, String)>,
     Query(arguments): Query<Arguments>,
 ) -> Result<Json<Output>, Denied> {
-    run(&service, &name, &tool, arguments.args.into_bytes(), true).await
+    run(
+        &service,
+        &name,
+        caller,
+        &tool,
+        arguments.args.into_bytes(),
+        true,
+    )
+    .await
 }
 
-/// Run `tool` on `name` as the local account. `query` holds it to a tool its
-/// manifest marks `query`.
+/// Run `tool` on `name` as `caller`. `query` holds it to a tool its manifest
+/// marks `query`.
 async fn run(
     service: &Service,
     name: &str,
+    caller: Option<Caller>,
     tool: &str,
     arguments: Vec<u8>,
     query: bool,
 ) -> Result<Json<Output>, Denied> {
     let (_, output) = service
         .host
-        .call(LOCAL, name, &program::caller(), tool, arguments, query)
+        .call(name, caller.as_ref(), tool, arguments, query)
         .await?;
     Ok(Json(output))
 }
@@ -167,7 +202,7 @@ async fn logs(
     Ok(Json(
         service
             .host
-            .logs(LOCAL, &name, page.topic, page.after, page.limit)
+            .logs(&name, page.topic, page.after, page.limit)
             .await?,
     ))
 }

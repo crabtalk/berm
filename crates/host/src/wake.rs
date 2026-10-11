@@ -28,8 +28,8 @@ const CLAIM: i64 = 32;
 const TIMEOUT: u64 = 60_000;
 
 /// `berm.call.after`: hold the wake for the service arming it, once its target
-/// is one of its own tools or a public tool of a deployed service of the same
-/// owner. A target on a peer is checked there when the wake fires.
+/// is one of its own tools or a public tool of a deployed service in its
+/// scope. A target on a peer is checked there when the wake fires.
 pub(crate) fn syscall(
     store: Store,
     runtime: Arc<OnceLock<Weak<Berm>>>,
@@ -45,10 +45,10 @@ pub(crate) fn syscall(
         );
         async move {
             if wake.program.contains('/') {
-                bail!("a service wakes services of its own owner, by name");
+                bail!("a service wakes services in its own scope, by name");
             }
-            let (owner_id, name) = host::unkey(&at.program);
-            let key = host::key(owner_id, &wake.program);
+            let (scope, name) = host::split(&at.program);
+            let key = host::join(scope, &wake.program);
             let target = runtime
                 .get()
                 .and_then(Weak::upgrade)
@@ -73,7 +73,7 @@ pub(crate) fn syscall(
             let due = now().saturating_add(i64::try_from(wake.delay).unwrap_or(i64::MAX));
             service::arm(
                 &store,
-                owner_id,
+                scope,
                 name,
                 &wake.program,
                 &wake.tool,
@@ -124,8 +124,8 @@ impl<E: Env> Host<E> {
     /// [`RETRY`].
     async fn fire(&self, wake: service::Wake) {
         let fired = async {
-            let key = host::key(&wake.owner_id, &wake.program);
-            let from = host::key(&wake.owner_id, &wake.name);
+            let key = host::join(&wake.scope, &wake.program);
+            let from = host::join(&wake.scope, &wake.name);
             let Some(target) = self.berm.get(&key) else {
                 let Some(peer) = self.routes.peer(&key) else {
                     bail!("no service named {:?} is deployed", wake.program);
@@ -137,14 +137,13 @@ impl<E: Env> Host<E> {
                     depth: 1,
                     query: false,
                     timeout: TIMEOUT,
-                    stack: vec![key],
+                    stack: vec![key.clone()],
                 };
                 let Reply { result, .. } = self
                     .peers
                     .link(
                         &peer,
-                        &wake.owner_id,
-                        &wake.program,
+                        &key,
                         &wake.tool,
                         wake.args.clone().into_bytes(),
                         link,

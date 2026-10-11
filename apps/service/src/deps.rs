@@ -1,6 +1,7 @@
 //! What a program said it would reach, against what this service answers to.
 
-use crate::{Deployed, Service};
+use crate::Service;
+use berm::Program;
 use berm_api::Deps;
 
 impl Service {
@@ -8,7 +9,7 @@ impl Service {
     /// deployed, secrets `secrets.toml` does not grant the program, and
     /// subscriptions to programs not deployed. An unreadable `secrets.toml`
     /// grants nothing.
-    pub(crate) fn unresolved(&self, program: &Deployed) -> Deps {
+    pub(crate) fn unresolved(&self, program: &Program) -> Deps {
         let deps = &program.manifest().deps;
         Deps {
             programs: deps

@@ -1,9 +1,6 @@
 //! `berm.http.fetch`, sent through the daemon's [`Env::Fetch`].
 
-use crate::{
-    env::{Env, Secrets},
-    host,
-};
+use crate::env::{Env, Secrets};
 use anyhow::Context;
 use berm::{
     Callsite, Syscall,
@@ -26,10 +23,7 @@ pub(crate) fn syscall<E: Env>(fetch: E::Fetch, secrets: Arc<E::Secrets>) -> Sysc
         },
         move |at: Callsite, secret: String, to: String| {
             let secrets = secrets.clone();
-            async move {
-                let (owner_id, name) = host::unkey(&at.program);
-                secrets.grant(owner_id, name, &secret, &to).await
-            }
+            async move { secrets.grant(&at.program, &secret, &to).await }
         },
     )
 }

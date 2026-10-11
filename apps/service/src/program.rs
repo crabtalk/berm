@@ -1,12 +1,11 @@
-//! Deploying, removing, and invoking, as the local owner and account.
+//! Deploying, removing, and invoking.
 
-use crate::{Deployed, LOCAL, Service};
+use crate::Service;
 use axum::http::StatusCode;
-use berm_api::{
-    Break,
-    host::{Caller, Deploy},
-};
+use berm::Program;
+use berm_api::{Break, host::Deploy};
 use berm_host::{Denied, deny};
+use std::sync::Arc;
 
 impl Service {
     /// Make the tools of `image` reachable under `name`, answering with how it
@@ -19,14 +18,13 @@ impl Service {
         image: Vec<u8>,
         public: &[String],
         force: bool,
-    ) -> Result<(Deployed, Vec<Break>), Denied> {
+    ) -> Result<(Arc<Program>, Vec<Break>), Denied> {
         validate(name)?;
         let replaced = self.get(name);
         let digest = self.images.put(&image)?;
         let program = self
             .host
             .deploy(
-                LOCAL,
                 name,
                 Deploy {
                     reference: digest.clone(),
@@ -42,51 +40,34 @@ impl Service {
         for broken in &breaks {
             tracing::warn!(name, "breaks callers: {broken}");
         }
-        let deployed = Deployed {
-            name: name.into(),
-            program,
-        };
-        let unresolved = self.unresolved(&deployed);
+        let unresolved = self.unresolved(&program);
         if !unresolved.is_empty() {
             tracing::warn!(name, "nothing here answers to {unresolved}");
         }
         let _ = self.changed.send(());
-        Ok((deployed, breaks))
+        Ok((program, breaks))
     }
 
     /// Stop running a program and drop what it committed. `false` if it wasn't
     /// deployed.
     pub async fn undeploy(&self, name: &str) -> Result<bool, Denied> {
-        let removed = self.host.remove(LOCAL, name).await?;
+        let removed = self.host.remove(name).await?;
         if removed {
             let _ = self.changed.send(());
         }
         Ok(removed)
     }
 
-    /// Run one public tool as the local account. The inner `Result` is the
-    /// program's own report.
+    /// Run one public tool with no caller. The inner `Result` is the program's
+    /// own report.
     pub async fn call(
         &self,
         name: &str,
         tool: &str,
         args: Vec<u8>,
     ) -> Result<Result<String, String>, Denied> {
-        let (_, output) = self
-            .host
-            .call(LOCAL, name, &caller(), tool, args, false)
-            .await?;
+        let (_, output) = self.host.call(name, None, tool, args, false).await?;
         Ok(output.into())
-    }
-}
-
-/// The local account.
-pub(crate) fn caller() -> Caller {
-    Caller {
-        id: LOCAL.to_owned(),
-        app: None,
-        user: None,
-        client: None,
     }
 }
 

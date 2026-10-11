@@ -1,5 +1,5 @@
 //! Logs as a source of calls: a service subscribed with `#[logs(...)]` has its
-//! tool called with the logs of each service of its owner it subscribes to,
+//! tool called with the logs of each service in its scope it subscribes to,
 //! oldest first, and its position commits with what that call wrote.
 //!
 //! Each subscription has a worker of its own, so one subscriber failing or
@@ -59,9 +59,9 @@ impl<E: Env> Host<E> {
     pub(crate) fn subscribe(&self) {
         let mut wanted = HashSet::new();
         for subscriber in self.berm.list() {
-            let (owner_id, _) = host::unkey(&subscriber.name);
+            let (scope, _) = host::split(&subscriber.name);
             for subscription in &subscriber.manifest().deps.logs {
-                let publisher = host::key(owner_id, &subscription.program);
+                let publisher = host::join(scope, &subscription.program);
                 wanted.insert((subscriber.name.to_string(), publisher));
             }
         }
@@ -89,7 +89,7 @@ impl<E: Env> Host<E> {
     /// [`POLL`], and after a failed pass, one once the backoff has run.
     async fn work(self, subscriber: String, publisher: String, prompt: Arc<Notify>) {
         let mut backoff = RETRY;
-        let (_, name) = host::unkey(&publisher);
+        let (_, name) = host::split(&publisher);
         loop {
             let Some(program) = self.berm.get(&subscriber) else {
                 return;
@@ -132,12 +132,12 @@ impl<E: Env> Host<E> {
     /// Deliver what `subscriber` has not had of `subscription`, stopping at the
     /// first delivery that fails.
     async fn catch_up(&self, subscriber: &Program, subscription: &Subscription) -> Result<()> {
-        let (owner_id, name) = host::unkey(&subscriber.name);
+        let (scope, name) = host::split(&subscriber.name);
         let program = &subscription.program;
-        let publisher = host::key(owner_id, program);
-        let mut from = service::position(&self.store, owner_id, name, program).await?;
+        let publisher = host::join(scope, program);
+        let mut from = service::position(&self.store, scope, name, program).await?;
         loop {
-            let pending = self.read(owner_id, program, &publisher, from).await?;
+            let pending = self.read(scope, program, &publisher, from).await?;
             let Some(to) = pending.last().map(|log| log.seq as i64) else {
                 return Ok(());
             };
@@ -146,7 +146,7 @@ impl<E: Env> Host<E> {
                 .filter(|log| subscription.matches(&log.topics))
                 .collect();
             let advance = Advance {
-                owner_id: owner_id.to_owned(),
+                scope: scope.to_owned(),
                 name: name.to_owned(),
                 program: program.clone(),
                 from,
@@ -195,7 +195,7 @@ impl<E: Env> Host<E> {
             };
             from = match committed {
                 true => to,
-                false => service::position(&self.store, owner_id, name, program).await?,
+                false => service::position(&self.store, scope, name, program).await?,
             };
         }
     }
@@ -203,17 +203,17 @@ impl<E: Env> Host<E> {
     /// `program`'s logs after `from`, from this host or the peer it runs on.
     async fn read(
         &self,
-        owner_id: &str,
+        scope: &str,
         program: &str,
         publisher: &str,
         from: i64,
     ) -> Result<Vec<Logged>> {
         if self.berm.get(publisher).is_some() {
-            return service::logs(&self.store, owner_id, program, None, from, BATCH).await;
+            return service::logs(&self.store, scope, program, None, from, BATCH).await;
         }
         let Some(peer) = self.routes.peer(publisher) else {
             bail!("no service named {program:?} is deployed");
         };
-        self.peers.logs(&peer, owner_id, program, from, BATCH).await
+        self.peers.logs(&peer, publisher, from, BATCH).await
     }
 }

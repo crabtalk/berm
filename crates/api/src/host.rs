@@ -2,7 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Who called from outside, as the daemon authenticated them.
+/// Header carrying the [`Caller`] a call to bermd is made as, as JSON. bermd
+/// verifies none of it.
+pub const CALLER: &str = "x-berm-caller";
+
+/// Who called from outside, as the daemon hands them to the host.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Caller {
     /// The account calling, or for an app's call, the account owning the app.
@@ -10,7 +14,7 @@ pub struct Caller {
     /// The app a browser called through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<String>,
-    /// The end user an app's call carried a verified token for.
+    /// The end user the call is made for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<User>,
     /// For an app's anonymous call, the client's address.
@@ -42,8 +46,7 @@ pub struct Deploy {
 /// Where a service this host does not run lives: the peer it runs on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
-    pub owner_id: String,
-    pub name: String,
+    pub service: String,
     pub peer: String,
 }
 
@@ -78,8 +81,7 @@ pub struct Reply {
 /// Uses of a service counted on another host, for the host it runs on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Used {
-    pub owner_id: String,
-    pub name: String,
+    pub service: String,
     pub kind: String,
     pub item: String,
     pub source: String,
@@ -97,7 +99,8 @@ pub struct Usage {
     /// `tool` or `event`.
     pub kind: String,
     pub item: String,
-    /// `service` (a service of the same owner), `account` or `app`.
+    /// `service` (a service in the same scope), `account`, `app`, or
+    /// `anonymous` for a call from outside without a caller.
     pub source: String,
     /// The service's name, or the account or app.
     pub caller: String,
@@ -110,17 +113,6 @@ pub struct Usage {
     /// For a tool, whether the deployed version makes it public.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public: Option<bool>,
-}
-
-/// One caller a service's owner lets call a public tool.
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Allowed {
-    /// A public tool, or `*` for every tool without rules of its own.
-    pub tool: String,
-    /// `account`, `app` or `service` (a service of the same owner, by name).
-    pub kind: String,
-    pub caller: String,
 }
 
 /// `?topic=&after=&limit=` on a service's logs.

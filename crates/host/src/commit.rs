@@ -6,7 +6,7 @@
 
 use crate::{
     deliver::Deliveries,
-    host::{Advance, unkey},
+    host::{Advance, split},
     service::{self, Share},
     store::Store,
 };
@@ -52,7 +52,7 @@ impl Commits {
     pub(crate) async fn ship(&self, key: &str) -> Result<bool> {
         let _shipping = self.shipping.lock().await;
         let database = self.databases.get(key)?;
-        let (owner_id, name) = unkey(key);
+        let (scope, name) = split(key);
         let mut shipped = false;
         loop {
             let waiting = database.outbox(SHIP).await?;
@@ -66,11 +66,11 @@ impl Commits {
                     .map(|log| (log.topics, log.data))
                     .collect(),
             };
-            let (owner_id, name) = (owner_id.to_owned(), name.to_owned());
+            let (scope, name) = (scope.to_owned(), name.to_owned());
             self.store
                 .run(move |conn| {
                     let tx = conn.transaction()?;
-                    service::commit(&tx, &owner_id, &name, &share)?;
+                    service::commit(&tx, &scope, &name, &share)?;
                     tx.commit()
                 })
                 .await?;
@@ -115,19 +115,19 @@ impl Commits {
             .run(move |conn| {
                 let tx = conn.transaction()?;
                 if let Some(Advance {
-                    owner_id,
+                    scope,
                     name,
                     program,
                     from,
                     to,
                 }) = advance
-                    && !service::advance(&tx, &owner_id, &name, &program, from, to)?
+                    && !service::advance(&tx, &scope, &name, &program, from, to)?
                 {
                     return Ok(false);
                 }
                 for (key, share) in &shares {
-                    let (owner_id, name) = unkey(key);
-                    service::commit(&tx, owner_id, name, share)?;
+                    let (scope, name) = split(key);
+                    service::commit(&tx, scope, name, share)?;
                 }
                 tx.commit()?;
                 Ok(true)
@@ -190,13 +190,13 @@ impl Scope for Entered {
             if let Some(key) = took
                 && !commits.ship(&key).await?
             {
-                let (owner_id, name) = unkey(&key);
-                let (owner_id, name) = (owner_id.to_owned(), name.to_owned());
+                let (scope, name) = split(&key);
+                let (scope, name) = (scope.to_owned(), name.to_owned());
                 commits
                     .store
                     .run(move |conn| {
                         let tx = conn.transaction()?;
-                        service::commit(&tx, &owner_id, &name, &Share::default())?;
+                        service::commit(&tx, &scope, &name, &Share::default())?;
                         tx.commit()
                     })
                     .await?;

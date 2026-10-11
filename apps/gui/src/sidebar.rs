@@ -1,7 +1,7 @@
 //! The rail of programs — what is deployed, or what the index lists.
 
 use crate::{Found, Sheet, Showing, TITLEBAR, Workbench, utils};
-use bermd::Deployed;
+use berm::Program;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
     theme::Theme,
@@ -10,6 +10,7 @@ use bezel::{
         widgets::{self, ButtonStyle, Buttons, Scaffolding},
     },
 };
+use std::sync::Arc;
 
 const WIDTH: f32 = 260.0;
 
@@ -127,7 +128,7 @@ impl Workbench {
 
     fn row(
         &self,
-        deployed: &Deployed,
+        deployed: &Arc<Program>,
         first: bool,
         theme: &Theme,
         cx: &mut Context<Self>,

@@ -61,11 +61,9 @@ program's tools, and pays nothing for the programs it is not considering.
 
 ## What a deployed program can reach
 
-Its arguments, the log, and any other program on the same daemon.
-
-There is no wiring step and no per-pair permission. What is deployed is
-reachable by name, which is the reach containers on one network have of each
-other, bounded the same way: by what the operator chose to run.
+Its arguments, the log, itself, and the programs on the same daemon its
+manifest declares in `programs`. A call to any other name is
+`CallError::Refused`.
 
 ```rust
 let result = berm_lang::call("inner", "echo", r#"{"query":"hi"}"#)?;

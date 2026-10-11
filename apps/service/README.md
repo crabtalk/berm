@@ -32,6 +32,8 @@ curl -G --data-urlencode 'args={}' http://127.0.0.1:7777/programs/fixture/tools/
 
 What a program emitted is at `GET /programs/{name}/logs`, oldest first, after the sequence number `after`.
 
+A tool call may carry `X-Berm-Caller`, the caller a program reads from `berm_lang::caller()` and the user it reads from `berm_lang::user()`, as JSON: `{"id": "alice", "user": {"issuer": "https://id.example", "subject": "42"}}`. bermd checks none of it. A call without one has no caller.
+
 A deploy is recorded only once its image has compiled, so a broken one is
 refused by the deploy that introduced it rather than on a model's turn. What is
 recorded is restored on the next start.
@@ -60,9 +62,7 @@ turn.
 ## What a program can reach
 
 Its arguments, the log, its own stored keys, the clock, a callback timer, HTTP
-to the hosts its manifest declares under `berm.http.fetch`, and any other
-program deployed beside it. There is no wiring step: what is deployed is
-reachable by name, the way containers on one network reach each other.
+to the hosts its manifest declares under `berm.http.fetch`, itself, and the programs deployed beside it that its manifest declares in `programs`, by name.
 
 ```sh
 berm deploy inner ./inner.wasm

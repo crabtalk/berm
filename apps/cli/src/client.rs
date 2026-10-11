@@ -5,7 +5,10 @@ use crate::{
     http,
 };
 use anyhow::{Context, Result, bail};
-use berm_api::{Logged, Output, Program};
+use berm_api::{
+    Logged, Output, Program,
+    host::{self, Caller},
+};
 use reqwest::blocking::RequestBuilder;
 
 pub struct Client {
@@ -85,9 +88,24 @@ impl Client {
             .context("Cloud returned something that is not a program")
     }
 
-    pub fn run(&self, program: &str, tool: &str, arguments: Vec<u8>) -> Result<Output> {
+    /// Run `tool` of `program`, as `caller` on a bermd, which takes it
+    /// unverified.
+    pub fn run(
+        &self,
+        program: &str,
+        tool: &str,
+        arguments: Vec<u8>,
+        caller: Option<&Caller>,
+    ) -> Result<Output> {
         let url = format!("{}/tools/{tool}", self.url(program));
-        self.read(self.http.post(url).body(arguments))?
+        let mut request = self.http.post(url).body(arguments);
+        if let Some(caller) = caller {
+            if self.owner.is_some() {
+                bail!("Cloud calls as the context's token; `--caller` is for bermd");
+            }
+            request = request.header(host::CALLER, serde_json::to_string(caller)?);
+        }
+        self.read(request)?
             .json()
             .context("the host returned something that is not a tool result")
     }

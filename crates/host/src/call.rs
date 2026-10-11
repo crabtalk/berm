@@ -2,8 +2,8 @@
 //! and reading and setting what each service is.
 
 use crate::{
-    Denied, callers, deny,
-    env::Env,
+    Denied, deny,
+    env::{Admit, Env},
     host::{self, Host},
     service,
     usage::{self, Kind, Outcome, Source},
@@ -12,7 +12,7 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use berm::{Program, Refused};
 use berm_api::{
     Logged, Output,
-    host::{Allowed, Caller, Link, Reply, Route, Usage, Used},
+    host::{Caller, Link, Reply, Route, Usage, Used},
 };
 use std::{
     sync::Arc,
@@ -23,39 +23,38 @@ use std::{
 const MAX_PAGE: i64 = 1000;
 
 impl<E: Env> Host<E> {
-    /// `owner_id/name`'s IDL.
-    pub async fn idl(&self, owner_id: &str, name: &str) -> Result<berm_api::Program, Denied> {
-        let (program, _) = self.deployed(owner_id, name).await?;
-        Ok(host::idl(name, &program))
+    /// `service`'s IDL.
+    pub async fn idl(&self, service: &str) -> Result<berm_api::Program, Denied> {
+        let (program, _) = self.deployed(service).await?;
+        Ok(host::idl(host::split(service).1, &program))
     }
 
-    /// The IDL of every service `owner_id` runs here.
-    pub fn idls(&self, owner_id: &str) -> Vec<berm_api::Program> {
-        self.list(owner_id)
+    /// The IDL of every service in `scope` this host runs.
+    pub fn idls(&self, scope: &str) -> Vec<berm_api::Program> {
+        self.list(scope)
             .iter()
             .map(|(name, program)| host::idl(name, program))
             .collect()
     }
 
-    /// `owner_id/name`'s commit count.
-    pub async fn commits(&self, owner_id: &str, name: &str) -> Result<i64, Denied> {
-        let (_, commits) = self.deployed(owner_id, name).await?;
+    /// `service`'s commit count.
+    pub async fn commits(&self, service: &str) -> Result<i64, Denied> {
+        let (_, commits) = self.deployed(service).await?;
         Ok(commits)
     }
 
-    /// Run `tool` on `owner_id/name` for `caller`, counted as its use. `query`
-    /// holds it to a tool the IDL marks `query`. Answers with the deprecation
-    /// headers the tool's answer carries.
+    /// Run `tool` on `service` from outside, as `caller` when there is one,
+    /// counted as its use. `query` holds it to a tool the IDL marks `query`.
+    /// Answers with the deprecation headers the tool's answer carries.
     pub async fn call(
         &self,
-        owner_id: &str,
-        name: &str,
-        caller: &Caller,
+        service: &str,
+        caller: Option<&Caller>,
         tool: &str,
         args: Vec<u8>,
         query: bool,
     ) -> Result<(HeaderMap, Output), Denied> {
-        let (program, _) = self.deployed(owner_id, name).await?;
+        let (program, _) = self.deployed(service).await?;
         let Some(spec) = program
             .manifest()
             .tools
@@ -73,11 +72,26 @@ impl<E: Env> Host<E> {
                 format!("{tool} is not a query; POST it"),
             ));
         }
-        self.admit(caller, &program, tool, spec.query)?;
+        let (source, who) = counted(caller);
+        let refused = |denied: Denied| {
+            self.usage
+                .record(service, Kind::Tool, tool, source, who, Outcome::Refused);
+            Err(denied)
+        };
+        if !program.reached_by_accounts(tool) {
+            return refused(deny(
+                StatusCode::FORBIDDEN,
+                format!("{tool} takes calls from services only"),
+            ));
+        }
+        if let Err(denied) = self.admit.admit(service, tool, spec.query, caller).await {
+            return refused(denied);
+        }
         let mut headers = HeaderMap::new();
+        let (scope, name) = host::split(service);
         if spec.deprecated
             && let Some((since, sunset)) =
-                usage::deprecation(&self.store, owner_id, name, tool).await?
+                usage::deprecation(&self.store, scope, name, tool).await?
         {
             headers.insert(
                 HeaderName::from_static("deprecation"),
@@ -100,35 +114,25 @@ impl<E: Env> Host<E> {
         let invoked = self
             .invoke(
                 &program,
-                Some(&caller.id),
-                caller.user.as_ref().map(host::user),
+                caller.map(|caller| caller.id.as_str()),
+                caller
+                    .and_then(|caller| caller.user.as_ref())
+                    .map(host::user),
                 tool,
                 args,
                 None,
             )
             .await
             .map_err(|e| deny(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
-        let (source, who) = counted(caller);
-        self.usage.record(
-            &program.name,
-            Kind::Tool,
-            tool,
-            source,
-            who,
-            invoked.outcome(),
-        );
+        self.usage
+            .record(service, Kind::Tool, tool, source, who, invoked.outcome());
         Ok((headers, invoked.result.into()))
     }
 
     /// Set or clear a deprecated tool's sunset.
-    pub async fn sunset(
-        &self,
-        owner_id: &str,
-        name: &str,
-        tool: &str,
-        at: Option<i64>,
-    ) -> Result<(), Denied> {
-        if !usage::sunset(&self.store, owner_id, name, tool, at).await? {
+    pub async fn sunset(&self, service: &str, tool: &str, at: Option<i64>) -> Result<(), Denied> {
+        let (scope, name) = host::split(service);
+        if !usage::sunset(&self.store, scope, name, tool, at).await? {
             return Err(deny(
                 StatusCode::CONFLICT,
                 format!("{tool} is not a deprecated tool of this service"),
@@ -137,47 +141,12 @@ impl<E: Env> Host<E> {
         Ok(())
     }
 
-    /// Who may call `owner_id/name`.
-    pub async fn callers(&self, owner_id: &str, name: &str) -> Result<Vec<Allowed>, Denied> {
-        Ok(callers::read(&self.store, owner_id, name).await?)
-    }
-
-    /// Replace who may call `owner_id/name`.
-    pub async fn allow(
-        &self,
-        owner_id: &str,
-        name: &str,
-        rules: Vec<Allowed>,
-    ) -> Result<(), Denied> {
-        let program = self
-            .get(owner_id, name)
-            .ok_or_else(|| deny(StatusCode::NOT_FOUND, "no such service"))?;
-        for rule in &rules {
-            if !["account", "app", "service"].contains(&rule.kind.as_str()) {
-                return Err(deny(
-                    StatusCode::BAD_REQUEST,
-                    format!("{:?} is not `account`, `app` or `service`", rule.kind),
-                ));
-            }
-            if rule.tool != "*" && !program.public(&rule.tool) {
-                return Err(deny(
-                    StatusCode::BAD_REQUEST,
-                    format!("{:?} is not a public tool of this service", rule.tool),
-                ));
-            }
-        }
-        callers::replace(&self.store, owner_id, name, rules).await?;
-        self.allowlists
-            .load(&self.store, &host::key(owner_id, name))
-            .await?;
-        Ok(())
-    }
-
-    /// Who uses `owner_id/name`. An account caller is named by its id.
-    pub async fn usage(&self, owner_id: &str, name: &str) -> Result<Vec<Usage>, Denied> {
+    /// Who uses `service`.
+    pub async fn usage(&self, service: &str) -> Result<Vec<Usage>, Denied> {
         self.flush().await?;
-        let mut used = usage::read(&self.store, owner_id, name, None).await?;
-        if let Some(program) = self.get(owner_id, name) {
+        let (scope, name) = host::split(service);
+        let mut used = usage::read(&self.store, scope, name, None).await?;
+        if let Some(program) = self.get(service) {
             for row in used.iter_mut().filter(|row| row.kind == "tool") {
                 row.public = Some(program.public(&row.item));
             }
@@ -185,21 +154,21 @@ impl<E: Env> Host<E> {
         Ok(used)
     }
 
-    /// `owner_id/name`'s logs, oldest first, after the sequence number
-    /// `after`, those carrying `topic` when one is given. At most `limit`, held
-    /// to [`MAX_PAGE`].
+    /// `service`'s logs, oldest first, after the sequence number `after`,
+    /// those carrying `topic` when one is given. At most `limit`, held to
+    /// [`MAX_PAGE`].
     pub async fn logs(
         &self,
-        owner_id: &str,
-        name: &str,
+        service: &str,
         topic: Option<String>,
         after: i64,
         limit: i64,
     ) -> Result<Vec<Logged>, Denied> {
-        self.deployed(owner_id, name).await?;
+        self.deployed(service).await?;
+        let (scope, name) = host::split(service);
         Ok(service::logs(
             &self.store,
-            owner_id,
+            scope,
             name,
             topic,
             after,
@@ -212,21 +181,20 @@ impl<E: Env> Host<E> {
     /// refusal is `403` with its reason.
     pub async fn link(
         &self,
-        owner_id: &str,
-        name: &str,
+        service: &str,
         tool: &str,
         args: Vec<u8>,
         link: Link,
     ) -> Result<Reply, Denied> {
-        let program = self.get(owner_id, name).ok_or_else(|| {
+        let program = self.get(service).ok_or_else(|| {
             deny(
                 StatusCode::NOT_FOUND,
-                format!("no program named {name:?} is deployed"),
+                format!("no program named {service:?} is deployed"),
             )
         })?;
         let refused = |message: String| {
             self.usage.record(
-                &program.name,
+                service,
                 Kind::Tool,
                 tool,
                 Source::Service,
@@ -236,20 +204,10 @@ impl<E: Env> Host<E> {
             Err(deny(StatusCode::FORBIDDEN, message))
         };
         if !program.public(tool) {
-            return refused(format!("{name} has no public tool named {tool:?}"));
+            return refused(format!("{service} has no public tool named {tool:?}"));
         }
-        if let Some(caller) = &link.caller {
-            if !program.reached_by_programs(tool) {
-                return refused(format!("{name}.{tool} takes no calls from programs"));
-            }
-            if !self
-                .allowlists
-                .allows(&program.name, tool, "service", caller)
-            {
-                return refused(format!(
-                    "{name}.{tool} does not take calls from this service"
-                ));
-            }
+        if link.caller.is_some() && !program.reached_by_programs(tool) {
+            return refused(format!("{service}.{tool} takes no calls from programs"));
         }
         let _slot = self.gate.acquire().await.map_err(anyhow::Error::from)?;
         let outcome = program
@@ -289,7 +247,7 @@ impl<E: Env> Host<E> {
             (Err(_), false) => Outcome::Failed,
         };
         self.usage.record(
-            &program.name,
+            service,
             Kind::Tool,
             tool,
             Source::Service,
@@ -312,85 +270,24 @@ impl<E: Env> Host<E> {
         Ok(usage::write(&self.store, used).await?)
     }
 
-    /// Refuse an outside caller before the tool runs, for its manifest's
-    /// kinds, an app's anonymous call to a tool that is not a query, the
-    /// owner's allowlist, or its calls this minute. Counted as refused.
-    fn admit(
-        &self,
-        caller: &Caller,
-        program: &Program,
-        tool: &str,
-        query: bool,
-    ) -> Result<(), Denied> {
-        let (source, who) = counted(caller);
-        let refused = |status: StatusCode, message: String| {
-            self.usage.record(
-                &program.name,
-                Kind::Tool,
-                tool,
-                source,
-                who,
-                Outcome::Refused,
-            );
-            Err(deny(status, message))
-        };
-        if !program.reached_by_accounts(tool) {
-            return refused(
-                StatusCode::FORBIDDEN,
-                format!("{tool} takes calls from services only"),
-            );
-        }
-        if caller.app.is_some() && caller.user.is_none() && !query {
-            return refused(
-                StatusCode::FORBIDDEN,
-                format!("an anonymous call reaches query tools only, and {tool} is not one"),
-            );
-        }
-        let kind = match source {
-            Source::App => "app",
-            _ => "account",
-        };
-        if !self.allowlists.allows(&program.name, tool, kind, who) {
-            return refused(
-                StatusCode::FORBIDDEN,
-                format!("this {kind} may not call {tool}"),
-            );
-        }
-        let (counter, limit) = match (&caller.app, &caller.user) {
-            (Some(app), Some(user)) => (
-                format!("{app} {} {}", user.issuer, user.subject),
-                self.limits.caller,
-            ),
-            (Some(app), None) => (
-                format!("{app} anonymous {}", caller.client.as_deref().unwrap_or("")),
-                self.limits.anonymous,
-            ),
-            (None, _) => (caller.id.clone(), self.limits.caller),
-        };
-        if !self.counter.take(&counter, limit) {
-            return refused(
-                StatusCode::TOO_MANY_REQUESTS,
-                "too many calls this minute; retry in the next".to_owned(),
-            );
-        }
-        Ok(())
-    }
-
-    /// The program `owner_id/name` runs now, and its commit count.
-    async fn deployed(&self, owner_id: &str, name: &str) -> Result<(Arc<Program>, i64), Denied> {
+    /// The program `service` runs now, and its commit count.
+    async fn deployed(&self, service: &str) -> Result<(Arc<Program>, i64), Denied> {
         let missing = || deny(StatusCode::NOT_FOUND, "no such service");
-        let commits = service::commits(&self.store, owner_id, name)
+        let (scope, name) = host::split(service);
+        let commits = service::commits(&self.store, scope, name)
             .await?
             .ok_or_else(missing)?;
-        let program = self.get(owner_id, name).ok_or_else(missing)?;
+        let program = self.get(service).ok_or_else(missing)?;
         Ok((program, commits))
     }
 }
 
-/// How a caller from outside is counted: by its app, or by its account.
-fn counted(caller: &Caller) -> (Source, &str) {
-    match &caller.app {
-        Some(app) => (Source::App, app),
-        None => (Source::Account, &caller.id),
+/// How a call from outside is counted: by its app, by its account, or as
+/// anonymous without a caller.
+fn counted(caller: Option<&Caller>) -> (Source, &str) {
+    match caller {
+        Some(Caller { app: Some(app), .. }) => (Source::App, app),
+        Some(caller) => (Source::Account, &caller.id),
+        None => (Source::Anonymous, ""),
     }
 }

@@ -69,7 +69,9 @@ oldest first. A log is delivered when it carries any listed topic; no topics
 takes every log.
 
 `berm.http.fetch` holds a program to them: a host it does not declare, or a
-secret it does not declare, is refused before anything is sent. A declared
+secret it does not declare, is refused before anything is sent. `berm.call`
+reaches the program itself and the programs it declares, and refuses any other
+name. A declared
 secret is substituted by the host for the chain's caller, and the guest never
 holds its value. These are runtime
 and resolved wherever the image lands: nothing here is fetched, installed, or
@@ -81,9 +83,10 @@ the program computes at the call is invisible to any scan — a list built that
 way would be quietly short, and the runtime `Refused` would still be needed
 underneath it.
 
-Nothing is refused for an unmet dependency. `berm deploy` says so and carries
-on, and `berm inspect` marks the programs not deployed and the syscalls nothing
-registers. What a served syscall reaches through it is that syscall's to grant.
+A declared program not deployed refuses nothing: `berm deploy` says so and
+carries on, and `berm inspect` marks it. A syscall the host does not serve
+refuses the deploy. What a served syscall reaches through it is that syscall's
+to grant.
 Refusing would make deploy order significant, and a restart brings programs
 back in whatever order the filesystem lists them — two that name each other
 could then never come up at all.

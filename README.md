@@ -26,7 +26,7 @@ match berm.call(None, "example", "echo", br#"{"query":"hello"}"#.to_vec()).await
 }
 ```
 
-A program's public tools are reachable by name from anything deployed beside it. Beyond
+A program's public tools are reachable by name from anything deployed beside it that declares it. Beyond
 that a program reaches the world only through the *syscalls* it was given, and
 that table is the linker it is instantiated with — a call to anything else traps
 because nothing is registered for it, not because a check said no. berm ships

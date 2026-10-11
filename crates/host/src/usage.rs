@@ -36,12 +36,14 @@ impl Kind {
 /// Who used it.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Source {
-    /// A service of the same owner, by its key.
+    /// A service in the same scope, by its full name.
     Service,
-    /// An account, by its member id.
+    /// An account, by its id.
     Account,
     /// An app a browser called through, by its id.
     App,
+    /// A call from outside without a caller.
+    Anonymous,
 }
 
 impl Source {
@@ -50,6 +52,7 @@ impl Source {
             Source::Service => "service",
             Source::Account => "account",
             Source::App => "app",
+            Source::Anonymous => "anonymous",
         }
     }
 }
@@ -134,20 +137,16 @@ impl Counts {
     pub(crate) fn take(&self) -> Vec<Used> {
         mem::take(&mut *self.0.lock())
             .into_iter()
-            .map(|(key, (calls, last))| {
-                let (owner_id, name) = host::unkey(&key.service);
-                Used {
-                    owner_id: owner_id.to_owned(),
-                    name: name.to_owned(),
-                    kind: key.kind.as_str().to_owned(),
-                    item: key.item,
-                    source: key.source.as_str().to_owned(),
-                    caller: key.caller,
-                    outcome: key.outcome.as_str().to_owned(),
-                    day: key.day,
-                    calls,
-                    last,
-                }
+            .map(|(key, (calls, last))| Used {
+                service: key.service,
+                kind: key.kind.as_str().to_owned(),
+                item: key.item,
+                source: key.source.as_str().to_owned(),
+                caller: key.caller,
+                outcome: key.outcome.as_str().to_owned(),
+                day: key.day,
+                calls,
+                last,
             })
             .collect()
     }
@@ -163,17 +162,18 @@ pub(crate) async fn write(store: &Store, used: Vec<Used>) -> Result<()> {
         .run(move |conn| {
             let tx = conn.transaction()?;
             for used in &used {
+                let (scope, name) = host::split(&used.service);
                 tx.execute(
                     "INSERT INTO service_usage
-                            (owner_id, name, kind, item, source, caller, outcome, day, calls, last)
+                            (scope, name, kind, item, source, caller, outcome, day, calls, last)
                      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
-                      WHERE EXISTS (SELECT 1 FROM services WHERE owner_id = ?1 AND name = ?2)
-                     ON CONFLICT (owner_id, name, kind, item, source, caller, outcome, day)
+                      WHERE EXISTS (SELECT 1 FROM services WHERE scope = ?1 AND name = ?2)
+                     ON CONFLICT (scope, name, kind, item, source, caller, outcome, day)
                      DO UPDATE SET calls = service_usage.calls + excluded.calls,
                                    last = MAX(service_usage.last, excluded.last)",
                     params![
-                        used.owner_id,
-                        used.name,
+                        scope,
+                        name,
                         used.kind,
                         used.item,
                         used.source,
@@ -190,12 +190,12 @@ pub(crate) async fn write(store: &Store, used: Vec<Used>) -> Result<()> {
         .await
 }
 
-/// `owner_id/name`'s usage over the last [`WINDOW`] days, one row per item,
+/// `scope/name`'s usage over the last [`WINDOW`] days, one row per item,
 /// caller and outcome, of one item and outcome when `of` names them. A service
 /// caller is named by its name, an account by its id.
 pub(crate) async fn read(
     store: &Store,
-    owner_id: &str,
+    scope: &str,
     name: &str,
     of: Option<(Kind, &str, Outcome)>,
 ) -> Result<Vec<Usage>> {
@@ -206,25 +206,24 @@ pub(crate) async fn read(
             Some(outcome.as_str()),
         )
     });
-    let (owner_id, name) = (owner_id.to_owned(), name.to_owned());
+    let (scope, name) = (scope.to_owned(), name.to_owned());
     let since = (now() / 86_400) as i32 - WINDOW;
     store
         .run(move |conn| {
             let mut statement = conn.prepare(
                 "SELECT kind, item, source, caller, outcome, SUM(calls), MAX(last)
                    FROM service_usage
-                  WHERE owner_id = ?1 AND name = ?2 AND day > ?3
+                  WHERE scope = ?1 AND name = ?2 AND day > ?3
                     AND (?4 IS NULL OR (kind = ?4 AND item = ?5 AND outcome = ?6))
                   GROUP BY kind, item, source, caller, outcome
                   ORDER BY kind, item, MAX(last) DESC",
             )?;
-            let rows = statement.query_map(
-                params![owner_id, name, since, kind, item, outcome],
-                |row| {
+            let rows =
+                statement.query_map(params![scope, name, since, kind, item, outcome], |row| {
                     let source: String = row.get(2)?;
                     let caller: String = row.get(3)?;
                     let caller = match source.as_str() {
-                        "service" => host::unkey(&caller).1.to_owned(),
+                        "service" => host::split(&caller).1.to_owned(),
                         _ => caller,
                     };
                     Ok(Usage {
@@ -237,8 +236,7 @@ pub(crate) async fn read(
                         last: row.get(6)?,
                         public: None,
                     })
-                },
-            )?;
+                })?;
             rows.collect()
         })
         .await
@@ -247,18 +245,18 @@ pub(crate) async fn read(
 /// When `tool` was first deployed deprecated, and its sunset if one is set.
 pub(crate) async fn deprecation(
     store: &Store,
-    owner_id: &str,
+    scope: &str,
     name: &str,
     tool: &str,
 ) -> Result<Option<(i64, Option<i64>)>> {
-    let row = [owner_id, name, tool].map(str::to_owned);
+    let row = [scope, name, tool].map(str::to_owned);
     store
         .run(move |conn| {
-            let [owner_id, name, tool] = row;
+            let [scope, name, tool] = row;
             conn.query_row(
                 "SELECT since, sunset FROM service_deprecations
-                  WHERE owner_id = ?1 AND name = ?2 AND tool = ?3",
-                params![owner_id, name, tool],
+                  WHERE scope = ?1 AND name = ?2 AND tool = ?3",
+                params![scope, name, tool],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
@@ -270,19 +268,19 @@ pub(crate) async fn deprecation(
 /// deprecated.
 pub(crate) async fn sunset(
     store: &Store,
-    owner_id: &str,
+    scope: &str,
     name: &str,
     tool: &str,
     at: Option<i64>,
 ) -> Result<bool> {
-    let row = [owner_id, name, tool].map(str::to_owned);
+    let row = [scope, name, tool].map(str::to_owned);
     store
         .run(move |conn| {
-            let [owner_id, name, tool] = row;
+            let [scope, name, tool] = row;
             let set = conn.execute(
                 "UPDATE service_deprecations SET sunset = ?4
-                  WHERE owner_id = ?1 AND name = ?2 AND tool = ?3",
-                params![owner_id, name, tool, at],
+                  WHERE scope = ?1 AND name = ?2 AND tool = ?3",
+                params![scope, name, tool, at],
             )?;
             Ok(set == 1)
         })

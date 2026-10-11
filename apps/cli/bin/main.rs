@@ -1,4 +1,5 @@
 use anyhow::Result;
+use berm_api::host::{Caller, User};
 use berm_cli::{
     Client, cmd,
     context::{Contexts, Owner},
@@ -54,6 +55,16 @@ enum Command {
         tool: String,
         /// The argument object. Read from stdin when omitted.
         arguments: Option<String>,
+        /// On bermd, the caller the program is told called it.
+        #[arg(long)]
+        caller: Option<String>,
+        /// On bermd, the end user's issuer the program is told it is called for.
+        #[arg(long, requires = "user", requires = "caller")]
+        issuer: Option<String>,
+        /// On bermd, the end user's subject the program is told it is called
+        /// for.
+        #[arg(long, requires = "issuer")]
+        user: Option<String>,
     },
     /// Publish an image to a registry.
     Push { reference: String, image: PathBuf },
@@ -171,7 +182,27 @@ fn main() -> Result<ExitCode> {
             program,
             tool,
             arguments,
-        } => return cmd::run::run(&client()?, program, tool, arguments.as_deref()),
+            caller,
+            issuer,
+            user,
+        } => {
+            let caller = caller.as_ref().map(|id| Caller {
+                id: id.clone(),
+                app: None,
+                user: issuer
+                    .clone()
+                    .zip(user.clone())
+                    .map(|(issuer, subject)| User { issuer, subject }),
+                client: None,
+            });
+            return cmd::run::run(
+                &client()?,
+                program,
+                tool,
+                arguments.as_deref(),
+                caller.as_ref(),
+            );
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

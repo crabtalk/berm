@@ -74,13 +74,7 @@ impl Grants {
 }
 
 impl Secrets for Grants {
-    async fn grant(
-        &self,
-        _: &str,
-        program: &str,
-        secret: &str,
-        host: &str,
-    ) -> Result<Option<String>> {
+    async fn grant(&self, program: &str, secret: &str, host: &str) -> Result<Option<String>> {
         Ok(self
             .read()?
             .remove(program)

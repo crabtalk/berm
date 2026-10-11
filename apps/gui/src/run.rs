@@ -1,14 +1,17 @@
 //! Running a tool, and what came back.
 
 use crate::{Engine, Workbench, utils};
+use berm::Program;
 use berm_api::ToolSpec;
-use bermd::Deployed;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
     theme::Theme,
     ui::widgets::{ButtonStyle, Buttons, Content, Controls, Scaffolding, Status},
 };
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 /// One invocation, and how it went.
 pub struct Invocation {
@@ -91,7 +94,7 @@ impl Workbench {
 
     pub(crate) fn run_pane(
         &self,
-        deployed: &Deployed,
+        deployed: &Arc<Program>,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
