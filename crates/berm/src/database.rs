@@ -12,6 +12,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use berm_api::Migration;
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension,
+    fallible_iterator::FallibleIterator,
     hooks::{AuthAction, AuthContext, Authorization},
     types::{Value, ValueRef},
 };
@@ -80,7 +81,7 @@ impl Database {
         conn.busy_timeout(Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
         let guest = Arc::new(AtomicBool::new(false));
-        guard(&conn, guest.clone());
+        guard(&conn, guest.clone())?;
         let mut writer = Writer { conn, guest };
         let (jobs, queue) = mpsc::channel::<Job>();
         thread::Builder::new()
@@ -294,13 +295,13 @@ fn reader(path: &Path) -> Result<(Connection, Arc<AtomicBool>)> {
         .with_context(|| format!("opening {}", path.display()))?;
     conn.busy_timeout(Duration::from_secs(5))?;
     let guest = Arc::new(AtomicBool::new(false));
-    guard(&conn, guest.clone());
+    guard(&conn, guest.clone())?;
     Ok((conn, guest))
 }
 
 /// While `guest` is set, refuse transaction control, `ATTACH`, `DETACH`, a
 /// `PRAGMA` that sets a value, and anything reaching a `_berm_*` table.
-fn guard(conn: &Connection, guest: Arc<AtomicBool>) {
+fn guard(conn: &Connection, guest: Arc<AtomicBool>) -> Result<()> {
     conn.authorizer(Some(move |context: AuthContext<'_>| {
         if !guest.load(Ordering::SeqCst) {
             return Authorization::Allow;
@@ -340,7 +341,8 @@ fn guard(conn: &Connection, guest: Arc<AtomicBool>) {
             true => Authorization::Deny,
             false => Authorization::Allow,
         }
-    }));
+    }))?;
+    Ok(())
 }
 
 /// Run one of the program's statements and answer the reply's JSON.
