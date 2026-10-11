@@ -5,9 +5,7 @@
 //! works against whatever it was deployed beside; which deployed program a name
 //! reaches is the embedder's [`Calls::resolve`].
 
-use crate::{
-    Berm, Caller, Callsite, Changes, Program, Refused, Syscall, abi, program::Ended, wire,
-};
+use crate::{Berm, Caller, Callsite, Changes, Ended, Link, Program, Refused, Syscall, abi, wire};
 use anyhow::{Result, bail};
 use std::{
     future::Future,
@@ -50,6 +48,17 @@ pub enum Called {
 /// Told of every nested call that reached a deployed program: the calling
 /// site, the deployed name, the tool, and how it ended.
 pub type Reported = Arc<dyn Fn(&Callsite, &str, &str, Called) + Send + Sync>;
+
+/// Reaches a program deployed outside this runtime: asked with the calling
+/// site, the deployed name, the tool, its arguments, and the link the target
+/// runs as. `None` when nothing is deployed under that name elsewhere either.
+/// The target's runtime commits what it changes; nothing lands in the
+/// caller's journal.
+pub type Remote =
+    Arc<dyn Fn(&Callsite, &str, &str, Vec<u8>, Link) -> Option<Reaching> + Send + Sync>;
+
+/// A call to a program outside this runtime, under way.
+pub type Reaching = Pin<Box<dyn Future<Output = Result<Ended>> + Send>>;
 
 /// A [`Scope`], being opened. An `Err` fails the invocation before it runs.
 pub type Opening = Pin<Box<dyn Future<Output = Result<Box<dyn Scope>>> + Send>>;
@@ -95,6 +104,7 @@ pub struct Calls {
     pub named: Named,
     pub enter: Enter,
     pub called: Reported,
+    pub remote: Remote,
 }
 
 impl Calls {
@@ -107,6 +117,7 @@ impl Calls {
             named: Arc::new(str::to_owned),
             enter: Arc::new(|_, _| Box::pin(async { Ok(Box::new(Unheld) as Box<dyn Scope>) })),
             called: Arc::new(|_, _, _, _| {}),
+            remote: Arc::new(|_, _, _, _, _| None),
         }
     }
 }
@@ -119,12 +130,18 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
         named,
         enter: _,
         called,
+        remote,
     } = calls;
     Syscall {
         name: abi::CALL.to_owned(),
         call: Arc::new(move |at: Callsite, request: Vec<u8>| {
             let runtime = runtime.clone();
-            let (resolve, named, called) = (resolve.clone(), named.clone(), called.clone());
+            let (resolve, named, called, remote) = (
+                resolve.clone(),
+                named.clone(),
+                called.clone(),
+                remote.clone(),
+            );
             Box::pin(async move {
                 let fields = wire::fields(&request)?;
                 let program = wire::text(&fields, 0, "program")?;
@@ -163,12 +180,35 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                     programs.get(&deployed).cloned()
                 };
 
+                let caller = Some(Caller::Program(named(&at.program).into()));
                 let Some(target) = target else {
-                    let missing = match deployed == program {
-                        true => format!("no program named {program:?} is deployed"),
-                        false => format!("{program:?} reaches {deployed:?}, which is not deployed"),
+                    let link = Link {
+                        caller,
+                        user: at.user.clone(),
+                        depth: at.depth + 1,
+                        query: at.query,
+                        deadline: at.deadline,
+                        stack: at
+                            .stack
+                            .iter()
+                            .cloned()
+                            .chain([Arc::from(deployed.as_str())])
+                            .collect(),
                     };
-                    return Err(Refused(missing).into());
+                    let Some(reaching) =
+                        remote(&at, &deployed, tool, args.as_bytes().to_vec(), link)
+                    else {
+                        let missing = match deployed == program {
+                            true => format!("no program named {program:?} is deployed"),
+                            false => {
+                                format!("{program:?} reaches {deployed:?}, which is not deployed")
+                            }
+                        };
+                        return Err(Refused(missing).into());
+                    };
+                    let invoked = reaching.await;
+                    called(&at, &deployed, tool, ended(&invoked));
+                    return answer(invoked);
                 };
                 let refuse = |message: String| -> Result<Vec<u8>> {
                     called(&at, &deployed, tool, Called::Refused);
@@ -181,7 +221,6 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                     return refuse(format!("{program}.{tool} takes no calls from programs"));
                 }
 
-                let caller = Some(Caller::Program(named(&at.program).into()));
                 let stack: Arc<[Arc<str>]> = at
                     .stack
                     .iter()
@@ -203,20 +242,25 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                     )
                     .await;
                 called(&at, &deployed, tool, ended(&invoked));
-                match invoked {
-                    Ok(Ended {
-                        result: Ok(result), ..
-                    }) => Ok(result.into_bytes()),
-                    // The target ran and said no. Not a `Refused`: the caller
-                    // is told the difference, and may act on it.
-                    Ok(Ended {
-                        result: Err(failure),
-                        ..
-                    }) => bail!(failure),
-                    Err(error) => Err(error),
-                }
+                answer(invoked)
             })
         }),
+    }
+}
+
+/// What the calling guest is handed back.
+fn answer(invoked: Result<Ended>) -> Result<Vec<u8>> {
+    match invoked {
+        Ok(Ended {
+            result: Ok(result), ..
+        }) => Ok(result.into_bytes()),
+        // The target ran and said no. Not a `Refused`: the caller is told the
+        // difference, and may act on it.
+        Ok(Ended {
+            result: Err(failure),
+            ..
+        }) => bail!(failure),
+        Err(error) => Err(error),
     }
 }
 

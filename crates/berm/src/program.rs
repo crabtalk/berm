@@ -199,6 +199,44 @@ impl Program {
         })
     }
 
+    /// Run one tool as `link`, a link of a chain another runtime holds. The
+    /// chain's journal starts here, and what this link changes is handed back
+    /// as [`Outcome::changes`] like a first call's.
+    pub async fn link(&self, link: Link, tool: &str, args: impl Into<Vec<u8>>) -> Result<Outcome> {
+        let Link {
+            caller,
+            user,
+            depth,
+            query,
+            deadline,
+            stack,
+        } = link;
+        let journal = Arc::new(Journal::default());
+        let Ended { result, denied } = self
+            .invoke(
+                tool,
+                args.into(),
+                caller,
+                user,
+                depth,
+                query,
+                deadline,
+                CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
+                journal.clone(),
+                stack,
+            )
+            .await?;
+        let changes = match result {
+            Ok(_) => journal.take(),
+            Err(_) => Changes::default(),
+        };
+        Ok(Outcome {
+            result,
+            denied,
+            changes,
+        })
+    }
+
     /// Run one tool as link `depth` of chain `chain`, called by `caller`, that
     /// has to be done by `deadline`, under the programs in `stack`. `query` is
     /// whether a link above it is a query. What it keeps lands in `journal`,
@@ -295,8 +333,21 @@ impl Program {
     }
 }
 
+/// Where an invocation sits in a chain that reached it from outside this
+/// runtime. `stack` ends with the program being invoked.
+#[derive(Clone, Debug)]
+pub struct Link {
+    pub caller: Option<Caller>,
+    pub user: Option<User>,
+    pub depth: u32,
+    pub query: bool,
+    pub deadline: Instant,
+    pub stack: Arc<[Arc<str>]>,
+}
+
 /// How one invocation ended.
-pub(crate) struct Ended {
+#[derive(Debug)]
+pub struct Ended {
     pub result: Result<String, String>,
     /// The program failed the call through `berm.deny`.
     pub denied: bool,

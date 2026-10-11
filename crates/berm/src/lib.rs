@@ -36,7 +36,7 @@ pub use berm_api::{Delivery, Deps, Logged, Manifest, Subscription, ToolSpec};
 pub use engine::{Config, Engine};
 use journal::Journal;
 pub use journal::{Changes, Log, Write};
-pub use program::{Invocation, Outcome, Program, Refused};
+pub use program::{Ended, Invocation, Link, Outcome, Program, Refused};
 use std::{
     collections::BTreeMap,
     pin::Pin,
@@ -44,7 +44,9 @@ use std::{
     time::Instant,
 };
 pub use storage::{Records, Storage};
-pub use syscall::call::{Called, Calls, Enter, Named, Opening, Reported, Resolve, Scope};
+pub use syscall::call::{
+    Called, Calls, Enter, Named, Opening, Reaching, Remote, Reported, Resolve, Scope,
+};
 
 pub mod abi;
 mod bound;
