@@ -22,13 +22,14 @@
 //! Everything else a program reaches is a [`Syscall`] the embedder passed in,
 //! and that list is the linker it is instantiated with: a call to anything else
 //! traps because nothing is registered for it, not because a check said no.
-//! The standard ones — `berm.get`/`berm.set`, `berm.call.after`,
+//! The standard ones — `berm.get`/`berm.set`, `berm.emit`, `berm.call.after`,
 //! `berm.http.fetch` — are built with [`syscall`]'s constructors, which read
 //! and check the request and hand the work to the embedder's closures.
 //!
-//! `berm.set` and `berm.emit` reach no host while the chain runs: they are held
-//! in a journal and handed back from [`Program::call`] as [`Changes`], for the
-//! host to commit as one.
+//! What `berm.set` and `berm.emit` leave to berm is held in a journal and
+//! handed back from [`Program::call`] as [`Changes`], for the host to commit as
+//! one. Every invocation runs inside a [`Scope`] the host opens through
+//! [`Calls::enter`].
 
 use anyhow::Result;
 pub use berm_api::{Delivery, Deps, Logged, Manifest, Subscription, ToolSpec};
@@ -43,7 +44,7 @@ use std::{
     time::Instant,
 };
 pub use storage::{Records, Storage};
-pub use syscall::call::{Called, Calls, Commit, Named, Opening, Own, Reported, Resolve};
+pub use syscall::call::{Called, Calls, Enter, Named, Opening, Reported, Resolve, Scope};
 
 pub mod abi;
 mod bound;
@@ -93,6 +94,8 @@ pub struct Callsite {
     /// Whether this invocation is of a `query` tool, or sits under one. A
     /// query is refused `berm.set`, `berm.emit` and `berm.call.after`.
     pub query: bool,
+    /// Which chain this is, unique within the process.
+    pub chain: u64,
     /// When the chain has to be done by. A guest suspended in a syscall cannot
     /// notice it until the reply resolves, so a syscall bounds its own wait
     /// inside this.
@@ -221,6 +224,7 @@ impl Berm {
             image,
             name,
             &syscalls,
+            self.calls.enter.clone(),
         )?))
     }
 

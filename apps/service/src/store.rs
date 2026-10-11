@@ -6,32 +6,41 @@
 
 use crate::{Service, database, utils};
 use anyhow::{Context, Result};
-use berm::{Syscall, Write, syscall::store};
+use berm::{Callsite, Syscall, Write, syscall::store};
 use std::{
     fs,
     path::{Path, PathBuf},
     sync::Weak,
 };
 
-/// `berm.get` and `berm.set`, reading files under `root`, or the program's
-/// own database when it keeps one.
+/// `berm.get` and `berm.set`, over files under `root`, or the program's own
+/// database when it keeps one.
 pub(crate) fn syscalls(root: &Path, service: Weak<Service>) -> Vec<Syscall> {
     let root = root.to_owned();
-    store::programs(move |program, key| {
-        let (root, service) = (root.clone(), service.upgrade());
-        async move {
-            let kept = service.as_ref().and_then(|service| {
-                service
-                    .get(&program)
-                    .filter(|deployed| database::keeps(deployed))
-                    .map(|_| service.databases.get(&program))
-            });
-            match kept {
-                Some(database) => database?.get(key).await,
-                None => read(&root, &program, &key),
+    let writing = service.clone();
+    store::programs(
+        move |at: Callsite, key| {
+            let (root, kept) = (root.clone(), database::kept(&service, &at.program));
+            async move {
+                match kept {
+                    Some(database) => database?.get(at.chain, key).await,
+                    None => read(&root, &at.program, &key),
+                }
             }
-        }
-    })
+        },
+        move |at: Callsite, key, value| {
+            let kept = database::kept(&writing, &at.program);
+            async move {
+                match kept {
+                    Some(database) => {
+                        database?.set(at.chain, key, value).await?;
+                        Ok(true)
+                    }
+                    None => Ok(false),
+                }
+            }
+        },
+    )
 }
 
 /// Write what a chain left under `root`.

@@ -1,58 +1,31 @@
-//! `berm.sql`, over one SQLite file per program under `{root}/databases`.
+//! `berm.sql`, over one SQLite file per program under `{root}/databases`, and
+//! what each invocation holds of them.
 
 use crate::{Service, logs, store};
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use berm::{
-    Callsite, Changes, Commit, Opening, Own, Program, Syscall,
-    database::{Database, Writing},
-    syscall::sql::{self, Statement},
+    Callsite, Changes, Enter, Log, Program, Scope, Syscall,
+    database::Held,
+    syscall::{
+        emit,
+        sql::{self, Statement},
+    },
 };
 use std::{
-    collections::HashMap,
     future::Future,
-    path::PathBuf,
     pin::Pin,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Weak},
 };
 
-/// Each program's database, opened on first use.
-pub(crate) struct Databases {
-    root: PathBuf,
-    open: Mutex<HashMap<String, Arc<Database>>>,
-}
-
-impl Databases {
-    pub(crate) fn new(root: &std::path::Path) -> Self {
-        Self {
-            root: root.join("databases"),
-            open: Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// `program`'s database.
-    pub(crate) fn get(&self, program: &str) -> Result<Arc<Database>> {
-        let mut open = self
-            .open
-            .lock()
-            .map_err(|_| anyhow!("databases poisoned"))?;
-        if let Some(database) = open.get(program) {
-            return Ok(database.clone());
-        }
-        let database = Arc::new(Database::open(
-            &self.root.join(format!("{program}.sqlite")),
-        )?);
-        open.insert(program.to_owned(), database.clone());
-        Ok(database)
-    }
-}
+/// Logs copied from an outbox per pass.
+const SHIP: i64 = 256;
 
 /// Whether `program` keeps a database.
 pub(crate) fn keeps(program: &Program) -> bool {
     program.manifest().database.is_some()
 }
 
-/// `berm.sql`, for programs whose manifest keeps a database: a `query`
-/// reads the last commit, any other call runs inside its own transaction.
+/// `berm.sql`, for programs whose manifest keeps a database.
 pub(crate) fn syscall(service: Weak<Service>) -> Syscall {
     sql::programs(move |at: Callsite, statement: Statement| {
         let service = service.upgrade();
@@ -68,64 +41,132 @@ pub(crate) fn syscall(service: Weak<Service>) -> Syscall {
             }
             let database = service.databases.get(&at.program)?;
             match at.query {
-                true => database.read(statement).await,
-                false => database.exec(statement).await,
+                true => database.read(at.chain, statement).await,
+                false => database.exec(at.chain, statement).await,
             }
         }
     })
 }
 
-/// A nested call into a program keeping a database, unless a query, commits on
-/// its own: it holds that database's writer, and its writes and logs are
-/// committed when it returns ok.
-pub(crate) fn own(service: Weak<Service>) -> Own {
-    Arc::new(move |program: &Arc<Program>, _tool: &str, query: bool| {
-        if query || !keeps(program) {
-            return None;
+/// `berm.emit`: a program keeping a database emits into its outbox.
+pub(crate) fn emit(service: Weak<Service>) -> Syscall {
+    emit::programs(move |at: Callsite, log: Log| {
+        let kept = kept(&service, &at.program);
+        async move {
+            match kept {
+                Some(database) => {
+                    database?.emit(at.chain, log).await?;
+                    Ok(true)
+                }
+                None => Ok(false),
+            }
         }
-        let service = service.upgrade()?;
-        let name = program.name.clone();
-        let opening: Opening = Box::pin(async move {
-            let writing = service.databases.get(&name)?.write().await?;
-            Ok(Box::new(Nested {
-                service,
-                name,
-                writing,
-            }) as Box<dyn Commit>)
-        });
-        Some(opening)
     })
 }
 
-/// A nested call's hold on its program's database.
-struct Nested {
-    service: Arc<Service>,
-    name: Arc<str>,
-    writing: Writing,
+/// `program`'s database, when it keeps one.
+pub(crate) fn kept(
+    service: &Weak<Service>,
+    program: &str,
+) -> Option<Result<Arc<berm::database::Database>>> {
+    let service = service.upgrade()?;
+    service
+        .get(program)
+        .filter(|deployed| keeps(deployed))
+        .map(|_| service.databases.get(program))
 }
 
-impl Commit for Nested {
-    fn commit(
+/// Each invocation holds what [`berm::database::Databases::enter`] gives it. One
+/// that took a writer, unless the chain's first, commits on its own when it
+/// returns ok.
+pub(crate) fn enter(service: Weak<Service>) -> Enter {
+    Arc::new(move |program: &Program, at: &Callsite| {
+        let service = service.upgrade();
+        let entering = service
+            .as_ref()
+            .map(|service| service.databases.enter(program, at));
+        let first = at.depth == 1;
+        Box::pin(async move {
+            let (Some(service), Some(entering)) = (service, entering) else {
+                bail!("the service is shutting down");
+            };
+            let held = entering.await?;
+            Ok(Box::new(Entered {
+                service,
+                held,
+                first,
+            }) as Box<dyn Scope>)
+        })
+    })
+}
+
+/// One invocation's hold.
+struct Entered {
+    service: Arc<Service>,
+    held: Held,
+    /// The chain's first call, whose changes the service commits.
+    first: bool,
+}
+
+impl Scope for Entered {
+    fn own(&self) -> bool {
+        self.held.took().is_some()
+    }
+
+    fn close(
         self: Box<Self>,
         changes: Changes,
-    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Changes>> + Send>> {
         Box::pin(async move {
-            let Nested {
+            let Entered {
                 service,
-                name,
-                writing,
+                held,
+                first,
             } = *self;
+            let took = held.took().map(str::to_owned);
+            held.commit().await?;
+            let Some(program) = took else {
+                return Ok(changes);
+            };
+            ship(&service, &program).await?;
+            if first {
+                return Ok(changes);
+            }
             logs::append(&service.root, &changes.logs)?;
-            let (own, rest): (Vec<_>, Vec<_>) = changes
-                .writes
-                .into_iter()
-                .partition(|write| write.program == name);
-            store::commit(&service.root, &rest)?;
-            writing.commit(own, Vec::new()).await?;
+            store::commit(&service.root, &changes.writes)?;
             if !changes.logs.is_empty() {
                 service.deliver();
             }
-            Ok(())
+            Ok(Changes::default())
         })
     }
+}
+
+/// Append what waits in `program`'s outbox to its logs, and drop it from the
+/// outbox. A crash in between appends those logs again.
+pub(crate) async fn ship(service: &Service, program: &str) -> Result<()> {
+    let _shipping = service.shipping.lock().await;
+    let database = service.databases.get(program)?;
+    let mut shipped = false;
+    loop {
+        let waiting = database.outbox(SHIP).await?;
+        let Some(last) = waiting.last().map(|log| log.id) else {
+            break;
+        };
+        let logs: Vec<Log> = waiting
+            .into_iter()
+            .map(|log| Log {
+                program: program.into(),
+                topics: log.topics,
+                data: log.data,
+            })
+            .collect();
+        logs::append(&service.root, &logs)?;
+        database.shipped(last).await?;
+        shipped = true;
+    }
+    if shipped {
+        service.deliver();
+    }
+    Ok(())
 }

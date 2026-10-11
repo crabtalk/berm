@@ -106,8 +106,7 @@ async fn main() -> Result<()> {
                     .map_or(program, |(_, name)| name)
                     .to_owned()
             }),
-            own: Arc::new(|_, _, _| None),
-            called: Arc::new(|_, _, _, _| {}),
+            ..Calls::by_name(call::DEFAULT_CALL_DEPTH)
         },
         vec![],
         storage::Memory::new(),

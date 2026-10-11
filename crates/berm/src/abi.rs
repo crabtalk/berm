@@ -98,12 +98,15 @@ pub const HTTP_FETCH: &str = "berm.http.fetch";
 /// which the host substitutes; the guest never holds the value.
 pub const HOST_HTTP_FETCH: u64 = hash(HTTP_FETCH);
 
+/// What a host registers to serve [`HOST_EMIT`].
+pub const EMIT: &str = "berm.emit";
+
 /// Emit one log. `(ptr, len) -> staged length`
 ///
 /// Request fields are the data, then each topic, all UTF-8; the reply is
-/// empty. berm serves this one itself, holding the log in the chain's journal
-/// until it reaches the host in [`crate::Changes`].
-pub const HOST_EMIT: u64 = hash("berm.emit");
+/// empty. The host takes the log, or has it held in the chain's journal until
+/// it reaches the host in [`crate::Changes`].
+pub const HOST_EMIT: u64 = hash(EMIT);
 
 /// What a host registers to serve [`HOST_SQL`].
 pub const SQL: &str = "berm.sql";
@@ -131,8 +134,9 @@ pub const HOST_GET: u64 = hash(GET);
 
 /// Write one. `(ptr, len) -> staged length`
 ///
-/// Request fields are the key and the value; the reply is empty. The write is
-/// held in the chain's journal until it reaches the host in [`crate::Changes`].
+/// Request fields are the key and the value; the reply is empty. The host takes
+/// the write, or has it held in the chain's journal until it reaches the host
+/// in [`crate::Changes`].
 pub const HOST_SET: u64 = hash(SET);
 
 /// Who made this call. `(ptr, len) -> staged length`, the pair ignored.

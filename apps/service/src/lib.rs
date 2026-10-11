@@ -10,7 +10,7 @@
 //! `{program}.{tool}`.
 
 use anyhow::{Context, Result};
-use berm::{Berm, Calls, Config, Engine, Program};
+use berm::{Berm, Calls, Config, Engine, Program, database::Databases};
 use std::{
     path::PathBuf,
     sync::{Arc, Weak},
@@ -54,9 +54,11 @@ pub struct Service {
     /// What each program may have substituted into its requests.
     pub(crate) secrets: secrets::Secrets,
     /// Each program's own SQLite database, for those that keep one.
-    pub(crate) databases: database::Databases,
+    pub(crate) databases: Databases,
+    /// Held while an outbox is appended to the logs.
+    pub(crate) shipping: Mutex<()>,
     /// Where each chain's writes and logs are committed.
-    root: PathBuf,
+    pub(crate) root: PathBuf,
     /// Held for one delivery pass, so a subscriber is never handed the same
     /// logs by two at once.
     delivering: Mutex<()>,
@@ -84,10 +86,9 @@ impl Service {
             syscalls.push(timer::syscalls(me.clone(), runtime));
             syscalls.push(fetch);
             syscalls.push(database::syscall(me.clone()));
-            // A nested call into a program keeping a database commits on its
-            // own.
+            syscalls.push(database::emit(me.clone()));
             let calls = Calls {
-                own: database::own(me.clone()),
+                enter: database::enter(me.clone()),
                 ..Calls::by_name(depth)
             };
             Self {
@@ -100,7 +101,8 @@ impl Service {
                 changed: broadcast::channel(CHANGE_BACKLOG).0,
                 wakes: timer::Wakes::default(),
                 secrets,
-                databases: database::Databases::new(&root),
+                databases: Databases::new(root.join("databases")),
+                shipping: Mutex::new(()),
                 root: root.clone(),
                 delivering: Mutex::new(()),
                 me: me.clone(),
@@ -113,6 +115,12 @@ impl Service {
             .await
             .context("restoring panicked")??;
         service.rearm().await?;
+        // What a crash left in an outbox.
+        for program in service.list() {
+            if database::keeps(&program) {
+                database::ship(&service, &program.name).await?;
+            }
+        }
         service.deliver();
         Ok(service)
     }

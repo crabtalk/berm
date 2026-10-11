@@ -5,6 +5,9 @@
 //! as [`Changes`]; one that fails, traps or runs past its deadline hands back
 //! nothing. A nested call that fails takes its own entries with it, and the
 //! caller carries on from where it was.
+//!
+//! What lands here is what the host leaves to it: [`crate::syscall::store`]
+//! and [`crate::syscall::emit`] ask the host first.
 
 use crate::Refused;
 use anyhow::Result;
@@ -92,6 +95,17 @@ impl Journal {
             }
             _ => None,
         })
+    }
+
+    /// Hold what a call that kept a journal of its own left behind.
+    pub(crate) fn extend(&self, changes: Changes) -> Result<()> {
+        for write in changes.writes {
+            self.push(write.key.len() + write.value.len(), Entry::Write(write))?;
+        }
+        for log in changes.logs {
+            self.emit(log)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn mark(&self) -> Mark {

@@ -14,7 +14,7 @@
 use anyhow::{Context, Result, ensure};
 use berm::{
     Berm, Calls, Changes, Config, Engine, storage,
-    syscall::{after, call, store},
+    syscall::{after, call, emit, store},
 };
 use std::{
     collections::HashMap,
@@ -44,13 +44,17 @@ async fn main() -> Result<()> {
     })?;
     let committed = Committed::default();
     let reading = committed.clone();
-    let mut syscalls = store::programs(move |program, key| {
-        std::future::ready(Ok(reading
-            .lock()
-            .expect("committed")
-            .get(&(program.to_string(), key))
-            .cloned()))
-    });
+    let mut syscalls = store::programs(
+        move |at, key| {
+            std::future::ready(Ok(reading
+                .lock()
+                .expect("committed")
+                .get(&(at.program.to_string(), key))
+                .cloned()))
+        },
+        |_, _, _| async { Ok(false) },
+    );
+    syscalls.push(emit::programs(|_, _| async { Ok(false) }));
     syscalls.push(after::programs(|_, _| async { Ok(()) }));
     let berm = Berm::new(
         &engine,

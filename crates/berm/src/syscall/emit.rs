@@ -1,26 +1,44 @@
 //! `berm.emit` — a log for whoever reads this program's logs.
 //!
-//! berm serves this one itself: a log is held in the chain's journal and
-//! reaches the host in [`crate::Changes`], so there is nothing to hand an
-//! embedder while the chain runs.
+//! berm reads and checks the request. The host takes the log through the
+//! closure below, or leaves it to the chain's journal, which hands it back in
+//! [`crate::Changes`].
 
-use crate::{Callsite, Refused, journal::Log, wire};
+use crate::{Callsite, Refused, Syscall, abi, journal::Log, wire};
 use anyhow::Result;
+use std::{future::Future, sync::Arc};
 
-/// Hold the log `request` describes. Fields are the data, then each topic.
-pub(crate) fn emit(at: &Callsite, request: &[u8]) -> Result<Vec<u8>> {
-    if at.query {
-        return Err(Refused("a query cannot emit logs".to_owned()).into());
+/// Serve `berm.emit`, handing each log to `take`, which answers `false` to
+/// leave it to the chain's journal.
+pub fn programs<T, Taken>(take: T) -> Syscall
+where
+    T: Fn(Callsite, Log) -> Taken + Send + Sync + 'static,
+    Taken: Future<Output = Result<bool>> + Send + 'static,
+{
+    let take = Arc::new(take);
+    Syscall {
+        name: abi::EMIT.to_owned(),
+        call: Arc::new(move |at: Callsite, request: Vec<u8>| {
+            let take = take.clone();
+            Box::pin(async move {
+                if at.query {
+                    return Err(Refused("a query cannot emit logs".to_owned()).into());
+                }
+                let fields = wire::fields(&request)?;
+                let data = wire::text(&fields, 0, "data")?.to_owned();
+                let topics = (1..fields.len())
+                    .map(|index| Ok(wire::text(&fields, index, "topic")?.to_owned()))
+                    .collect::<Result<_>>()?;
+                let log = Log {
+                    program: at.program.clone(),
+                    topics,
+                    data,
+                };
+                if !take(at.clone(), log.clone()).await? {
+                    at.journal.emit(log)?;
+                }
+                Ok(Vec::new())
+            })
+        }),
     }
-    let fields = wire::fields(request)?;
-    let data = wire::text(&fields, 0, "data")?.to_owned();
-    let topics = (1..fields.len())
-        .map(|index| Ok(wire::text(&fields, index, "topic")?.to_owned()))
-        .collect::<Result<_>>()?;
-    at.journal.emit(Log {
-        program: at.program.clone(),
-        topics,
-        data,
-    })?;
-    Ok(Vec::new())
 }

@@ -5,12 +5,22 @@ use crate::{
     bound::watchdog,
     engine::{Engine, Image},
     journal::{Changes, Journal},
-    syscall,
+    syscall::{self, call::Enter},
 };
 use anyhow::{Context, Result, bail};
 use berm_api::{Callers, Manifest};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, sync::Arc, time::Instant};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Instant,
+};
+
+/// The last [`Callsite::chain`] handed out.
+static CHAINS: AtomicU64 = AtomicU64::new(0);
 
 /// One compiled program: an image, its tools, and the syscalls it was linked
 /// against. Compilation is paid once; every invocation gets a fresh instance so
@@ -30,6 +40,8 @@ pub struct Program {
     /// Each tool beside the symbol it is exported as, resolved once so a call
     /// spends no allocation rebuilding the name, and whether it is a query.
     tools: BTreeMap<String, Tool>,
+    /// What each invocation runs inside.
+    enter: Enter,
 }
 
 struct Tool {
@@ -46,6 +58,7 @@ impl Program {
         image: &[u8],
         name: impl Into<Arc<str>>,
         syscalls: &[Syscall],
+        enter: Enter,
     ) -> Result<Self> {
         let compiled = Image::compile(engine, image, syscall::table(syscalls)?)
             .context("failed to compile program")?;
@@ -93,6 +106,7 @@ impl Program {
             deps: Arc::new(manifest.deps.clone()),
             manifest,
             tools,
+            enter,
         })
     }
 
@@ -169,6 +183,7 @@ impl Program {
                 1,
                 false,
                 watchdog::fresh(),
+                CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
                 journal.clone(),
                 Arc::from([self.name.clone()]),
             )
@@ -184,10 +199,10 @@ impl Program {
         })
     }
 
-    /// Run one tool as link `depth` of a chain, called by `caller`, that has to
-    /// be done by `deadline`, holding its writes and logs in `journal`, under
-    /// the programs in `stack`. `query`
-    /// is whether a link above it is a query.
+    /// Run one tool as link `depth` of chain `chain`, called by `caller`, that
+    /// has to be done by `deadline`, under the programs in `stack`. `query` is
+    /// whether a link above it is a query. What it keeps lands in `journal`,
+    /// and a failure takes it back out.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn invoke(
         &self,
@@ -198,6 +213,7 @@ impl Program {
         depth: u32,
         query: bool,
         deadline: Instant,
+        chain: u64,
         journal: Arc<Journal>,
         stack: Arc<[Arc<str>]>,
     ) -> Result<Ended> {
@@ -209,43 +225,73 @@ impl Program {
             bail!("program exports no tool named {tool:?}");
         };
 
+        let mut at = Callsite {
+            program: self.name.clone(),
+            deps: self.deps.clone(),
+            caller,
+            user,
+            depth,
+            stack,
+            query: query || *declared,
+            deadline,
+            chain,
+            journal: journal.clone(),
+        };
+        let scope = (self.enter)(self, &at).await?;
+        let own = scope.own();
+        if own {
+            at.journal = Arc::new(Journal::default());
+        }
+        let held = at.journal.clone();
+        let mark = journal.mark();
         let invocation = Invocation {
-            at: Callsite {
-                program: self.name.clone(),
-                deps: self.deps.clone(),
-                caller,
-                user,
-                depth,
-                stack,
-                query: query || *declared,
-                deadline,
-                journal,
-            },
+            at,
             args,
             staged: Vec::new(),
             outcome: None,
             denied: false,
         };
 
-        let finished = self
-            .image
-            .call(symbol, invocation)
-            .await
-            .with_context(|| format!("program trapped in {tool}"))?;
+        let ended = async {
+            let finished = self
+                .image
+                .call(symbol, invocation)
+                .await
+                .with_context(|| format!("program trapped in {tool}"))?;
 
-        // A tool that returned without answering wrote nothing, which is an
-        // empty result rather than a missing one.
-        let result = match finished.outcome {
-            Some(Err(failure)) => Err(failure),
-            Some(Ok(result)) => {
-                Ok(String::from_utf8(result).context("program returned invalid UTF-8")?)
+            // A tool that returned without answering wrote nothing, which is
+            // an empty result rather than a missing one.
+            let result = match finished.outcome {
+                Some(Err(failure)) => Err(failure),
+                Some(Ok(result)) => {
+                    Ok(String::from_utf8(result).context("program returned invalid UTF-8")?)
+                }
+                None => Ok(String::new()),
+            };
+            Ok(Ended {
+                denied: finished.denied && result.is_err(),
+                result,
+            })
+        }
+        .await;
+        match &ended {
+            Ok(Ended { result: Ok(_), .. }) => {
+                let changes = match own {
+                    true => held.take(),
+                    false => Changes::default(),
+                };
+                let kept = scope
+                    .close(changes)
+                    .await
+                    .and_then(|left| journal.extend(left));
+                if let Err(error) = kept {
+                    journal.revert(mark);
+                    return Err(error);
+                }
             }
-            None => Ok(String::new()),
-        };
-        Ok(Ended {
-            denied: finished.denied && result.is_err(),
-            result,
-        })
+            _ => journal.revert(mark),
+        }
+        ended
     }
 }
 

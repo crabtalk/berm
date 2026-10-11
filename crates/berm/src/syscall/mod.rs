@@ -2,12 +2,12 @@
 //!
 //! A syscall is native host code behind a name, the way a precompile is
 //! native code behind an address. berm serves [`call`] itself, resolving
-//! against the set it already holds, and `berm.emit`, which only the chain's
-//! journal holds.
+//! against the set it already holds.
 //!
-//! The standard calls — [`store`], [`after`], [`http`] — are berm's to read
-//! and check, and a host's to carry out: each module turns the request into a
-//! typed value and hands it to closures the embedder registers with it.
+//! The standard calls — [`store`], [`emit`], [`after`], [`http`], [`sql`] —
+//! are berm's to read and check, and a host's to carry out: each module turns
+//! the request into a typed value and hands it to closures the embedder
+//! registers with it.
 //! Anything else is a [`crate::Syscall`] the embedder writes whole.
 //!
 //! Every one of them, berm's own included, is reached through the one table
@@ -20,7 +20,7 @@ use wasmtime::Caller;
 
 pub mod after;
 pub mod call;
-mod emit;
+pub mod emit;
 pub mod http;
 pub mod sql;
 pub mod store;
@@ -118,15 +118,6 @@ fn builtins() -> Table {
             let message = engine::read(guest, ptr, len)?;
             tracing::info!(target: "program", "{}", String::from_utf8_lossy(&message));
             Ok(0)
-        }),
-    );
-
-    table.insert(
-        abi::HOST_EMIT,
-        handler(|guest, ptr, len| {
-            let request = engine::read(guest, ptr, len)?;
-            let answer = emit::emit(&guest.data().at, &request);
-            Ok(stage(guest, answer))
         }),
     );
 

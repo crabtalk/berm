@@ -1,13 +1,16 @@
 //! A program's own SQLite database, for a host serving `berm.sql`.
 //!
-//! One file per program. A call that may write holds the database's writer for
-//! its whole run, inside one transaction ([`Database::write`]); a `query` reads
-//! the last commit on a connection of its own ([`Database::read`]). The
-//! program's SQL cannot reach the tables named `_berm_*`, where the host keeps
-//! the program's `berm.get`/`berm.set` state, the logs it emitted until the host
-//! takes them ([`Database::outbox`]), and the migrations applied.
+//! One file per program, under the directory [`Databases`] opens them in. An
+//! invocation of a program keeping one, unless a query, holds the database's
+//! writer for its whole run inside one transaction, which its program's SQL,
+//! `berm.set` and `berm.emit` write into. A call back into a program the chain
+//! already holds runs inside that transaction. A `query` reads the last commit
+//! on a connection of its own, or through the writer when its chain holds it.
+//! The program's SQL cannot reach the tables named `_berm_*`, where the host
+//! keeps the program's `berm.get`/`berm.set` state, the logs it emitted until
+//! the host takes them ([`Database::outbox`]), and the migrations applied.
 
-use crate::{Log, Refused, Write, syscall::sql::Statement};
+use crate::{Callsite, Log, Program, Refused, syscall::sql::Statement};
 use anyhow::{Context, Result, anyhow, bail};
 use berm_api::Migration;
 use rusqlite::{
@@ -17,9 +20,11 @@ use rusqlite::{
     types::{Value, ValueRef},
 };
 use std::{
+    collections::HashMap,
+    future::Future,
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, PoisonError,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -33,6 +38,9 @@ const MAX_REPLY: usize = 4 << 20;
 
 /// What names the host's own tables.
 const RESERVED: &str = "_berm_";
+
+/// The savepoint a nested call takes on each database its chain holds.
+const SAVEPOINT: &str = "_berm_call";
 
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS _berm_state (key TEXT PRIMARY KEY, value BLOB NOT NULL);
@@ -52,13 +60,107 @@ struct Writer {
     guest: Arc<AtomicBool>,
 }
 
+/// Which chain holds each database's writer, and which database each chain is
+/// waiting for the writer of.
+#[derive(Default)]
+struct Graph {
+    holders: HashMap<Arc<str>, u64>,
+    waits: HashMap<u64, Arc<str>>,
+}
+
+/// Every program's database, opened on first use at `{dir}/{program}.sqlite`.
+pub struct Databases {
+    dir: PathBuf,
+    open: std::sync::Mutex<HashMap<String, Arc<Database>>>,
+    graph: Arc<std::sync::Mutex<Graph>>,
+}
+
+impl Databases {
+    pub fn new(dir: PathBuf) -> Self {
+        Self {
+            dir,
+            open: Default::default(),
+            graph: Default::default(),
+        }
+    }
+
+    /// `program`'s database.
+    pub fn get(&self, program: &str) -> Result<Arc<Database>> {
+        let mut open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(database) = open.get(program) {
+            return Ok(database.clone());
+        }
+        let database = Arc::new(Database::open(
+            &self.dir.join(format!("{program}.sqlite")),
+            program.into(),
+            self.graph.clone(),
+        )?);
+        open.insert(program.to_owned(), database.clone());
+        Ok(database)
+    }
+
+    /// What an invocation of `program` at `at` holds: a savepoint on each
+    /// database its chain holds the writer of, and, for a program keeping a
+    /// database whose writer the chain does not hold, unless a query, that
+    /// writer. Waiting for a writer ends at the chain's deadline, and is
+    /// refused when the chain holding it waits, through others or itself, on
+    /// one this chain holds.
+    pub fn enter(
+        &self,
+        program: &Program,
+        at: &Callsite,
+    ) -> impl Future<Output = Result<Held>> + Send + 'static {
+        let mut held: Vec<Arc<Database>> = Vec::new();
+        let mut taking = Ok(None);
+        if !at.query {
+            let open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
+            for name in &at.stack[..at.stack.len() - 1] {
+                if let Some(database) = open.get(&**name)
+                    && database.holds(at.chain)
+                    && !held.iter().any(|kept| Arc::ptr_eq(kept, database))
+                {
+                    held.push(database.clone());
+                }
+            }
+            drop(open);
+            if program.manifest().database.is_some() {
+                taking = self
+                    .get(&program.name)
+                    .map(|database| Some(database).filter(|database| !database.holds(at.chain)));
+            }
+        }
+        let (chain, deadline) = (at.chain, at.deadline);
+        async move {
+            let taking = taking?;
+            let mut entered = Held {
+                writing: None,
+                marked: Vec::with_capacity(held.len()),
+            };
+            for database in held {
+                on(&database.jobs, |w| {
+                    Ok(w.conn.execute_batch(&format!("SAVEPOINT {SAVEPOINT}"))?)
+                })
+                .await?;
+                entered.marked.push(database);
+            }
+            if let Some(database) = taking {
+                entered.writing = Some(database.write(chain, deadline).await?);
+            }
+            Ok(entered)
+        }
+    }
+}
+
 /// One program's database.
 pub struct Database {
     path: PathBuf,
+    /// The program it is the database of.
+    name: Arc<str>,
     /// The writer's thread, which owns the writing connection.
     jobs: mpsc::Sender<Job>,
     /// Held by the call writing, a migration, or taking the outbox.
     writing: Arc<Mutex<()>>,
+    graph: Arc<std::sync::Mutex<Graph>>,
 }
 
 /// A log the program emitted, waiting in the outbox.
@@ -71,7 +173,7 @@ pub struct Outboxed {
 
 impl Database {
     /// Open the database at `path`, creating it and its directory if needed.
-    pub fn open(path: &Path) -> Result<Self> {
+    fn open(path: &Path, name: Arc<str>, graph: Arc<std::sync::Mutex<Graph>>) -> Result<Self> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
@@ -93,40 +195,100 @@ impl Database {
             })?;
         Ok(Self {
             path: path.to_owned(),
+            name,
             jobs,
             writing: Arc::new(Mutex::new(())),
+            graph,
         })
     }
 
-    /// Take the writer and open a transaction, held until the [`Writing`] is
-    /// committed or dropped. A dropped one rolls back.
-    pub async fn write(&self) -> Result<Writing> {
-        let held = self.writing.clone().lock_owned().await;
+    /// Whether `chain` holds the writer.
+    fn holds(&self, chain: u64) -> bool {
+        self.graph
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .holders
+            .get(&self.name)
+            == Some(&chain)
+    }
+
+    /// Take the writer for `chain` and open a transaction, held until the
+    /// [`Writing`] is committed or dropped. A dropped one rolls back.
+    async fn write(&self, chain: u64, deadline: std::time::Instant) -> Result<Writing> {
+        let waiting = {
+            let mut graph = self.graph.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut wanted = self.name.clone();
+            for _ in 0..=graph.waits.len() {
+                let Some(&holder) = graph.holders.get(&wanted) else {
+                    break;
+                };
+                if holder == chain {
+                    return Err(Refused(format!(
+                        "{}'s database is held by a chain waiting on this one",
+                        self.name
+                    ))
+                    .into());
+                }
+                let Some(next) = graph.waits.get(&holder) else {
+                    break;
+                };
+                wanted = next.clone();
+            }
+            graph.waits.insert(chain, self.name.clone());
+            Waiting {
+                graph: self.graph.clone(),
+                chain,
+            }
+        };
+        let taken = tokio::time::timeout_at(
+            tokio::time::Instant::from_std(deadline),
+            self.writing.clone().lock_owned(),
+        )
+        .await;
+        drop(waiting);
+        let Ok(held) = taken else {
+            bail!(
+                "the call's deadline passed waiting for {}'s database",
+                self.name
+            );
+        };
+        self.graph
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .holders
+            .insert(self.name.clone(), chain);
+        let writing = Writing {
+            jobs: self.jobs.clone(),
+            name: self.name.clone(),
+            graph: self.graph.clone(),
+            _held: held,
+            open: true,
+        };
         on(&self.jobs, |w| {
             Ok(w.conn.execute_batch("BEGIN IMMEDIATE")?)
         })
         .await?;
-        Ok(Writing {
-            jobs: self.jobs.clone(),
-            _held: held,
-            open: true,
-        })
+        Ok(writing)
     }
 
-    /// Run the program's statement inside the open [`Writing`].
-    pub async fn exec(&self, statement: Statement) -> Result<String> {
+    /// Run the program's statement inside the transaction `chain` holds.
+    pub async fn exec(&self, chain: u64, statement: Statement) -> Result<String> {
+        self.held(chain)?;
         on(&self.jobs, move |w| {
-            if w.conn.is_autocommit() {
-                bail!("no call holds this database's writer");
-            }
             run(&w.conn, &w.guest, &statement, false)
         })
         .await
     }
 
-    /// Run the program's statement against the last commit, refusing one that
-    /// writes.
-    pub async fn read(&self, statement: Statement) -> Result<String> {
+    /// Run the program's statement, refusing one that writes: inside the
+    /// transaction `chain` holds, or against the last commit.
+    pub async fn read(&self, chain: u64, statement: Statement) -> Result<String> {
+        if self.holds(chain) {
+            return on(&self.jobs, move |w| {
+                run(&w.conn, &w.guest, &statement, true)
+            })
+            .await;
+        }
         let path = self.path.clone();
         tokio::task::spawn_blocking(move || {
             let (conn, guest) = reader(&path)?;
@@ -135,11 +297,10 @@ impl Database {
         .await?
     }
 
-    /// The committed value of the program's `key`.
-    pub async fn get(&self, key: String) -> Result<Option<Vec<u8>>> {
-        let path = self.path.clone();
-        tokio::task::spawn_blocking(move || {
-            let (conn, _) = reader(&path)?;
+    /// The program's `key`: inside the transaction `chain` holds, or as last
+    /// committed.
+    pub async fn get(&self, chain: u64, key: String) -> Result<Option<Vec<u8>>> {
+        let state = |conn: &Connection, key: String| -> Result<Option<Vec<u8>>> {
             Ok(conn
                 .query_row(
                     "SELECT value FROM _berm_state WHERE key = ?1",
@@ -147,8 +308,51 @@ impl Database {
                     |row| row.get(0),
                 )
                 .optional()?)
+        };
+        if self.holds(chain) {
+            return on(&self.jobs, move |w| state(&w.conn, key)).await;
+        }
+        let path = self.path.clone();
+        tokio::task::spawn_blocking(move || {
+            let (conn, _) = reader(&path)?;
+            state(&conn, key)
         })
         .await?
+    }
+
+    /// Set the program's `key` inside the transaction `chain` holds.
+    pub async fn set(&self, chain: u64, key: String, value: Vec<u8>) -> Result<()> {
+        self.held(chain)?;
+        on(&self.jobs, move |w| {
+            w.conn.execute(
+                "INSERT INTO _berm_state (key, value) VALUES (?1, ?2)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                (&key, &value),
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Put `log` in the outbox inside the transaction `chain` holds.
+    pub async fn emit(&self, chain: u64, log: Log) -> Result<()> {
+        self.held(chain)?;
+        on(&self.jobs, move |w| {
+            w.conn.execute(
+                "INSERT INTO _berm_outbox (topics, data) VALUES (?1, ?2)",
+                (serde_json::to_string(&log.topics)?, &log.data),
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Refuse a write from a chain not holding the writer.
+    fn held(&self, chain: u64) -> Result<()> {
+        match self.holds(chain) {
+            true => Ok(()),
+            false => bail!("this chain does not hold {}'s database", self.name),
+        }
     }
 
     /// Apply the migrations not yet applied, in one transaction, answering
@@ -226,39 +430,61 @@ impl Database {
     }
 }
 
-/// A call's hold on the writer and its open transaction.
-pub struct Writing {
+/// What one invocation holds, from [`Databases::enter`]. Dropped without
+/// [`Held::commit`], it rolls back the writer it took and every savepoint.
+pub struct Held {
+    writing: Option<Writing>,
+    /// The databases held before the invocation began, each under a savepoint.
+    marked: Vec<Arc<Database>>,
+}
+
+impl Held {
+    /// The program whose writer the invocation took, if it took one.
+    pub fn took(&self) -> Option<&str> {
+        self.writing.as_ref().map(|writing| &*writing.name)
+    }
+
+    /// Commit the writer the invocation took, and release every savepoint.
+    pub async fn commit(mut self) -> Result<()> {
+        if let Some(writing) = self.writing.take() {
+            writing.commit().await?;
+        }
+        for database in std::mem::take(&mut self.marked) {
+            on(&database.jobs, |w| {
+                Ok(w.conn.execute_batch(&format!("RELEASE {SAVEPOINT}"))?)
+            })
+            .await?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        for database in &self.marked {
+            let _ = database.jobs.send(Box::new(|w| {
+                let _ = w
+                    .conn
+                    .execute_batch(&format!("ROLLBACK TO {SAVEPOINT}; RELEASE {SAVEPOINT}"));
+            }));
+        }
+    }
+}
+
+/// A chain's hold on the writer and its open transaction.
+struct Writing {
     jobs: mpsc::Sender<Job>,
+    name: Arc<str>,
+    graph: Arc<std::sync::Mutex<Graph>>,
     _held: OwnedMutexGuard<()>,
     open: bool,
 }
 
 impl Writing {
-    /// Commit the call's statements with its `berm.set` writes and its logs,
-    /// the logs into the outbox.
-    pub async fn commit(mut self, writes: Vec<Write>, logs: Vec<Log>) -> Result<()> {
-        let committed = on(&self.jobs, move |w| {
-            for write in &writes {
-                w.conn.execute(
-                    "INSERT INTO _berm_state (key, value) VALUES (?1, ?2)
-                     ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                    (&write.key, &write.value),
-                )?;
-            }
-            for log in &logs {
-                w.conn.execute(
-                    "INSERT INTO _berm_outbox (topics, data) VALUES (?1, ?2)",
-                    (serde_json::to_string(&log.topics)?, &log.data),
-                )?;
-            }
-            w.conn.execute_batch("COMMIT")?;
-            Ok(())
-        })
-        .await;
-        if committed.is_ok() {
-            self.open = false;
-        }
-        committed
+    async fn commit(mut self) -> Result<()> {
+        on(&self.jobs, |w| Ok(w.conn.execute_batch("COMMIT")?)).await?;
+        self.open = false;
+        Ok(())
     }
 }
 
@@ -271,6 +497,27 @@ impl Drop for Writing {
                 }
             }));
         }
+        self.graph
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .holders
+            .remove(&self.name);
+    }
+}
+
+/// A chain's place in the waits of the [`Graph`], taken out when dropped.
+struct Waiting {
+    graph: Arc<std::sync::Mutex<Graph>>,
+    chain: u64,
+}
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        self.graph
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .waits
+            .remove(&self.chain);
     }
 }
 
