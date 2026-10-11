@@ -96,3 +96,9 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = 0
+
+# rusqlite and libsqlite3-sys 0.39 / 0.37 with libSQL's rows-read and
+# rows-written statement counters in the bundled SQLite.
+[patch.crates-io]
+rusqlite = { git = "https://github.com/crabtalk/rusqlite", branch = "rows-0.39" }
+libsqlite3-sys = { git = "https://github.com/crabtalk/rusqlite", branch = "rows-0.39" }

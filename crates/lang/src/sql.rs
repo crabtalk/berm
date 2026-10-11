@@ -10,7 +10,7 @@ use crate::abi::{self, host, host::CallError, wire};
 use alloc::string::String;
 
 /// Run `statement` with `params`, a JSON array bound to its `?` placeholders,
-/// and answer `{"columns": [..], "rows": [[..]], "written": n}`.
+/// and answer `{"columns": [..], "rows": [[..]], "read": n, "written": n}`.
 ///
 /// ```ignore
 /// let found = berm_lang::sql("SELECT title FROM items WHERE id = ?", "[42]")?;

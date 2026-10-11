@@ -11,7 +11,7 @@ use crate::{Log, Refused, Write, syscall::sql::Statement};
 use anyhow::{Context, Result, anyhow, bail};
 use berm_api::Migration;
 use rusqlite::{
-    Connection, OpenFlags, OptionalExtension,
+    Connection, OpenFlags, OptionalExtension, StatementStatus,
     fallible_iterator::FallibleIterator,
     hooks::{AuthAction, AuthContext, Authorization},
     types::{Value, ValueRef},
@@ -366,7 +366,6 @@ fn run(
         if read_only && !prepared.readonly() {
             return Err(Refused("a query cannot write".to_owned()).into());
         }
-        let writes = !prepared.readonly();
         let columns: Vec<String> = prepared
             .column_names()
             .into_iter()
@@ -388,11 +387,11 @@ fn run(
             }
             rows.push(out);
         }
-        let written = match writes {
-            true => conn.changes(),
-            false => 0,
-        };
-        Ok(serde_json::json!({ "columns": columns, "rows": rows, "written": written }).to_string())
+        drop(found);
+        let read = prepared.get_status(StatementStatus::RowsRead);
+        let written = prepared.get_status(StatementStatus::RowsWritten);
+        Ok(serde_json::json!({ "columns": columns, "rows": rows, "read": read, "written": written })
+            .to_string())
     })();
     guest.store(false, Ordering::SeqCst);
     ran

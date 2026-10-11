@@ -112,7 +112,7 @@ pub const SQL: &str = "berm.sql";
 /// `(ptr, len) -> staged length`
 ///
 /// Request fields are the statement and its parameters as a JSON array. The
-/// reply is JSON: `{"columns": [..], "rows": [[..]], "written": n}`.
+/// reply is JSON: `{"columns": [..], "rows": [[..]], "read": n, "written": n}`.
 pub const HOST_SQL: u64 = hash(SQL);
 
 /// What a host registers to serve [`HOST_GET`] and [`HOST_SET`].
