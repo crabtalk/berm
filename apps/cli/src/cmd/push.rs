@@ -7,16 +7,11 @@ use berm_oci::{Access, Reference, Registry};
 use std::{fs, path::Path, str::FromStr};
 
 pub fn run(reference: &str, image: &Path) -> Result<()> {
-    let reference = Reference::from_str(reference)?;
     let bytes = fs::read(image).with_context(|| format!("cannot read {}", image.display()))?;
-
     // Refused here, by whoever built it, rather than at deploy on someone
     // else's machine. Reading the manifest never runs the guest.
     let manifest = Manifest::from_image(&bytes)?;
-    let section = Manifest::section(&bytes)?;
-
-    let registry = Registry::open(&reference, Access::Write)?;
-    let digest = registry.push(&reference.reference, &bytes, section)?;
+    let digest = push(reference, &bytes)?;
 
     // What the registry will now serve, rendered the way `inspect` renders
     // what the service serves.
@@ -34,4 +29,11 @@ pub fn run(reference: &str, image: &Path) -> Result<()> {
         breaks: Vec::new(),
     });
     Ok(())
+}
+
+/// Upload `image` as `reference`, answering with its digest.
+pub fn push(reference: &str, image: &[u8]) -> Result<String> {
+    let reference = Reference::from_str(reference)?;
+    let section = Manifest::section(image)?;
+    Registry::open(&reference, Access::Write)?.push(&reference.reference, image, section)
 }

@@ -22,4 +22,6 @@ berm-oci.workspace = true
 clap.workspace = true
 # `query`, so a search term with a space in it is encoded rather than pasted.
 reqwest = { workspace = true, features = ["blocking", "json", "query"] }
+serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true

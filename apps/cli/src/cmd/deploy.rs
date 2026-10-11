@@ -1,8 +1,12 @@
-//! `berm deploy` — hand bermd an image.
+//! `berm deploy` — hand the context's host an image.
 
-use crate::{Client, cmd::inspect};
+use crate::{
+    Client,
+    cmd::{inspect, push},
+};
 use anyhow::{Context, Result, bail};
 use berm_api::Manifest;
+use berm_index::Source;
 use berm_oci::{Access, Reference, Registry};
 use std::{
     fs,
@@ -12,10 +16,51 @@ use std::{
 };
 
 /// Deploy `image` as `name`. A tool it makes public that the deployed program
-/// does not is asked about, unless listed in `public`.
-pub fn run(client: &Client, name: &str, image: &str, public: &[String]) -> Result<()> {
-    let image = read(image)?;
-    let manifest = Manifest::from_image(&image)?;
+/// does not is asked about, unless listed in `public`. On Cloud, a file is
+/// pushed to `reference` first, and the reference listed in the context's
+/// index before it is deployed.
+pub fn run(
+    client: &Client,
+    name: &str,
+    image: &str,
+    reference: Option<&str>,
+    public: &[String],
+    force: bool,
+) -> Result<()> {
+    let bytes = read(image)?;
+    let manifest = Manifest::from_image(&bytes)?;
+    let confirmed = confirm(client, name, &manifest, public)?;
+    let program = match &client.owner {
+        None => client.deploy(name, bytes, &confirmed, force)?,
+        Some(_) => {
+            let reference = match Path::new(image).exists() {
+                true => {
+                    let reference = reference.context(
+                        "Cloud deploys a file through a registry; name where with `--reference`",
+                    )?;
+                    push::push(reference, &bytes)?;
+                    reference
+                }
+                false => image,
+            };
+            Source::new(Some(&client.host))?.publish(reference, client.token.as_deref())?;
+            client.deploy_reference(name, reference, &confirmed, force)?
+        }
+    };
+    // The host compiled it to answer, so what comes back is what it will
+    // serve — worth showing rather than saying "ok".
+    inspect::show(&program);
+    Ok(())
+}
+
+/// `public`, and each tool `manifest` makes public that the deployed program
+/// does not, once the operator confirms it.
+fn confirm(
+    client: &Client,
+    name: &str,
+    manifest: &Manifest,
+    public: &[String],
+) -> Result<Vec<String>> {
     let deployed: Vec<String> = client
         .inspect(name)
         .map(|program| {
@@ -51,11 +96,7 @@ pub fn run(client: &Client, name: &str, image: &str, public: &[String]) -> Resul
         }
         confirmed.push(tool.name.clone());
     }
-    let program = client.deploy(name, image, &confirmed)?;
-    // The service compiled it to answer, so what comes back is what it will
-    // serve — worth showing rather than saying "ok".
-    inspect::show(&program);
-    Ok(())
+    Ok(confirmed)
 }
 
 /// A file if one is there, a registry reference otherwise. The file wins, so an

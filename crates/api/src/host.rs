@@ -122,3 +122,20 @@ pub struct Allowed {
     pub kind: String,
     pub caller: String,
 }
+
+/// `?topic=&after=&limit=` on a service's logs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Page {
+    /// Only logs carrying this topic.
+    #[serde(default)]
+    pub topic: Option<String>,
+    /// Only logs after this sequence number.
+    #[serde(default)]
+    pub after: i64,
+    #[serde(default = "limit")]
+    pub limit: i64,
+}
+
+fn limit() -> i64 {
+    100
+}

@@ -12,7 +12,7 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
-use berm_api::{Output, Program as Wire};
+use berm_api::{Logged, Output, Program as Wire, host::Page};
 use berm_host::{Denied, deny};
 use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
@@ -40,6 +40,7 @@ pub fn router(service: Arc<Service>) -> Router {
             get(inspect).put(deploy).delete(undeploy),
         )
         .route("/programs/{name}/tools/{tool}", post(call).get(query))
+        .route("/programs/{name}/logs", get(logs))
         .route_service("/mcp", mcp)
         .with_state(service)
 }
@@ -155,6 +156,20 @@ async fn run(
         .call(LOCAL, name, &program::caller(), tool, arguments, query)
         .await?;
     Ok(Json(output))
+}
+
+/// A program's logs, oldest first, after the sequence number `after`.
+async fn logs(
+    State(service): State<Arc<Service>>,
+    Path(name): Path<String>,
+    Query(page): Query<Page>,
+) -> Result<Json<Vec<Logged>>, Denied> {
+    Ok(Json(
+        service
+            .host
+            .logs(LOCAL, &name, page.topic, page.after, page.limit)
+            .await?,
+    ))
 }
 
 async fn undeploy(

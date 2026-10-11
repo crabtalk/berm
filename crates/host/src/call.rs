@@ -29,6 +29,14 @@ impl<E: Env> Host<E> {
         Ok(host::idl(name, &program))
     }
 
+    /// The IDL of every service `owner_id` runs here.
+    pub fn idls(&self, owner_id: &str) -> Vec<berm_api::Program> {
+        self.list(owner_id)
+            .iter()
+            .map(|(name, program)| host::idl(name, program))
+            .collect()
+    }
+
     /// `owner_id/name`'s commit count.
     pub async fn commits(&self, owner_id: &str, name: &str) -> Result<i64, Denied> {
         let (_, commits) = self.deployed(owner_id, name).await?;

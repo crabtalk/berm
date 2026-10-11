@@ -1,60 +1,125 @@
-//! Talking to bermd.
+//! Talking to the host a context names: a bermd, or Cloud.
 
-use crate::http;
-use anyhow::{Context, Result};
-use berm_api::{Output, Program};
+use crate::{
+    context::{Context as Target, Owner},
+    http,
+};
+use anyhow::{Context, Result, bail};
+use berm_api::{Logged, Output, Program};
+use reqwest::blocking::RequestBuilder;
 
 pub struct Client {
-    host: String,
+    pub host: String,
+    /// The bearer a Cloud context carries.
+    pub token: Option<String>,
+    /// The account a Cloud context deploys under; `None` for a bermd.
+    pub owner: Option<Owner>,
     http: reqwest::blocking::Client,
 }
 
 impl Client {
-    pub fn new(host: String) -> Self {
+    pub fn new(target: Target) -> Self {
         Self {
-            host: host.trim_end_matches('/').to_owned(),
+            host: target.host.trim_end_matches('/').to_owned(),
+            token: target.token,
+            owner: target.owner,
             http: reqwest::blocking::Client::new(),
         }
     }
 
     pub fn list(&self) -> Result<Vec<Program>> {
-        let collection = format!("{}/programs", self.host);
-        http::read(&self.host, self.http.get(collection).send())?
+        let collection = match &self.owner {
+            Some(owner) => format!("{}{}", self.host, owner.services()),
+            None => format!("{}/programs", self.host),
+        };
+        self.read(self.http.get(collection))?
             .json()
-            .context("bermd returned something that is not a program list")
+            .context("the host returned something that is not a program list")
     }
 
     pub fn inspect(&self, name: &str) -> Result<Program> {
-        http::read(&self.host, self.http.get(self.url(name)).send())?
+        self.read(self.http.get(self.url(name)))?
             .json()
-            .context("bermd returned something that is not a program")
+            .context("the host returned something that is not a program")
     }
 
-    /// Deploy `image` as `name`, confirming the tools it may make public.
-    pub fn deploy(&self, name: &str, image: Vec<u8>, public: &[String]) -> Result<Program> {
+    /// Deploy `image` as `name` on a bermd, confirming the tools it may make
+    /// public.
+    pub fn deploy(
+        &self,
+        name: &str,
+        image: Vec<u8>,
+        public: &[String],
+        force: bool,
+    ) -> Result<Program> {
+        if self.owner.is_some() {
+            bail!("Cloud deploys from the program index, not from bytes");
+        }
         let request = self
             .http
             .put(self.url(name))
             .query(&[("public", public.join(","))])
+            .query(&[("force", force)])
             .body(image);
-        http::read(&self.host, request.send())?
+        self.read(request)?
             .json()
             .context("bermd returned something that is not a program")
     }
 
+    /// Deploy the index entry `reference` as `name` on Cloud, confirming the
+    /// tools it may make public.
+    pub fn deploy_reference(
+        &self,
+        name: &str,
+        reference: &str,
+        public: &[String],
+        force: bool,
+    ) -> Result<Program> {
+        let request = self.http.put(self.url(name)).json(&serde_json::json!({
+            "reference": reference,
+            "public": public,
+            "force": force,
+        }));
+        self.read(request)?
+            .json()
+            .context("Cloud returned something that is not a program")
+    }
+
     pub fn run(&self, program: &str, tool: &str, arguments: Vec<u8>) -> Result<Output> {
         let url = format!("{}/tools/{tool}", self.url(program));
-        http::read(&self.host, self.http.post(url).body(arguments).send())?
+        self.read(self.http.post(url).body(arguments))?
             .json()
-            .context("bermd returned something that is not a tool result")
+            .context("the host returned something that is not a tool result")
     }
 
     pub fn undeploy(&self, name: &str) -> Result<()> {
-        http::read(&self.host, self.http.delete(self.url(name)).send())?;
+        self.read(self.http.delete(self.url(name)))?;
         Ok(())
     }
 
+    /// `name`'s logs after `after`, oldest first, at most `limit`.
+    pub fn logs(&self, name: &str, after: u64, limit: u64) -> Result<Vec<Logged>> {
+        let request = self
+            .http
+            .get(format!("{}/logs", self.url(name)))
+            .query(&[("after", after), ("limit", limit)]);
+        self.read(request)?
+            .json()
+            .context("the host returned something that is not a list of logs")
+    }
+
     fn url(&self, name: &str) -> String {
-        format!("{}/programs/{name}", self.host)
+        match &self.owner {
+            Some(owner) => format!("{}/services/{}/{name}", self.host, owner.name()),
+            None => format!("{}/programs/{name}", self.host),
+        }
+    }
+
+    fn read(&self, request: RequestBuilder) -> Result<reqwest::blocking::Response> {
+        let request = match &self.token {
+            Some(token) => request.bearer_auth(token),
+            None => request,
+        };
+        http::read(&self.host, request.send())
     }
 }
