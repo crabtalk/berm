@@ -44,7 +44,7 @@ impl Workbench {
             // Reading an image reaches a registry or the filesystem, neither of
             // which a runtime worker can afford to block on.
             let image = tokio::task::spawn_blocking(move || utils::image(&image)).await??;
-            service.deploy(&name, image, &[]).await
+            anyhow::Ok(service.deploy(&name, image, &[], false).await?)
         });
         cx.spawn(async move |this, cx| {
             let refused = match deploying.await {

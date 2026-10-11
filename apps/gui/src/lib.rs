@@ -6,10 +6,9 @@
 //! programs the window paints.
 
 use anyhow::{Context as _, Result};
-use berm::Program;
 use berm::syscall::call;
 use berm_index::{Entry, Source};
-use bermd::Service;
+use bermd::{Deployed, Service};
 use bezel::{
     gpui::{
         AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, ScrollHandle, Window, div,
@@ -98,7 +97,7 @@ pub struct Workbench {
     rt: Runtime,
     engine: Engine,
     /// What the service was holding as of the last refresh.
-    programs: Vec<Arc<Program>>,
+    programs: Vec<Deployed>,
     /// By name, not index: a refresh renumbers the list, and a program removed
     /// under the pane should empty it rather than hand the selection to a
     /// neighbour.
@@ -236,7 +235,7 @@ impl Workbench {
     }
 
     /// The deployed program the pane is on, if it is on one.
-    fn selected(&self) -> Option<&Arc<Program>> {
+    fn selected(&self) -> Option<&Deployed> {
         let Some(Showing::Deployed(name)) = &self.selection else {
             return None;
         };

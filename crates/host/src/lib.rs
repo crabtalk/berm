@@ -9,6 +9,7 @@ use axum::{
     response::IntoResponse,
 };
 use berm_api::Failed;
+use std::fmt;
 
 pub use config::Config;
 pub use env::{Env, Images, Peers, Secrets};
@@ -49,6 +50,14 @@ impl IntoResponse for Denied {
         response
     }
 }
+
+impl fmt::Display for Denied {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.1)
+    }
+}
+
+impl std::error::Error for Denied {}
 
 impl From<anyhow::Error> for Denied {
     fn from(e: anyhow::Error) -> Self {

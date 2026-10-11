@@ -806,6 +806,7 @@ dependencies = [
  "axum",
  "berm",
  "berm-api",
+ "berm-host",
  "clap",
  "hex",
  "reqwest",
@@ -815,6 +816,7 @@ dependencies = [
  "sha2 0.11.0",
  "tokio",
  "toml 1.1.4+spec-1.1.0",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]

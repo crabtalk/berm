@@ -1,128 +1,94 @@
 //! bermd — deploys programs and serves their tools over MCP.
 //!
-//! An invocation is ephemeral: berm instantiates a program per call and nothing
-//! survives it. What the service exists to hold is everything around that — the
-//! deployed set, the modules compiled from it, and the engine's code cache. A
-//! deployed program is therefore compiled once, at deploy, and every later
-//! invocation pays only instantiation.
-//!
-//! Every deployed program appears on one MCP endpoint, its tools namespaced
-//! `{program}.{tool}`.
+//! A thin daemon over [`Host`]: one local owner owns every program, and one
+//! local account calls them. Every deployed program appears on one MCP
+//! endpoint, its tools namespaced `{program}.{tool}`.
 
 use anyhow::{Context, Result};
-use berm::{Berm, Calls, Config, Engine, Program, database::Databases};
-use std::{
-    path::PathBuf,
-    sync::{Arc, Weak},
-};
-use tokio::{
-    net::TcpListener,
-    runtime::Handle,
-    sync::{Mutex, broadcast},
-};
+use berm::Program;
+use berm_host::{Config, Host};
+use std::{ops::Deref, path::PathBuf, sync::Arc};
+use tokio::{net::TcpListener, sync::broadcast};
+
+pub use env::Local;
+pub use fetch::Fetch;
+pub use images::Stored;
+pub use peers::Alone;
+pub use secrets::Grants;
 
 mod api;
-mod database;
-mod deliver;
 mod deps;
-mod files;
-mod http;
-mod logs;
+mod env;
+mod fetch;
+mod images;
 mod mcp;
+mod peers;
 mod program;
 mod secrets;
-mod source;
-mod store;
-mod timer;
-mod utils;
 
 /// How many deploys may go unread by a session before it misses one. A missed
 /// notification costs a stale tool list until the next change, not a wrong one.
 const CHANGE_BACKLOG: usize = 16;
 
+/// The owner every program is deployed under, and the account every call is
+/// made as.
+pub const LOCAL: &str = "local";
+
 pub struct Service {
-    /// The programs this service is running, and the records behind them.
-    /// berm holds both; what is left here is everything it has no opinion
-    /// about — who is told when the set changes.
-    berm: Arc<Berm>,
-    /// Fires when the deployed set changes. Connected MCP sessions turn this
-    /// into `notifications/tools/list_changed`, because the tool set mutates
-    /// under clients that are already holding a list.
-    changed: broadcast::Sender<()>,
-    /// What each program has asked to be called back for.
-    pub(crate) wakes: timer::Wakes,
+    host: Host<Local>,
+    /// Where uploaded images are kept for the host to pull.
+    images: Stored,
     /// What each program may have substituted into its requests.
-    pub(crate) secrets: secrets::Secrets,
-    /// Each program's own SQLite database, for those that keep one.
-    pub(crate) databases: Databases,
-    /// Held while an outbox is appended to the logs.
-    pub(crate) shipping: Mutex<()>,
-    /// Where each chain's writes and logs are committed.
-    pub(crate) root: PathBuf,
-    /// Held for one delivery pass, so a subscriber is never handed the same
-    /// logs by two at once.
-    delivering: Mutex<()>,
-    /// This service, as a delivery pass outliving the call that started it
-    /// holds it.
-    me: Weak<Self>,
+    secrets: Grants,
+    /// Fires when the deployed set changes. Connected MCP sessions turn this
+    /// into `notifications/tools/list_changed`.
+    changed: broadcast::Sender<()>,
+}
+
+/// A deployed program, by the name it is deployed under.
+#[derive(Clone)]
+pub struct Deployed {
+    pub name: Arc<str>,
+    pub program: Arc<Program>,
+}
+
+impl Deref for Deployed {
+    type Target = Program;
+
+    fn deref(&self) -> &Program {
+        &self.program
+    }
 }
 
 impl Service {
     /// Open `root`, restoring whatever was deployed before this process.
+    /// Chains of programs calling programs nest at most `depth` deep.
     pub async fn new(root: PathBuf, depth: u32) -> Result<Arc<Self>> {
-        let engine = Engine::new(&Config {
+        let images = Stored::open(&root);
+        let secrets = Grants::open(&root);
+        let config = Config {
+            depth,
             cache_dir: Some(root.join("cache")),
+            databases: root.join("databases"),
             ..Config::default()
-        })
-        .context("failed to start the compiler")?;
-
-        // Cyclic for the reason `Berm` is: the timer door reaches back into
-        // the service holding the table it writes to.
-        let runtime = Handle::current();
-        let secrets = secrets::Secrets::open(&root);
-        let fetch = http::syscall(secrets.clone())?;
-        let service = Arc::new_cyclic(|me| {
-            let mut syscalls = store::syscalls(&root, me.clone());
-            syscalls.push(timer::syscalls(me.clone(), runtime));
-            syscalls.push(fetch);
-            syscalls.push(database::syscall(me.clone()));
-            syscalls.push(database::emit(me.clone()));
-            let calls = Calls {
-                enter: database::enter(me.clone()),
-                ..Calls::by_name(depth)
-            };
-            Self {
-                berm: Berm::new(
-                    &engine,
-                    calls,
-                    syscalls,
-                    Arc::new(files::Files::open(&root)),
-                ),
-                changed: broadcast::channel(CHANGE_BACKLOG).0,
-                wakes: timer::Wakes::default(),
-                secrets,
-                databases: Databases::new(root.join("databases")),
-                shipping: Mutex::new(()),
-                root: root.clone(),
-                delivering: Mutex::new(()),
-                me: me.clone(),
-            }
-        });
-        // Images first: a wake names a program, which has to be deployed
-        // before it fires.
-        let restoring = service.clone();
-        tokio::task::spawn_blocking(move || restoring.berm.restore())
-            .await
-            .context("restoring panicked")??;
-        service.rearm().await?;
-        // What a crash left in an outbox.
-        for program in service.list() {
-            if database::keeps(&program) {
-                database::ship(&service, &program.name).await?;
-            }
-        }
-        service.deliver();
-        Ok(service)
+        };
+        let host = Host::open(
+            &root.join("host.db"),
+            &config,
+            Fetch::new()?,
+            images.clone(),
+            Alone,
+            secrets.clone(),
+        )
+        .await
+        .context("failed to open the host")?;
+        host.boot();
+        Ok(Arc::new(Self {
+            host,
+            images,
+            secrets,
+            changed: broadcast::channel(CHANGE_BACKLOG).0,
+        }))
     }
 
     /// Serve on an already-bound listener until `shutdown` resolves.
@@ -131,11 +97,8 @@ impl Service {
     /// second berm holding the same root — is the one startup error that has to
     /// be known *before* anything claims to be serving.
     ///
-    /// Shutdown is the caller's for a sharper reason: waiting on `SIGINT` here
-    /// would install a handler over the whole process, and tokio never puts the
-    /// default back. A daemon wants exactly that; the workbench embedding this
-    /// serves a window too, and would have had its endpoint quietly torn down
-    /// by a Ctrl+C its window never heard about.
+    /// Shutdown is the caller's: waiting on `SIGINT` here would install a
+    /// handler over the whole process, and tokio never puts the default back.
     pub async fn serve(
         self: Arc<Self>,
         listener: TcpListener,
@@ -147,13 +110,28 @@ impl Service {
             .context("server failed")
     }
 
-    /// Every deployed program, as a snapshot the caller can hold across awaits.
-    pub fn list(&self) -> Vec<Arc<Program>> {
-        self.berm.list()
+    /// Every deployed program, by name, as a snapshot the caller can hold
+    /// across awaits.
+    pub fn list(&self) -> Vec<Deployed> {
+        let mut deployed: Vec<Deployed> = self
+            .host
+            .list(LOCAL)
+            .into_iter()
+            .map(|(name, program)| Deployed {
+                name: name.into(),
+                program,
+            })
+            .collect();
+        deployed.sort_by(|a, b| a.name.cmp(&b.name));
+        deployed
     }
 
-    pub fn get(&self, name: &str) -> Option<Arc<Program>> {
-        self.berm.get(name)
+    pub fn get(&self, name: &str) -> Option<Deployed> {
+        let program = self.host.get(LOCAL, name)?;
+        Some(Deployed {
+            name: name.into(),
+            program,
+        })
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<()> {

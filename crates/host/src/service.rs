@@ -115,6 +115,20 @@ pub(crate) async fn install(
         .await
 }
 
+/// Delete `owner_id/name` and every row beside it. `false` when there was none.
+pub(crate) async fn remove(store: &Store, owner_id: &str, name: &str) -> Result<bool> {
+    let (owner_id, name) = (owner_id.to_owned(), name.to_owned());
+    store
+        .run(move |conn| {
+            let removed = conn.execute(
+                "DELETE FROM services WHERE owner_id = ?1 AND name = ?2",
+                params![owner_id, name],
+            )?;
+            Ok(removed == 1)
+        })
+        .await
+}
+
 /// What `owner_id/name` last committed under `key`.
 pub(crate) async fn read(
     store: &Store,

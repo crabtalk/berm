@@ -1,144 +1,113 @@
-//! Deploying, restoring, and invoking.
+//! Deploying, removing, and invoking, as the local owner and account.
 
-use crate::{Service, logs, store};
-use anyhow::{Context, Result, bail};
-use berm::Program;
-use berm_api::Break;
-use std::sync::Arc;
+use crate::{Deployed, LOCAL, Service};
+use axum::http::StatusCode;
+use berm_api::{
+    Break,
+    host::{Caller, Deploy},
+};
+use berm_host::{Denied, deny};
 
 impl Service {
-    /// Compile `image`, store it, and make its tools reachable under `name`,
-    /// answering with how it breaks callers of the program it replaced.
-    /// Refused while a tool it makes public that the program it replaces did
-    /// not is missing from `public`.
-    ///
-    /// Compile, then store, then publish — berm does the first two in that
-    /// order, so a rejected image leaves no record that would fail again on
-    /// every restart, and a tool that is served is one a restart brings back.
+    /// Make the tools of `image` reachable under `name`, answering with how it
+    /// breaks callers of the program it replaced. Refused as the host refuses
+    /// a deploy: a tool made public that `public` does not confirm, or, unless
+    /// `force`, a break of what a caller used.
     pub async fn deploy(
         &self,
         name: &str,
         image: Vec<u8>,
         public: &[String],
-    ) -> Result<(Arc<Program>, Vec<Break>)> {
+        force: bool,
+    ) -> Result<(Deployed, Vec<Break>), Denied> {
         validate(name)?;
         let replaced = self.get(name);
-        let manifest = berm::Manifest::from_image(&image)?;
-        let published: Vec<&str> = match &replaced {
-            Some(replaced) => replaced.manifest().publishes(&manifest),
-            None => manifest
-                .tools
-                .iter()
-                .filter(|tool| tool.public)
-                .map(|tool| tool.name.as_str())
-                .collect(),
-        };
-        let unconfirmed: Vec<&str> = published
-            .into_iter()
-            .filter(|tool| !public.iter().any(|confirmed| confirmed == tool))
-            .collect();
-        if !unconfirmed.is_empty() {
-            bail!(
-                "this deploy makes {} public; confirm each with `public`",
-                unconfirmed.join(", ")
-            );
-        }
-        // Migrated before the image is compiled: a failed migration refuses
-        // the deploy, and the program it replaces goes on serving.
-        if let Some(database) = manifest.database {
-            let applied = self
-                .databases
-                .get(name)?
-                .migrate(database.migrations)
-                .await?;
-            if !applied.is_empty() {
-                tracing::info!(name, "migrated: {}", applied.join(", "));
-            }
-        }
-        let program = self.compile(name.to_owned(), Arc::new(image)).await?;
-
-        // Said rather than refused, as `unresolved` is.
+        let digest = self.images.put(&image)?;
+        let program = self
+            .host
+            .deploy(
+                LOCAL,
+                name,
+                Deploy {
+                    reference: digest.clone(),
+                    digest,
+                    public: public.to_vec(),
+                    force,
+                },
+            )
+            .await?;
         let breaks = replaced
             .map(|replaced| replaced.manifest().breaks(program.manifest()))
             .unwrap_or_default();
         for broken in &breaks {
             tracing::warn!(name, "breaks callers: {broken}");
         }
-
-        // Said rather than refused: a program deployed before the one it
-        // calls is ordinary, and the call reports it again if it stays that
-        // way.
-        let unresolved = self.unresolved(&program);
+        let deployed = Deployed {
+            name: name.into(),
+            program,
+        };
+        let unresolved = self.unresolved(&deployed);
         if !unresolved.is_empty() {
             tracing::warn!(name, "nothing here answers to {unresolved}");
         }
-
         let _ = self.changed.send(());
-        self.deliver();
-        Ok((program, breaks))
+        Ok((deployed, breaks))
     }
 
-    /// Forget a program and drop its image. `false` if it wasn't deployed.
-    pub async fn undeploy(&self, name: &str) -> Result<bool> {
-        // A wake it armed has nowhere left to run. One pointed *at* it by
-        // another program stays: that slot is the armer's, and a target that
-        // has gone away is reported when it fires.
-        self.forget_wake(name);
-        if !self.berm.remove(name)? {
-            return Ok(false);
+    /// Stop running a program and drop what it committed. `false` if it wasn't
+    /// deployed.
+    pub async fn undeploy(&self, name: &str) -> Result<bool, Denied> {
+        let removed = self.host.remove(LOCAL, name).await?;
+        if removed {
+            let _ = self.changed.send(());
         }
-        let _ = self.changed.send(());
-        Ok(true)
+        Ok(removed)
     }
 
-    /// Run one tool, and commit what the chain wrote and emitted.
-    ///
-    /// The outer `Result` is the service's — no such program, no such tool, a
-    /// trap, a commit that failed. The inner one is the program's own reported
-    /// failure, which is a tool result rather than an error.
-    ///
-    /// Logs are appended before writes land, so a crash between them repeats
-    /// logs rather than losing them.
+    /// Run one public tool as the local account. The inner `Result` is the
+    /// program's own report.
     pub async fn call(
         &self,
-        program: &str,
+        name: &str,
         tool: &str,
         args: Vec<u8>,
-    ) -> Result<Result<String, String>> {
-        let Some(program) = self.get(program) else {
-            bail!("no program named {program:?} is deployed");
-        };
-        // bermd authenticates no one, so no chain it starts has a caller.
-        let outcome = program.call(None, tool, args).await?;
-        logs::append(&self.root, &outcome.changes.logs)?;
-        store::commit(&self.root, &outcome.changes.writes)?;
-        if !outcome.changes.logs.is_empty() {
-            self.deliver();
-        }
-        Ok(outcome.result)
-    }
-
-    /// Compile an image into the runtime, off the async workers.
-    async fn compile(&self, name: String, image: Arc<Vec<u8>>) -> Result<Arc<Program>> {
-        let berm = self.berm.clone();
-        tokio::task::spawn_blocking(move || berm.deploy(&name, &image))
-            .await
-            .context("compilation panicked")?
+    ) -> Result<Result<String, String>, Denied> {
+        let (_, output) = self
+            .host
+            .call(LOCAL, name, &caller(), tool, args, false)
+            .await?;
+        Ok(output.into())
     }
 }
 
-/// A name has to survive being half of an MCP tool name and all of a filename.
-/// The dot is the one that matters: dispatch splits `{program}.{tool}` on the
-/// first one, so a program carrying a dot would eat its own tool.
-fn validate(name: &str) -> Result<()> {
+/// The local account.
+pub(crate) fn caller() -> Caller {
+    Caller {
+        id: LOCAL.to_owned(),
+        app: None,
+        user: None,
+        client: None,
+    }
+}
+
+/// A name has to survive being half of an MCP tool name. The dot is the one
+/// that matters: dispatch splits `{program}.{tool}` on the first one, so a
+/// program carrying a dot would eat its own tool.
+fn validate(name: &str) -> Result<(), Denied> {
     if name.is_empty() {
-        bail!("a program name cannot be empty");
+        return Err(deny(
+            StatusCode::BAD_REQUEST,
+            "a program name cannot be empty",
+        ));
     }
     if !name
         .chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
     {
-        bail!("program name {name:?} is not lowercase letters, digits, `-` or `_`");
+        return Err(deny(
+            StatusCode::BAD_REQUEST,
+            format!("program name {name:?} is not lowercase letters, digits, `-` or `_`"),
+        ));
     }
     Ok(())
 }

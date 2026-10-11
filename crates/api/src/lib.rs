@@ -288,6 +288,15 @@ impl From<Result<String, String>> for Output {
     }
 }
 
+impl From<Output> for Result<String, String> {
+    fn from(output: Output) -> Self {
+        match output {
+            Output::Done(result) => Ok(result),
+            Output::Failed(failure) => Err(failure),
+        }
+    }
+}
+
 /// What the control API returns instead of a resource when it refuses one.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Failed {

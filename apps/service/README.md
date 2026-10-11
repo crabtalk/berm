@@ -30,9 +30,9 @@ curl -X POST -d '{"query":"hi"}' http://127.0.0.1:7777/programs/fixture/tools/ec
 curl -G --data-urlencode 'args={}' http://127.0.0.1:7777/programs/fixture/tools/peek
 ```
 
-An image is compiled before it is stored, so a broken one is refused by the
-deploy that introduced it rather than on a model's turn. What is stored is
-restored on the next start.
+A deploy is recorded only once its image has compiled, so a broken one is
+refused by the deploy that introduced it rather than on a model's turn. What is
+recorded is restored on the next start.
 
 To check a running service rather than serve anything, `berm-fixture` is the
 guest berm's own tests use — its tools price things rather than do them, so it

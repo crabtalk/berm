@@ -389,6 +389,38 @@ impl<E: Env> Host<E> {
         self.berm.get(&key(owner_id, name))
     }
 
+    /// Every service `owner_id` runs here, by name.
+    pub fn list(&self, owner_id: &str) -> Vec<(String, Arc<Program>)> {
+        self.berm
+            .list()
+            .into_iter()
+            .filter_map(|program| {
+                let (owner, name) = unkey(&program.name);
+                (owner == owner_id).then(|| (name.to_owned(), program.clone()))
+            })
+            .collect()
+    }
+
+    /// Stop running `owner_id/name` and drop what it committed, its wake, its
+    /// callers and its usage. `false` when it was not deployed.
+    // TODO: drop the database of a service that kept one; its file stays
+    // under `Config::databases` and a deploy under the same name opens it.
+    pub async fn remove(&self, owner_id: &str, name: &str) -> Result<bool> {
+        let key = key(owner_id, name);
+        let lock = self
+            .deploying
+            .lock()
+            .entry(key.clone())
+            .or_default()
+            .clone();
+        let _deploying = lock.lock().await;
+        let removed = service::remove(&self.store, owner_id, name).await?;
+        self.berm.remove(&key)?;
+        self.allowlists.load(&self.store, &key).await?;
+        self.subscribe();
+        Ok(removed)
+    }
+
     /// Run the index entry `deploy` names as `owner_id/name`. Refused when it
     /// needs a syscall this host does not serve, when it makes a tool public
     /// that the program it replaces did not and `public` does not confirm it,

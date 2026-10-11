@@ -35,8 +35,8 @@ manifest: a tool or event removed, a tool no longer a query, an argument newly
 required, a result or event field no longer always present, a changed type, an
 unsigned integer becoming signed. Arguments are compared as the new program
 reads them, results and events as old callers read them; added fields break
-nothing. bermd reports the breaks of a redeploy against the program it replaced
-and deploys anyway.
+nothing. bermd refuses a redeploy that breaks a tool or event a caller used in
+the last 30 days, unless the deploy says `force=true`, and reports the rest.
 
 ## Usage
 

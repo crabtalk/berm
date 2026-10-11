@@ -1,8 +1,8 @@
 //! What a program says it is: its usage, its tools, their arguments.
 
 use crate::{Showing, TITLEBAR, Tab, Workbench, utils};
-use berm::Program;
 use berm_api::ToolSpec;
+use bermd::Deployed;
 use bezel::{
     gpui::{AnyElement, Context, SharedString, div, prelude::*, px},
     theme::Theme,
@@ -11,7 +11,6 @@ use bezel::{
         widgets::{Content, Layout, Scaffolding},
     },
 };
-use std::sync::Arc;
 
 impl Workbench {
     pub(crate) fn detail(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -48,7 +47,7 @@ impl Workbench {
             .into_any_element()
     }
 
-    fn header(&self, deployed: &Arc<Program>, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn header(&self, deployed: &Deployed, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex_none()
             .px(px(28.0))
