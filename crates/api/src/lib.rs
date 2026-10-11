@@ -8,8 +8,10 @@ use object::{Object, ObjectSection};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-mod compat;
 pub use compat::{Break, Surface};
+
+mod compat;
+pub mod host;
 
 /// The ABI this host speaks. A program built against a different one is
 /// refused rather than dispatched into a syscall its author did not

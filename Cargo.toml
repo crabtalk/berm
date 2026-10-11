@@ -16,6 +16,7 @@ categories = ["virtualization", "wasm"]
 berm = { path = "crates/berm", version = "0.0.8" }
 berm-api = { path = "crates/api", version = "0.0.8" }
 berm-codegen = { path = "crates/codegen", version = "0.0.8" }
+berm-host = { path = "crates/host", version = "0.0.8" }
 berm-index = { path = "crates/index", version = "0.0.8" }
 berm-lang = { path = "crates/lang", version = "0.0.8" }
 berm-oci = { path = "crates/oci", version = "0.0.8" }
@@ -24,6 +25,7 @@ bermd = { path = "apps/service", version = "0.0.8" }
 # crates-io
 anyhow = "1.0"
 axum = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 # Named rather than inherited: 0.1.11 emptied `default`, and a bezel without
 # these registers no font, leaving the window on the system stack.
 bezel = { version = "=0.1.11", features = [
@@ -39,6 +41,7 @@ gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.10", features
 ] }
 linked_list_allocator = "0.10"
 object = { version = "0.40", features = ["wasm"] }
+parking_lot = "0.12"
 proc-macro2 = "1"
 quote = "1"
 reqwest = { version = "0.13", default-features = false }
@@ -75,8 +78,10 @@ tokio = { version = "1", features = [
     "time",
 ] }
 toml = "1"
+tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+utoipa = "5"
 # Off by default: `cache` drags in a config format nothing here reads.
 wasmtime = { version = "48", default-features = false, features = [
     "anyhow",
