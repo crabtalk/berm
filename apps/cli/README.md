@@ -48,7 +48,7 @@ means holding a credential for the repository.
 `inspect` renders a tool's JSON Schema as the argument list it describes, since
 a schema printed raw is something to read past rather than read.
 
-`inspect` shows the most one call of each tool may use, and `budget NAME TOOL --instructions N --rows N` sets it. `run` calls one public tool and prints what the call used on stderr; `usage` prints a program's meters over the last 30 days, a day each. Agents reach tools over MCP. On bermd, `--caller alice --issuer https://id.example --user 42` makes the call as that caller and user, unchecked, so a program reading `berm_lang::caller()` and `user()` runs as it would for them on Cloud.
+`inspect` shows the most one call of each tool may use and its price, `budget NAME TOOL --instructions N --rows N` sets the first, and `price NAME TOOL MICROS` the second, in USD micros a call that ends done. `run` calls one public tool and prints what the call used on stderr; `usage` prints a program's meters over the last 30 days, a day each. Agents reach tools over MCP. On bermd, `--caller alice --issuer https://id.example --user 42` makes the call as that caller and user, unchecked, so a program reading `berm_lang::caller()` and `user()` runs as it would for them on Cloud.
 
 ## License
 

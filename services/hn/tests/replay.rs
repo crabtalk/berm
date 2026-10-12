@@ -49,7 +49,7 @@ const TICK: u64 = 5 * 60 * 1000;
 async fn ticks_log_stories_then_threads() -> Result<()> {
     let host = TestHost::open(RECORDED).await?;
     arrange(&host)?;
-    host.deploy("hn", &test::build("hn")?).await?;
+    host.deploy("hn", &test::build("hn", "hn")?).await?;
 
     let started = host.call("hn", "start", b"{}").await?;
     assert_eq!(started.result.as_deref(), Ok("started"));

@@ -62,6 +62,9 @@ pub fn show(program: &Program, terms: &Terms) {
                 "    at most {} instructions and {} rows a call",
                 held.budget.instructions, held.budget.rows
             );
+            if held.price_micros > 0 {
+                println!("    {} USD micros a call that ends done", held.price_micros);
+            }
         }
         for parameter in properties(&tool.parameters) {
             println!("    {parameter}");

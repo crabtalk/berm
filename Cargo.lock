@@ -714,7 +714,11 @@ dependencies = [
 name = "berm-fixture"
 version = "0.0.8"
 dependencies = [
+ "anyhow",
+ "berm-api",
+ "berm-host",
  "berm-lang",
+ "tokio",
 ]
 
 [[package]]

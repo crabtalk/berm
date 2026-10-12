@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use berm_api::{
-    Budget, Logged, Meter, Output, Program, Terms,
+    Budget, Logged, Meter, Output, Price, Program, Terms,
     host::{self, Caller, Metered},
 };
 use reqwest::blocking::RequestBuilder;
@@ -127,6 +127,13 @@ impl Client {
     pub fn budget(&self, name: &str, tool: &str, budget: Budget) -> Result<()> {
         let url = format!("{}/tools/{tool}/budget", self.url(name));
         self.read(self.http.put(url).json(&budget))?;
+        Ok(())
+    }
+
+    /// Set what a call of `tool` of `name` that ends `done` costs.
+    pub fn price(&self, name: &str, tool: &str, price: Price) -> Result<()> {
+        let url = format!("{}/tools/{tool}/price", self.url(name));
+        self.read(self.http.put(url).json(&price))?;
         Ok(())
     }
 

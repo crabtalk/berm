@@ -1,6 +1,6 @@
 use anyhow::Result;
 use berm_api::{
-    Budget,
+    Budget, Price,
     host::{Caller, User},
 };
 use berm_cli::{
@@ -107,6 +107,13 @@ enum Command {
         #[arg(long)]
         rows: u64,
     },
+    /// Set what a call of a tool that ends `done` costs its caller, in USD
+    /// micros, from its next call. 0 is free.
+    Price {
+        name: String,
+        tool: String,
+        micros: u64,
+    },
     /// Name the hosts `berm` talks to, and pick one.
     #[command(subcommand)]
     Context(ContextCommand),
@@ -206,6 +213,16 @@ fn main() -> Result<ExitCode> {
                 },
             )?;
             println!("{name}.{tool}: at most {instructions} instructions and {rows} rows a call");
+        }
+        Command::Price { name, tool, micros } => {
+            client()?.price(
+                name,
+                tool,
+                Price {
+                    price_micros: *micros,
+                },
+            )?;
+            println!("{name}.{tool}: {micros} USD micros a call that ends done");
         }
         // The one command whose exit code carries a result rather than a
         // verdict on berm.

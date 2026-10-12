@@ -4,7 +4,6 @@
 
 use crate::{
     Denied,
-    budget::Budgets,
     commit::{self, Commits},
     config::Config,
     deliver::Deliveries,
@@ -15,6 +14,7 @@ use crate::{
     routes::Routes,
     service,
     store::Store,
+    terms::Terms,
     usage::{self, Counts, Kind, Outcome, Source},
     wake,
 };
@@ -78,8 +78,8 @@ pub struct Host<E: Env> {
     /// The most one invocation may use, and what a tool's owner has not set
     /// takes.
     pub budget: Budget,
-    /// Each tool's budget its owner set.
-    pub(crate) budgets: Arc<Budgets>,
+    /// Each tool's budget and price its owner set.
+    pub(crate) terms: Arc<Terms>,
     /// Held by a deploy of the service keyed by its key.
     deploying: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     /// [`Edges::clock`].
@@ -105,7 +105,7 @@ impl<E: Env> Clone for Host<E> {
             images: self.images.clone(),
             admit: self.admit.clone(),
             budget: self.budget,
-            budgets: self.budgets.clone(),
+            terms: self.terms.clone(),
             deploying: self.deploying.clone(),
             now: self.now.clone(),
         }
@@ -234,9 +234,9 @@ impl<E: Env> Host<E> {
         let usage = Arc::new(Counts::new(now.clone()));
         let meters = Arc::new(Pending::new(now.clone()));
         let (reporting, reported) = (usage.clone(), deployed);
-        let budgets = Arc::new(Budgets::default());
-        budgets.load(&store).await?;
-        let budgeting = budgets.clone();
+        let terms = Arc::new(Terms::default());
+        terms.load(&store).await?;
+        let budgeting = terms.clone();
         let (reaching, routing) = (peers.clone(), routes.clone());
         let calls = Calls {
             depth: config.depth,
@@ -261,7 +261,7 @@ impl<E: Env> Host<E> {
             // scope.
             named: Arc::new(|program: &str| split(program).1.to_owned()),
             enter: commit::enter(commits.clone()),
-            budget: Arc::new(move |service: &str, tool: &str| budgeting.get(service, tool)),
+            budget: Arc::new(move |service: &str, tool: &str| budgeting.get(service, tool).budget),
             now: now.clone(),
             remote: Arc::new(move |at, deployed, tool, args, link| {
                 let peer = routing.peer(deployed)?;
@@ -327,7 +327,7 @@ impl<E: Env> Host<E> {
                 instructions: config.fuel,
                 rows: config.rows,
             },
-            budgets,
+            terms,
             deploying: Arc::default(),
             now,
         })
@@ -457,7 +457,7 @@ impl<E: Env> Host<E> {
         let (scope, name) = split(service);
         let removed = service::remove(&self.store, scope, name).await?;
         self.berm.remove(service)?;
-        self.budgets.forget(service);
+        self.terms.forget(service);
         self.subscribe();
         Ok(removed)
     }

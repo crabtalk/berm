@@ -6,7 +6,7 @@
 //! ```ignore
 //! let host = TestHost::open(0).await?;
 //! host.arrange("GET", "https://example.com/feed", 200, feed);
-//! host.deploy("feeds", &berm_host::test::build("feeds")?).await?;
+//! host.deploy("feeds", &berm_host::test::build("feeds", "feeds")?).await?;
 //! host.call("feeds", "start", b"{}").await?;
 //! for (wake, ran) in host.fire().await? { /* … */ }
 //! let logs = host.logs("feeds", Some("Item")).await?;
@@ -330,9 +330,9 @@ impl Drop for TestHost {
     }
 }
 
-/// Build `package`'s binary of the same name for the guest target, release
-/// profile, and answer the image's bytes.
-pub fn build(package: &str) -> Result<Vec<u8>> {
+/// Build binary `bin` of `package` for the guest target, release profile, and
+/// answer the image's bytes.
+pub fn build(package: &str, bin: &str) -> Result<Vec<u8>> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
     let output = Command::new(cargo)
         .args([
@@ -345,7 +345,7 @@ pub fn build(package: &str) -> Result<Vec<u8>> {
             "-p",
             package,
             "--bin",
-            package,
+            bin,
         ])
         .output()
         .context("running cargo")?;
@@ -363,9 +363,9 @@ pub fn build(package: &str) -> Result<Vec<u8>> {
         .filter_map(|file| file.as_str().map(PathBuf::from))
         .find(|file| {
             file.extension().is_some_and(|ext| ext == "wasm")
-                && file.file_stem().is_some_and(|stem| stem == package)
+                && file.file_stem().is_some_and(|stem| stem == bin)
         })
-        .with_context(|| format!("cargo built no {package}.wasm"))?;
+        .with_context(|| format!("cargo built no {bin}.wasm"))?;
     read(&image)
 }
 

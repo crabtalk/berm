@@ -38,7 +38,7 @@ impl<E: Env> Host<E> {
     }
 
     /// `service`'s terms: each public tool's budget, what its owner set or
-    /// else this host's.
+    /// else this host's, and its price.
     pub fn terms(&self, service: &str) -> Result<Terms, Denied> {
         let program = self
             .get(service)
@@ -49,8 +49,14 @@ impl<E: Env> Host<E> {
             .iter()
             .filter(|tool| tool.public)
             .map(|tool| {
-                let budget = self.budgets.get(service, &tool.name).unwrap_or(self.budget);
-                (tool.name.clone(), ToolTerms { budget })
+                let set = self.terms.get(service, &tool.name);
+                (
+                    tool.name.clone(),
+                    ToolTerms {
+                        budget: set.budget.unwrap_or(self.budget),
+                        price_micros: set.price_micros,
+                    },
+                )
             })
             .collect();
         Ok(Terms { tools })
@@ -64,13 +70,7 @@ impl<E: Env> Host<E> {
         tool: &str,
         budget: Budget,
     ) -> Result<(), Denied> {
-        let (program, _) = self.deployed(service).await?;
-        if !program.tools().any(|exported| exported == tool) {
-            return Err(deny(
-                StatusCode::NOT_FOUND,
-                format!("the service has no tool named {tool:?}"),
-            ));
-        }
+        self.exported(service, tool).await?;
         if budget.instructions == 0
             || budget.rows == 0
             || budget.instructions > self.budget.instructions
@@ -84,7 +84,38 @@ impl<E: Env> Host<E> {
                 ),
             ));
         }
-        Ok(self.budgets.set(&self.store, service, tool, budget).await?)
+        Ok(self
+            .terms
+            .set_budget(&self.store, service, tool, budget)
+            .await?)
+    }
+
+    /// Price a call of `tool` of `service` that ends `done` at `micros` USD
+    /// micros, from its next call. Refused past `i64::MAX`.
+    pub async fn set_price(&self, service: &str, tool: &str, micros: u64) -> Result<(), Denied> {
+        self.exported(service, tool).await?;
+        if micros > i64::MAX as u64 {
+            return Err(deny(
+                StatusCode::BAD_REQUEST,
+                format!("a price is at most {} micros", i64::MAX),
+            ));
+        }
+        Ok(self
+            .terms
+            .set_price(&self.store, service, tool, micros)
+            .await?)
+    }
+
+    /// Refused unless `service` is deployed and exports `tool`.
+    async fn exported(&self, service: &str, tool: &str) -> Result<(), Denied> {
+        let (program, _) = self.deployed(service).await?;
+        if !program.tools().any(|exported| exported == tool) {
+            return Err(deny(
+                StatusCode::NOT_FOUND,
+                format!("the service has no tool named {tool:?}"),
+            ));
+        }
+        Ok(())
     }
 
     /// `service`'s commit count.

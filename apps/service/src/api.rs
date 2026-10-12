@@ -15,7 +15,7 @@ use axum::{
 };
 use berm::Program;
 use berm_api::{
-    Budget, Logged, Program as Wire, Terms,
+    Budget, Logged, Price, Program as Wire, Terms,
     host::{self, Caller, Metered, Page},
 };
 use berm_host::{Denied, deny};
@@ -49,6 +49,7 @@ pub fn router(service: Arc<Service>) -> Router {
         .route("/programs/{name}/meters", get(meters))
         .route("/programs/{name}/terms", get(terms))
         .route("/programs/{name}/tools/{tool}/budget", put(budget))
+        .route("/programs/{name}/tools/{tool}/price", put(price))
         .route_service("/mcp", mcp)
         .with_state(service)
 }
@@ -107,6 +108,17 @@ async fn budget(
     Json(budget): Json<Budget>,
 ) -> Result<StatusCode, Denied> {
     service.host.set_budget(&name, &tool, budget).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Set what a call of a tool that ends `done` costs, from its next call. bermd
+/// charges nothing.
+async fn price(
+    State(service): State<Arc<Service>>,
+    Path((name, tool)): Path<(String, String)>,
+    Json(Price { price_micros }): Json<Price>,
+) -> Result<StatusCode, Denied> {
+    service.host.set_price(&name, &tool, price_micros).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -242,11 +242,22 @@ pub struct Terms {
     pub tools: BTreeMap<String, ToolTerms>,
 }
 
-/// What one call of a tool is held to.
+/// What one call of a tool is held to, and what it costs.
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolTerms {
     pub budget: Budget,
+    /// USD micros a call that ends `done` costs its caller; 0 is free.
+    #[serde(default)]
+    pub price_micros: u64,
+}
+
+/// A tool's price, as its owner sets it.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Price {
+    /// USD micros a call that ends `done` costs its caller; 0 is free.
+    pub price_micros: u64,
 }
 
 /// The most one invocation may use: wasm instructions, and rows read and

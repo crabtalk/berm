@@ -47,7 +47,7 @@ async fn ticks_fetch_every_desk_once() -> Result<()> {
     let host = TestHost::open(RECORDED).await?;
     let arranged = arrange(&host)?;
     assert_eq!(arranged, 116);
-    host.deploy("news", &test::build("news")?).await?;
+    host.deploy("news", &test::build("news", "news")?).await?;
     assert_eq!(
         host.call("news", "start", b"{}").await?.result.as_deref(),
         Ok("started")

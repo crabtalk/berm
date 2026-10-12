@@ -15,7 +15,6 @@ pub use config::Config;
 pub use env::{Admit, Clock, Edges, Env, Images, Peers, Secrets, System};
 pub use host::Host;
 
-mod budget;
 mod call;
 mod commit;
 mod config;
@@ -27,6 +26,7 @@ mod meter;
 mod routes;
 mod service;
 mod store;
+mod terms;
 #[cfg(feature = "test")]
 pub mod test;
 mod usage;

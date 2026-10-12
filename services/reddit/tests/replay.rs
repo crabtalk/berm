@@ -41,7 +41,7 @@ fn arrange(host: &TestHost) -> Result<()> {
 async fn first_tick_logs_posts_and_comments() -> Result<()> {
     let host = TestHost::open(RECORDED).await?;
     arrange(&host)?;
-    host.deploy("reddit", &test::build("reddit")?).await?;
+    host.deploy("reddit", &test::build("reddit", "reddit")?).await?;
 
     let follow = br#"{"sub":"rust","sort":"hot"}"#;
     assert_eq!(
