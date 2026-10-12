@@ -1,6 +1,7 @@
-# Publishing a Program
-
-A program is one file, so it travels as one OCI layer with no tarball around it.
+---
+title: Publishing a Program
+description: "A program is one file, so it travels as one OCI layer with no tarball around it."
+---
 
 ```sh
 berm push ghcr.io/org/example:v1 ./target/wasm32-unknown-unknown/release/example.wasm

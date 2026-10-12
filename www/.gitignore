@@ -1,7 +1,3 @@
 node_modules
 .svelte-kit
 build
-
-# mdbook output; `bun run book` puts it here so one build produces the whole
-# site, locally and in CI alike.
-static/book

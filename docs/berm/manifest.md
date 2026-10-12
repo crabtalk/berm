@@ -1,7 +1,7 @@
-# The Manifest
-
-What a program says it is: its ABI version, its tools, when to reach for them,
-and what it reaches for itself.
+---
+title: The Manifest
+description: "What a program says it is: its ABI version, its tools, when to reach for them, and what it reaches for itself."
+---
 
 The manifest is JSON, carried in a `.berm.abi` section of the image rather than
 behind an export. That placement is the point — reading what an image claims

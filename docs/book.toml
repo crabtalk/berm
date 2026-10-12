@@ -3,7 +3,7 @@ title = "berm"
 description = "The OS for agent harnesses"
 authors = ["clearloop"]
 language = "en"
-src = "src"
+src = "."
 
 [output.html]
 default-theme = "rust"

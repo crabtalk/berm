@@ -1,4 +1,6 @@
-# Writing a Program
+---
+title: Writing a Program
+---
 
 `berm-lang` is the guest side. It owns the ABI, so an author never sees a call
 number or a pointer pair.

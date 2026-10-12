@@ -1,4 +1,6 @@
-# Running the Service
+---
+title: Running the Service
+---
 
 `bermd` is a long-running service that deploys programs and serves their tools
 over MCP.

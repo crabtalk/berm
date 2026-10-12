@@ -1,7 +1,7 @@
 name: Deploy Site
 
-# One build for the whole site: `bun run build` drives mdbook into `www/static`
-# first, so what CI publishes is what `bun run dev` serves.
+# `bun run build` renders `docs/` into the site's `/docs` pages, so what CI
+# publishes is what `bun run dev` serves.
 on:
   push:
     branches: [main]
@@ -23,10 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - uses: peaceiris/actions-mdbook@v2
-        with:
-          mdbook-version: "latest"
-
       - run: bun install --frozen-lockfile
         working-directory: www
 

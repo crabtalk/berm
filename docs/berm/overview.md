@@ -1,4 +1,6 @@
-# Overview
+---
+title: Overview
+---
 
 A program is one WebAssembly module. berm pins it by hash, compiles it once, and
 instantiates it per invocation: arguments go in through host calls, the result

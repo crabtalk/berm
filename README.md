@@ -68,11 +68,11 @@ berm search "read a file"
 `deploy` takes a file or a reference. Finding one is a separate question, since
 no registry will tell you who published a program: the list is a git repository,
 so `search` reads a clone of it with no service and no credential. See
-[Publishing a Program](https://crabtalk.github.io/berm/book/berm/publishing.html).
+[Publishing a Program](https://crabtalk.github.io/berm/docs/berm/publishing/).
 
 ## Documentation
 
-- **[Guide and design notes](https://crabtalk.github.io/berm/book/)** — how it
+- **[Guide and design notes](https://crabtalk.github.io/berm/docs/)** — how it
   works and why, with worked examples.
 - **API reference** — `cargo doc --open`.
 

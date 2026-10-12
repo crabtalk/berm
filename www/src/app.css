@@ -1,6 +1,7 @@
 :root {
 	--bg: #000;
 	--panel: #0a0a0a;
+	--panel-high: #161616;
 	--line: #232323;
 	--line-strong: #363636;
 	--text: #ededed;
@@ -9,6 +10,9 @@
 	/* The page carries one hue, and it is the sand a berm is built from. It marks
 	   the two things worth reading twice: a digest, and a keyword. */
 	--sand: #d8a657;
+	--radius: 6px;
+	/* The sticky bar's height; the docs columns hang below it. */
+	--header: 56px;
 	--mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
 	color-scheme: dark;
 }
@@ -60,6 +64,12 @@ pre code {
 	border: 0;
 	padding: 0;
 	font-size: 13px;
+}
+
+/* Shiki paints each token as `--shiki-dark` and sets no colour of its own. */
+.shiki,
+.shiki span {
+	color: var(--shiki-dark);
 }
 
 /* The copy button is delegated from the layout and reused by every block on the

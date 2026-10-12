@@ -112,7 +112,7 @@
 
 	<div class="act">
 		<div class="cta">
-			<a class="button primary" href="{base}/book/">Read the docs</a>
+			<a class="button primary" href="{base}/docs/">Read the docs</a>
 		</div>
 	</div>
 </section>
@@ -201,7 +201,7 @@
 <footer>
 	<nav class="left">
 		<a href="https://github.com/crabtalk">crabtalk</a>
-		<a href="{base}/book/">Docs</a>
+		<a href="{base}/docs/">Docs</a>
 	</nav>
 	<nav class="right">
 		<a href={repo} aria-label="berm on GitHub"><Brand icon={siGithub} size={15} /></a>
