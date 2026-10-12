@@ -19,6 +19,7 @@ use axum::{
 use berm_api::Failed;
 use berm_index::{Entry, Index};
 use berm_oci::{Access, Reference, Registry};
+use clap::Parser;
 use serde::Deserialize;
 use std::{
     net::SocketAddr,
@@ -27,7 +28,32 @@ use std::{
     sync::Arc,
 };
 
-pub async fn serve(root: PathBuf, addr: SocketAddr) -> Result<()> {
+#[derive(Parser)]
+#[command(version, about = "A local stand-in for an index service")]
+struct Args {
+    /// The directory to keep the list in. Created if it is not there.
+    #[arg(long, default_value = "./index")]
+    index: PathBuf,
+
+    /// Address to listen on.
+    #[arg(long, default_value = "127.0.0.1:7788")]
+    addr: SocketAddr,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("server=info".parse().expect("the default directive parses")),
+        )
+        .init();
+
+    let args = Args::parse();
+    serve(args.index, args.addr).await
+}
+
+async fn serve(root: PathBuf, addr: SocketAddr) -> Result<()> {
     tokio::fs::create_dir_all(&root)
         .await
         .with_context(|| format!("cannot open {}", root.display()))?;

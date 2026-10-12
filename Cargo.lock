@@ -756,22 +756,11 @@ name = "berm-index"
 version = "0.0.8"
 dependencies = [
  "anyhow",
- "berm-api",
- "reqwest",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "berm-indexd"
-version = "0.0.8"
-dependencies = [
- "anyhow",
  "axum",
  "berm-api",
- "berm-index",
  "berm-oci",
  "clap",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
