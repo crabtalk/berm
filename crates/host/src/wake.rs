@@ -29,7 +29,8 @@ const TIMEOUT: u64 = 60_000;
 
 /// `berm.call.after`: hold the wake for the service arming it, once its target
 /// is one of its own tools or a public tool of a deployed service in its
-/// scope. A target on a peer is checked there when the wake fires.
+/// scope. A target on a peer is checked there when the wake fires. In a dry
+/// chain the wake is checked and not held.
 pub(crate) fn syscall(
     now: Now,
     store: Store,
@@ -71,6 +72,9 @@ pub(crate) fn syscall(
                     wake.program,
                     wake.tool
                 );
+            }
+            if at.dry.is_some() {
+                return Ok(());
             }
             let due = (now() as i64).saturating_add(i64::try_from(wake.delay).unwrap_or(i64::MAX));
             service::arm(
@@ -147,6 +151,7 @@ impl<E: Env> Host<E> {
                     query: false,
                     timeout: TIMEOUT,
                     stack: vec![key.clone()],
+                    dry: None,
                 };
                 let Reply { result, .. } = self
                     .peers
@@ -171,6 +176,7 @@ impl<E: Env> Host<E> {
                     None,
                     &wake.tool,
                     wake.args.clone().into_bytes(),
+                    None,
                     None,
                 )
                 .await?;

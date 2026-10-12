@@ -15,7 +15,12 @@ use berm::{
     Callsite, Changes, Enter, Program, Scope,
     database::{Databases, Held},
 };
-use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 use tokio::sync::Mutex;
 
 /// Logs copied from an outbox per transaction.
@@ -30,6 +35,9 @@ pub(crate) struct Commits {
     shipping: Arc<Mutex<()>>,
     /// Told which services committed logs.
     deliveries: Arc<Deliveries>,
+    /// What each dry chain's links hold, by chain, until its outermost link on
+    /// this host ends.
+    kept: Arc<parking_lot::Mutex<HashMap<u64, Vec<Held>>>>,
 }
 
 impl Commits {
@@ -43,6 +51,7 @@ impl Commits {
             databases,
             shipping: Arc::new(Mutex::new(())),
             deliveries,
+            kept: Arc::default(),
         }
     }
 
@@ -146,16 +155,34 @@ impl Commits {
 /// journal. One that took a service's writer commits that database when it
 /// returns ok, and its logs are shipped; unless it is the chain's first, the
 /// rest of what it wrote and emitted is committed then.
+///
+/// In a dry chain nothing is committed: each link's hold is kept until the
+/// chain's outermost link on this host ends, then every one is rolled back.
+// TODO: a service without a database reads `berm.get` from what was
+// committed, so in a dry chain it does not read what an earlier link of the
+// chain set.
 pub(crate) fn enter(commits: Commits) -> Enter {
     Arc::new(move |program: &Program, at: &Callsite| {
         let (commits, entering) = (commits.clone(), commits.databases.enter(program, at));
         let first = at.depth == 1;
+        let keep = at.dry.as_ref().and_then(|_| {
+            let mut kept = commits.kept.lock();
+            (!kept.contains_key(&at.chain)).then(|| {
+                kept.insert(at.chain, Vec::new());
+                Keep {
+                    kept: commits.kept.clone(),
+                    chain: at.chain,
+                }
+            })
+        });
+        let (dry, chain) = (at.dry.is_some(), at.chain);
         Box::pin(async move {
             let held = entering.await?;
             Ok(Box::new(Entered {
                 commits,
                 held,
                 first,
+                dry: dry.then_some((chain, keep)),
             }) as Box<dyn Scope>)
         })
     })
@@ -168,6 +195,22 @@ struct Entered {
     /// The chain's first call, whose changes the host commits with a delivery's
     /// position.
     first: bool,
+    /// Set in a dry chain: its number, and for its outermost link on this
+    /// host, what drops every hold the chain kept.
+    dry: Option<(u64, Option<Keep>)>,
+}
+
+/// Drops every hold a dry chain kept, which rolls each back.
+struct Keep {
+    kept: Arc<parking_lot::Mutex<HashMap<u64, Vec<Held>>>>,
+    chain: u64,
+}
+
+impl Drop for Keep {
+    fn drop(&mut self) {
+        let kept = self.kept.lock().remove(&self.chain);
+        drop(kept);
+    }
 }
 
 impl Scope for Entered {
@@ -184,7 +227,22 @@ impl Scope for Entered {
                 commits,
                 held,
                 first,
+                dry,
             } = *self;
+            if let Some((chain, keep)) = dry {
+                match keep {
+                    Some(keep) => drop((keep, held)),
+                    None => {
+                        if let Some(kept) = commits.kept.lock().get_mut(&chain) {
+                            kept.push(held);
+                        }
+                    }
+                }
+                return Ok(match first {
+                    true => changes,
+                    false => Changes::default(),
+                });
+            }
             let took = held.took().map(str::to_owned);
             held.commit().await?;
             if let Some(key) = took

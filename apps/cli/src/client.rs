@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use berm_api::{
-    Budget, Logged, Meter, Output, Price, Program, Terms,
+    Budget, DryRun, Logged, Meter, Output, Price, Program, Terms,
     host::{self, Caller, Metered},
 };
 use reqwest::blocking::RequestBuilder;
@@ -105,15 +105,26 @@ impl Client {
             }
             request = request.header(host::CALLER, serde_json::to_string(caller)?);
         }
-        let response = self.read(request)?;
-        let meter = response
-            .headers()
-            .get(host::METER)
-            .and_then(|value| serde_json::from_slice(value.as_bytes()).ok());
-        let output = response
-            .json()
-            .context("the host returned something that is not a tool result")?;
-        Ok((output, meter))
+        answered(self.read(request)?)
+    }
+
+    /// Run `tool` of `program` dry, as `run` says.
+    pub fn dry(
+        &self,
+        program: &str,
+        tool: &str,
+        run: &DryRun,
+        caller: Option<&Caller>,
+    ) -> Result<(Output, Option<Meter>)> {
+        let url = format!("{}/tools/{tool}/dry", self.url(program));
+        let mut request = self.http.post(url).json(run);
+        if let Some(caller) = caller {
+            if self.owner.is_some() {
+                bail!("Cloud calls as the context's token; `--caller` is for bermd");
+            }
+            request = request.header(host::CALLER, serde_json::to_string(caller)?);
+        }
+        answered(self.read(request)?)
     }
 
     /// What a call of each of `name`'s public tools is held to.
@@ -174,4 +185,16 @@ impl Client {
         };
         http::read(&self.host, request.send())
     }
+}
+
+/// A tool's answer and the meter its headers carry.
+fn answered(response: reqwest::blocking::Response) -> Result<(Output, Option<Meter>)> {
+    let meter = response
+        .headers()
+        .get(host::METER)
+        .and_then(|value| serde_json::from_slice(value.as_bytes()).ok());
+    let output = response
+        .json()
+        .context("the host returned something that is not a tool result")?;
+    Ok((output, meter))
 }

@@ -9,7 +9,7 @@ use crate::{
     usage::{self, Kind, Outcome, Source},
 };
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
-use berm::{Budget, Meters, Program, Refused};
+use berm::{Budget, Dry, Meters, Program, Refused};
 use berm_api::{
     Logged, Output, Terms, ToolTerms,
     host::{self as wire, Caller, Link, Metered, Reply, Route, Usage, Used},
@@ -135,6 +135,33 @@ impl<E: Env> Host<E> {
         args: Vec<u8>,
         query: bool,
     ) -> Result<(HeaderMap, Output), Denied> {
+        self.run(service, caller, tool, args, query, None).await
+    }
+
+    /// [`Host::call`], made dry: nothing the chain changes is kept, its
+    /// fetches are answered as `dry` says, and it is not counted as a use. Its
+    /// meter is counted.
+    pub async fn dry_run(
+        &self,
+        service: &str,
+        caller: Option<&Caller>,
+        tool: &str,
+        args: Vec<u8>,
+        dry: Dry,
+    ) -> Result<(HeaderMap, Output), Denied> {
+        self.run(service, caller, tool, args, false, Some(Arc::new(dry)))
+            .await
+    }
+
+    async fn run(
+        &self,
+        service: &str,
+        caller: Option<&Caller>,
+        tool: &str,
+        args: Vec<u8>,
+        query: bool,
+        dry: Option<Arc<Dry>>,
+    ) -> Result<(HeaderMap, Output), Denied> {
         let (program, _) = self.deployed(service).await?;
         let Some(spec) = program
             .manifest()
@@ -154,9 +181,12 @@ impl<E: Env> Host<E> {
             ));
         }
         let (source, who) = counted(caller);
+        let counts = dry.is_none();
         let refused = |denied: Denied| {
-            self.usage
-                .record(service, Kind::Tool, tool, source, who, Outcome::Refused);
+            if counts {
+                self.usage
+                    .record(service, Kind::Tool, tool, source, who, Outcome::Refused);
+            }
             Err(denied)
         };
         if !program.reached_by_accounts(tool) {
@@ -202,11 +232,14 @@ impl<E: Env> Host<E> {
                 tool,
                 args,
                 None,
+                dry,
             )
             .await
             .map_err(|e| deny(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
-        self.usage
-            .record(service, Kind::Tool, tool, source, who, invoked.outcome());
+        if counts {
+            self.usage
+                .record(service, Kind::Tool, tool, source, who, invoked.outcome());
+        }
         headers.insert(
             HeaderName::from_static(wire::METER),
             HeaderValue::from_str(&serde_json::to_string(&invoked.meter).expect("a meter is JSON"))
@@ -264,8 +297,8 @@ impl<E: Env> Host<E> {
         .await?)
     }
 
-    /// A call from a service on a peer, run as `link` and committed here. A
-    /// refusal is `403` with its reason.
+    /// A call from a service on a peer, run as `link` and committed here unless
+    /// the chain is dry. A refusal is `403` with its reason.
     pub async fn link(
         &self,
         service: &str,
@@ -279,15 +312,18 @@ impl<E: Env> Host<E> {
                 format!("no program named {service:?} is deployed"),
             )
         })?;
+        let dry = link.dry.is_some();
         let refused = |message: String| {
-            self.usage.record(
-                service,
-                Kind::Tool,
-                tool,
-                Source::Service,
-                &link.from,
-                Outcome::Refused,
-            );
+            if !dry {
+                self.usage.record(
+                    service,
+                    Kind::Tool,
+                    tool,
+                    Source::Service,
+                    &link.from,
+                    Outcome::Refused,
+                );
+            }
             Err(deny(StatusCode::FORBIDDEN, message))
         };
         if !program.public(tool) {
@@ -308,6 +344,7 @@ impl<E: Env> Host<E> {
                     user: link.user.as_ref().map(host::user),
                     depth: link.depth,
                     query: link.query,
+                    dry: link.dry.clone().map(Arc::new),
                     deadline: Instant::now() + Duration::from_millis(link.timeout),
                     stack: link
                         .stack
@@ -329,7 +366,7 @@ impl<E: Env> Host<E> {
                 Err(error) => return Err(error.into()),
             },
         };
-        if outcome.result.is_ok() {
+        if outcome.result.is_ok() && !dry {
             self.commits.commit(&outcome.changes, None).await?;
         }
         let ended = match (&outcome.result, outcome.denied) {
@@ -337,14 +374,16 @@ impl<E: Env> Host<E> {
             (Err(_), true) => Outcome::Denied,
             (Err(_), false) => Outcome::Failed,
         };
-        self.usage.record(
-            service,
-            Kind::Tool,
-            tool,
-            Source::Service,
-            &link.from,
-            ended,
-        );
+        if !dry {
+            self.usage.record(
+                service,
+                Kind::Tool,
+                tool,
+                Source::Service,
+                &link.from,
+                ended,
+            );
+        }
         Ok(Reply {
             result: outcome.result,
             denied: outcome.denied,

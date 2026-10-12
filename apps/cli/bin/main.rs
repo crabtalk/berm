@@ -1,6 +1,6 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use berm_api::{
-    Budget, Price,
+    Budget, Dry, Price,
     host::{Caller, User},
 };
 use berm_cli::{
@@ -68,6 +68,17 @@ enum Command {
         /// for.
         #[arg(long, requires = "issuer")]
         user: Option<String>,
+        /// Keep nothing the call changes.
+        #[arg(long)]
+        dry: bool,
+        /// With `--dry`, a JSON array of `{"method", "url", "status",
+        /// "headers", "body"}` a request is answered from in place of being
+        /// sent.
+        #[arg(long, requires = "dry")]
+        answers: Option<PathBuf>,
+        /// With `--dry`, refuse a request no answer matches.
+        #[arg(long, requires = "dry")]
+        offline: bool,
     },
     /// Publish an image to a registry.
     Push { reference: String, image: PathBuf },
@@ -233,6 +244,9 @@ fn main() -> Result<ExitCode> {
             caller,
             issuer,
             user,
+            dry,
+            answers,
+            offline,
         } => {
             let caller = caller.as_ref().map(|id| Caller {
                 id: id.clone(),
@@ -243,12 +257,27 @@ fn main() -> Result<ExitCode> {
                     .map(|(issuer, subject)| User { issuer, subject }),
                 client: None,
             });
+            let dry = match dry {
+                true => Some(Dry {
+                    answers: match answers {
+                        Some(path) => serde_json::from_slice(
+                            &std::fs::read(path)
+                                .with_context(|| format!("reading {}", path.display()))?,
+                        )
+                        .with_context(|| format!("{} is not a list of answers", path.display()))?,
+                        None => Vec::new(),
+                    },
+                    offline: *offline,
+                }),
+                false => None,
+            };
             return cmd::run::run(
                 &client()?,
                 program,
                 tool,
                 arguments.as_deref(),
                 caller.as_ref(),
+                dry,
             );
         }
     }

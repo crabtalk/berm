@@ -1,7 +1,7 @@
 //! One compiled program, and the state of one invocation of it.
 
 use crate::{
-    Caller, Callsite, Deps, Meter, Meters, Syscall, User, abi,
+    Caller, Callsite, Deps, Dry, Meter, Meters, Syscall, User, abi,
     bound::watchdog,
     engine::{Engine, Image},
     journal::{Changes, Journal},
@@ -172,17 +172,20 @@ impl Program {
         tool: &str,
         args: impl Into<Vec<u8>>,
     ) -> Result<Outcome> {
-        self.call_as(caller, None, tool, args, Arc::default()).await
+        self.call_as(caller, None, tool, args, None, Arc::default())
+            .await
     }
 
     /// [`Program::call`] on behalf of `user`, which every call in the chain
-    /// reads off its [`Callsite`], metered in `meters`.
+    /// reads off its [`Callsite`], metered in `meters`, and dry when `dry` is
+    /// set.
     pub async fn call_as(
         &self,
         caller: Option<Arc<str>>,
         user: Option<User>,
         tool: &str,
         args: impl Into<Vec<u8>>,
+        dry: Option<Arc<Dry>>,
         meters: Arc<Meters>,
     ) -> Result<Outcome> {
         let journal = Arc::new(Journal::default());
@@ -194,6 +197,7 @@ impl Program {
                 user,
                 1,
                 false,
+                dry,
                 watchdog::fresh(),
                 CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
                 journal.clone(),
@@ -227,6 +231,7 @@ impl Program {
             user,
             depth,
             query,
+            dry,
             deadline,
             stack,
         } = link;
@@ -239,6 +244,7 @@ impl Program {
                 user,
                 depth,
                 query,
+                dry,
                 deadline,
                 CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
                 journal.clone(),
@@ -271,6 +277,7 @@ impl Program {
         user: Option<User>,
         depth: u32,
         query: bool,
+        dry: Option<Arc<Dry>>,
         deadline: Instant,
         chain: u64,
         journal: Arc<Journal>,
@@ -294,6 +301,7 @@ impl Program {
             depth,
             stack,
             query: query || *declared,
+            dry,
             deadline,
             chain,
             journal: journal.clone(),
@@ -371,6 +379,7 @@ pub struct Link {
     pub user: Option<User>,
     pub depth: u32,
     pub query: bool,
+    pub dry: Option<Arc<Dry>>,
     pub deadline: Instant,
     pub stack: Arc<[Arc<str>]>,
 }

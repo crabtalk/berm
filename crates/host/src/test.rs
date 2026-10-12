@@ -20,7 +20,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use berm::{
-    Manifest, Meter, Program,
+    Dry, Manifest, Meter, Program,
     syscall::{
         http::{Request, Response},
         sql::Statement,
@@ -212,7 +212,32 @@ impl TestHost {
             .with_context(|| format!("no service named {service:?} is deployed"))?;
         let invoked = self
             .host
-            .invoke(&program, None, None, tool, args.to_vec(), None)
+            .invoke(&program, None, None, tool, args.to_vec(), None, None)
+            .await?;
+        Ok(Ran {
+            result: invoked.result,
+            denied: invoked.denied,
+            meter: invoked.meter,
+        })
+    }
+
+    /// [`TestHost::call`], made dry as `dry` says: nothing it changes is kept.
+    pub async fn dry(&self, service: &str, tool: &str, args: &[u8], dry: Dry) -> Result<Ran> {
+        let program = self
+            .host
+            .get(service)
+            .with_context(|| format!("no service named {service:?} is deployed"))?;
+        let invoked = self
+            .host
+            .invoke(
+                &program,
+                None,
+                None,
+                tool,
+                args.to_vec(),
+                None,
+                Some(Arc::new(dry)),
+            )
             .await?;
         Ok(Ran {
             result: invoked.result,

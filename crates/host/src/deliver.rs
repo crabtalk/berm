@@ -175,6 +175,7 @@ impl<E: Env> Host<E> {
                         &subscription.tool,
                         args,
                         Some(advance),
+                        None,
                     )
                     .await?;
                 let outcome = invoked.outcome();

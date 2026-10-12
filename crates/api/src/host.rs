@@ -74,6 +74,9 @@ pub struct Link {
     pub timeout: u64,
     /// The services the call sits under, outermost first, the called one last.
     pub stack: Vec<String>,
+    /// Set when the chain is dry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dry: Option<crate::Dry>,
 }
 
 /// How a call between hosts ended, when the called service ran.

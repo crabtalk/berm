@@ -15,7 +15,7 @@ use axum::{
 };
 use berm::Program;
 use berm_api::{
-    Budget, Logged, Price, Program as Wire, Terms,
+    Budget, DryRun, Logged, Price, Program as Wire, Terms,
     host::{self, Caller, Metered, Page},
 };
 use berm_host::{Denied, deny};
@@ -45,6 +45,7 @@ pub fn router(service: Arc<Service>) -> Router {
             get(inspect).put(deploy).delete(undeploy),
         )
         .route("/programs/{name}/tools/{tool}", post(call).get(query))
+        .route("/programs/{name}/tools/{tool}/dry", post(dry))
         .route("/programs/{name}/logs", get(logs))
         .route("/programs/{name}/meters", get(meters))
         .route("/programs/{name}/terms", get(terms))
@@ -183,6 +184,21 @@ async fn call(
     arguments: Bytes,
 ) -> Result<Response, Denied> {
     run(&service, &name, caller, &tool, arguments.to_vec(), false).await
+}
+
+/// Run one tool dry: its arguments and how its fetches are answered in the
+/// body, nothing it changes kept, answered as a call is.
+async fn dry(
+    State(service): State<Arc<Service>>,
+    Called(caller): Called,
+    Path((name, tool)): Path<(String, String)>,
+    Json(run): Json<DryRun>,
+) -> Result<Response, Denied> {
+    let (headers, output) = service
+        .host
+        .dry_run(&name, caller.as_ref(), &tool, run.arguments(), run.dry)
+        .await?;
+    Ok((headers, Json(output)).into_response())
 }
 
 /// `?args=` on a `GET`: the argument object, URL-encoded JSON.

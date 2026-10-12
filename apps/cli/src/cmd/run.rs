@@ -2,7 +2,7 @@
 
 use crate::Client;
 use anyhow::{Context, Result};
-use berm_api::{Output, host::Caller};
+use berm_api::{Dry, DryRun, Output, host::Caller};
 use std::{
     io::{IsTerminal, Read},
     process::ExitCode,
@@ -12,14 +12,30 @@ use std::{
 /// two leave by different doors so a script can tell them apart.
 const FAILED: u8 = 2;
 
+/// Run `tool` of `program`, dry when `dry` is set.
 pub fn run(
     client: &Client,
     program: &str,
     tool: &str,
     inline: Option<&str>,
     caller: Option<&Caller>,
+    dry: Option<Dry>,
 ) -> Result<ExitCode> {
-    let (output, meter) = client.run(program, tool, arguments(inline)?, caller)?;
+    let arguments = arguments(inline)?;
+    let (output, meter) = match dry {
+        Some(dry) => {
+            // Arguments that are not JSON go across as their text.
+            let args = serde_json::from_slice(&arguments).unwrap_or_else(|_| {
+                serde_json::Value::String(String::from_utf8_lossy(&arguments).into_owned())
+            });
+            let args = match arguments.is_empty() {
+                true => serde_json::Value::Null,
+                false => args,
+            };
+            client.dry(program, tool, &DryRun { args, dry }, caller)?
+        }
+        None => client.run(program, tool, arguments, caller)?,
+    };
     if let Some(meter) = meter {
         eprintln!(
             "{} instructions, {} rows read, {} written, {} KiB memory, {} bytes proxied",

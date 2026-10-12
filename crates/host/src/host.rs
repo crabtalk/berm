@@ -21,7 +21,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use axum::http::StatusCode;
 use berm::{
-    Berm, Called, Calls, Callsite, Ended, Engine, Log, Meter, Meters, Now, Program, Records,
+    Berm, Called, Calls, Callsite, Dry, Ended, Engine, Log, Meter, Meters, Now, Program, Records,
     Storage, User,
     database::Databases,
     syscall::{
@@ -244,7 +244,7 @@ impl<E: Env> Host<E> {
             // A call to a service on a peer is counted there.
             called: Arc::new(
                 move |at: &Callsite, deployed: &str, tool: &str, called: Called| {
-                    if reported(deployed).is_none() {
+                    if at.dry.is_some() || reported(deployed).is_none() {
                         return;
                     }
                     reporting.record(
@@ -289,6 +289,7 @@ impl<E: Env> Host<E> {
                         .iter()
                         .map(|program| program.to_string())
                         .collect(),
+                    dry: link.dry.as_deref().cloned(),
                 };
                 let at = at.clone();
                 Some(Box::pin(async move {
@@ -618,8 +619,10 @@ impl<E: Env> Host<E> {
     }
 
     /// Run `tool` on `program` as the first link of a chain, and commit what it
-    /// wrote and emitted, with `advance` for a delivery. A writing call into a
-    /// service with a database commits that database when it returns.
+    /// wrote and emitted, with `advance` for a delivery, unless `dry` is set. A
+    /// writing call into a service with a database commits that database when
+    /// it returns.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn invoke(
         &self,
         program: &Program,
@@ -628,14 +631,23 @@ impl<E: Env> Host<E> {
         tool: &str,
         args: Vec<u8>,
         advance: Option<Advance>,
+        dry: Option<Arc<Dry>>,
     ) -> Result<Invoked> {
         let meters = Arc::new(Meters::default());
+        let keeps = dry.is_none();
         let outcome = program
-            .call_as(caller.map(Into::into), user, tool, args, meters.clone())
+            .call_as(
+                caller.map(Into::into),
+                user,
+                tool,
+                args,
+                dry,
+                meters.clone(),
+            )
             .await;
         let meter = self.metered(meters.take());
         let outcome = outcome?;
-        if outcome.result.is_err() {
+        if outcome.result.is_err() || !keeps {
             return Ok(Invoked {
                 result: outcome.result,
                 denied: outcome.denied,
