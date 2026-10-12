@@ -1,5 +1,5 @@
 use crate::{Alone, Fetch, Grants, Open, Stored};
-use berm_host::Env;
+use berm_host::{Env, System};
 
 /// One machine, running every program itself.
 pub struct Local;
@@ -10,4 +10,5 @@ impl Env for Local {
     type Peers = Alone;
     type Secrets = Grants;
     type Admit = Open;
+    type Clock = System;
 }

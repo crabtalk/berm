@@ -9,7 +9,7 @@ use crate::{
     config::Config,
     deliver::Deliveries,
     deny,
-    env::{Edges, Env, Images, Peers},
+    env::{Clock, Edges, Env, Images, Peers},
     fetch,
     meter::{self, Meters as Pending},
     routes::Routes,
@@ -21,8 +21,8 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use axum::http::StatusCode;
 use berm::{
-    Berm, Called, Calls, Callsite, Ended, Engine, Log, Meter, Meters, Program, Records, Storage,
-    User,
+    Berm, Called, Calls, Callsite, Ended, Engine, Log, Meter, Meters, Now, Program, Records,
+    Storage, User,
     database::Databases,
     syscall::{
         emit,
@@ -66,7 +66,7 @@ pub struct Host<E: Env> {
     /// The last day stored bytes were sampled, in days since the Unix epoch.
     sampled: Arc<AtomicI32>,
     /// The databases of the services that keep one.
-    databases: Arc<Databases>,
+    pub(crate) databases: Arc<Databases>,
     /// Where a chain's changes are committed.
     pub(crate) commits: Commits,
     /// Where the services this host does not run live.
@@ -82,6 +82,8 @@ pub struct Host<E: Env> {
     pub(crate) budgets: Arc<Budgets>,
     /// Held by a deploy of the service keyed by its key.
     deploying: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+    /// [`Edges::clock`].
+    pub(crate) now: Now,
 }
 
 impl<E: Env> Clone for Host<E> {
@@ -105,6 +107,7 @@ impl<E: Env> Clone for Host<E> {
             budget: self.budget,
             budgets: self.budgets.clone(),
             deploying: self.deploying.clone(),
+            now: self.now.clone(),
         }
     }
 }
@@ -126,7 +129,10 @@ impl<E: Env> Host<E> {
             peers,
             secrets,
             admit,
+            clock,
         } = edges;
+        let clock = Arc::new(clock);
+        let now: Now = Arc::new(move || clock.now());
         let store = Store::open(state)?;
         let routes = Arc::new(Routes::open(store.clone()).await?);
         let peers = Arc::new(peers);
@@ -217,6 +223,7 @@ impl<E: Env> Host<E> {
         }));
         let waking = Arc::new(Notify::new());
         syscalls.push(wake::syscall(
+            now.clone(),
             store.clone(),
             runtime.clone(),
             routes.clone(),
@@ -224,8 +231,8 @@ impl<E: Env> Host<E> {
         ));
         let deliveries = Arc::new(Deliveries::default());
         let commits = Commits::new(store.clone(), databases.clone(), deliveries.clone());
-        let usage = Arc::new(Counts::default());
-        let meters = Arc::new(Pending::default());
+        let usage = Arc::new(Counts::new(now.clone()));
+        let meters = Arc::new(Pending::new(now.clone()));
         let (reporting, reported) = (usage.clone(), deployed);
         let budgets = Arc::new(Budgets::default());
         budgets.load(&store).await?;
@@ -255,6 +262,7 @@ impl<E: Env> Host<E> {
             named: Arc::new(|program: &str| split(program).1.to_owned()),
             enter: commit::enter(commits.clone()),
             budget: Arc::new(move |service: &str, tool: &str| budgeting.get(service, tool)),
+            now: now.clone(),
             remote: Arc::new(move |at, deployed, tool, args, link| {
                 let peer = routing.peer(deployed)?;
                 let (peers, from) = (reaching.clone(), at.program.to_string());
@@ -321,6 +329,7 @@ impl<E: Env> Host<E> {
             },
             budgets,
             deploying: Arc::default(),
+            now,
         })
     }
 
@@ -401,13 +410,14 @@ impl<E: Env> Host<E> {
             }
         }
         meter::write(&self.store, self.meters.take()).await?;
-        let today = (usage::now() / 86_400) as i32;
+        let today = self.today();
         if self.sampled.swap(today, Ordering::Relaxed) != today {
             for program in self.berm.list() {
                 meter::sample(
                     &self.store,
                     &program.name,
                     &self.databases_dir.join(&*program.name),
+                    today,
                 )
                 .await?;
             }
@@ -539,7 +549,14 @@ impl<E: Env> Host<E> {
                     Surface::Tool(tool) => (Kind::Tool, tool.as_str(), Outcome::Done),
                     Surface::Event(event) => (Kind::Event, event.as_str(), Outcome::Done),
                 };
-                let callers = usage::read(&self.store, scope, name, Some(of)).await?;
+                let callers = usage::read(
+                    &self.store,
+                    scope,
+                    name,
+                    Some(of),
+                    usage::seconds(&self.now),
+                )
+                .await?;
                 if callers.is_empty() {
                     continue;
                 }
@@ -593,6 +610,7 @@ impl<E: Env> Host<E> {
             &digest,
             &manifest.version,
             deprecated,
+            usage::seconds(&self.now),
         )
         .await?;
         self.subscribe();
@@ -645,6 +663,11 @@ impl<E: Env> Host<E> {
             total += used;
         }
         total
+    }
+
+    /// Days since the Unix epoch, as the clock tells it.
+    pub(crate) fn today(&self) -> i32 {
+        (usage::seconds(&self.now) / 86_400) as i32
     }
 
     /// Compile an image into the runtime, off the async workers.

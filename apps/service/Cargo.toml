@@ -23,9 +23,7 @@ clap.workspace = true
 rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-hex.workspace = true
 reqwest = { workspace = true, features = ["rustls"] }
-sha2.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tower.workspace = true

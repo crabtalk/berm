@@ -23,6 +23,7 @@ pub trait Env: Send + Sync + 'static {
     type Peers: Peers;
     type Secrets: Secrets;
     type Admit: Admit;
+    type Clock: Clock;
 }
 
 /// One daemon's edges, as values.
@@ -35,6 +36,9 @@ pub struct Edges<E: Env> {
     pub peers: E::Peers,
     pub secrets: E::Secrets,
     pub admit: E::Admit,
+    /// What `berm.now` answers, when a wake is due, and the day a use or a
+    /// meter is counted on.
+    pub clock: E::Clock,
 }
 
 /// A program's bytes for a deploy.
@@ -92,4 +96,20 @@ pub trait Admit: Send + Sync + 'static {
         query: bool,
         caller: Option<&Caller>,
     ) -> impl Future<Output = Result<(), Denied>> + Send;
+}
+
+/// What time it is.
+pub trait Clock: Send + Sync + 'static {
+    /// Milliseconds since the Unix epoch. Called inside a syscall, where an
+    /// unwind aborts the process.
+    fn now(&self) -> u64;
+}
+
+/// The system's clock.
+pub struct System;
+
+impl Clock for System {
+    fn now(&self) -> u64 {
+        berm::syscall::call::system_now()
+    }
 }

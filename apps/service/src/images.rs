@@ -2,7 +2,6 @@
 
 use anyhow::{Context, Result};
 use berm_host::Images;
-use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -25,7 +24,7 @@ impl Stored {
 
     /// Keep `image`, answering with its digest.
     pub fn put(&self, image: &[u8]) -> Result<String> {
-        let hex = hex::encode(Sha256::digest(image));
+        let hex = berm::digest(image);
         let path = self.dir.join(&hex);
         if !path.exists() {
             fs::create_dir_all(&self.dir).context("failed to open the images directory")?;

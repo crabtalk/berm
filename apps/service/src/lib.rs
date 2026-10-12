@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use berm::Program;
-use berm_host::{Config, Edges, Host};
+use berm_host::{Config, Edges, Host, System};
 use std::{path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::broadcast};
 
@@ -66,6 +66,7 @@ impl Service {
                 peers: Alone,
                 secrets: secrets.clone(),
                 admit: Open,
+                clock: System,
             },
         )
         .await

@@ -1,6 +1,6 @@
 //! The `services` table and what a service's calls commit beside it.
 
-use crate::{store::Store, usage};
+use crate::store::Store;
 use anyhow::Result;
 use berm_api::Logged;
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -72,7 +72,9 @@ pub(crate) async fn commits(store: &Store, scope: &str, name: &str) -> Result<Op
 
 /// Point `scope/name` at a new version, creating the service on its first
 /// deploy, and record the tools `deprecated` in it: each keeps the time it was
-/// first deployed deprecated, and the rest are forgotten with their sunsets.
+/// first deployed deprecated, `now` in epoch seconds for one deprecated by this
+/// deploy, and the rest are forgotten with their sunsets.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn install(
     store: &Store,
     scope: &str,
@@ -81,8 +83,8 @@ pub(crate) async fn install(
     digest: &str,
     version: &str,
     deprecated: Vec<String>,
+    now: i64,
 ) -> Result<()> {
-    let now = usage::now();
     let row = [scope, name, reference, digest, version].map(str::to_owned);
     store
         .run(move |conn| {
@@ -349,6 +351,33 @@ pub(crate) async fn settle(store: &Store, wake: &Wake, retry: Option<i64>) -> Re
                 )?,
             };
             Ok(())
+        })
+        .await
+}
+
+/// Every pending wake, beside when it is due, soonest first.
+#[cfg(feature = "test")]
+pub(crate) async fn wakes(store: &Store) -> Result<Vec<(Wake, i64)>> {
+    store
+        .run(|conn| {
+            let mut statement = conn.prepare(
+                "SELECT scope, name, program, tool, args, armed, due FROM service_wakes
+                  ORDER BY due",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok((
+                    Wake {
+                        scope: row.get(0)?,
+                        name: row.get(1)?,
+                        program: row.get(2)?,
+                        tool: row.get(3)?,
+                        args: row.get(4)?,
+                        armed: row.get(5)?,
+                    },
+                    row.get(6)?,
+                ))
+            })?;
+            rows.collect()
         })
         .await
 }

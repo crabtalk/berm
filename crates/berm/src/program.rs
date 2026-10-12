@@ -8,12 +8,11 @@ use crate::{
     meter::Rows,
     syscall::{
         self,
-        call::{Budgeted, Enter},
+        call::{Budgeted, Enter, Now},
     },
 };
 use anyhow::{Context, Result, bail};
 use berm_api::{Callers, Manifest};
-use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -48,6 +47,8 @@ pub struct Program {
     enter: Enter,
     /// Each invocation's budget, by tool.
     budget: Budgeted,
+    /// What `berm.now` answers.
+    now: Now,
 }
 
 struct Tool {
@@ -66,6 +67,7 @@ impl Program {
         syscalls: &[Syscall],
         enter: Enter,
         budget: Budgeted,
+        now: Now,
     ) -> Result<Self> {
         let compiled = Image::compile(engine, image, syscall::table(syscalls)?)
             .context("failed to compile program")?;
@@ -108,13 +110,14 @@ impl Program {
 
         Ok(Self {
             name: name.into(),
-            digest: hex::encode(Sha256::digest(image)),
+            digest: digest(image),
             image: compiled,
             deps: Arc::new(manifest.deps.clone()),
             manifest,
             tools,
             enter,
             budget,
+            now,
         })
     }
 
@@ -310,6 +313,7 @@ impl Program {
         let mark = journal.mark();
         let invocation = Invocation {
             at,
+            now: self.now.clone(),
             args,
             staged: Vec::new(),
             outcome: None,
@@ -392,12 +396,20 @@ pub struct Outcome {
     pub changes: Changes,
 }
 
+/// sha256 of `image`, in lowercase hex: what [`Program::digest`] holds.
+pub fn digest(image: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(image))
+}
+
 /// Guest state for one invocation. Memory is per-invocation; anything a
 /// program needs to survive belongs in a storage program, not here.
 pub struct Invocation {
     /// The program this invocation is of, and the chain it sits in. Built
     /// once with the invocation, so a syscall costs no lookup.
     pub(crate) at: Callsite,
+    /// What `berm.now` answers.
+    pub(crate) now: Now,
     pub(crate) args: Vec<u8>,
     /// The last syscall's reply, waiting for the guest to pull it. Staged
     /// rather than pushed because its size is not known until the work is

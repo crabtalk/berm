@@ -200,7 +200,8 @@ impl<E: Env> Host<E> {
     pub async fn usage(&self, service: &str) -> Result<Vec<Usage>, Denied> {
         self.flush().await?;
         let (scope, name) = host::split(service);
-        let mut used = usage::read(&self.store, scope, name, None).await?;
+        let mut used =
+            usage::read(&self.store, scope, name, None, usage::seconds(&self.now)).await?;
         if let Some(program) = self.get(service) {
             for row in used.iter_mut().filter(|row| row.kind == "tool") {
                 row.public = Some(program.public(&row.item));
@@ -328,7 +329,7 @@ impl<E: Env> Host<E> {
         self.deployed(service).await?;
         self.flush().await?;
         let (scope, name) = host::split(service);
-        Ok(meter::read(&self.store, scope, name).await?)
+        Ok(meter::read(&self.store, scope, name, self.today()).await?)
     }
 
     /// Hold `routes` in place of the routes held.

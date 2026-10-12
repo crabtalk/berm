@@ -38,7 +38,7 @@ use journal::Journal;
 pub use journal::{Changes, Log, Write};
 pub use meter::Meters;
 use meter::Rows;
-pub use program::{Ended, Invocation, Link, Outcome, Program, Refused};
+pub use program::{Ended, Invocation, Link, Outcome, Program, Refused, digest};
 use std::{
     collections::BTreeMap,
     pin::Pin,
@@ -47,7 +47,7 @@ use std::{
 };
 pub use storage::{Records, Storage};
 pub use syscall::call::{
-    Budgeted, Called, Calls, Enter, Named, Opening, Reaching, Remote, Reported, Resolve, Scope,
+    Budgeted, Called, Calls, Enter, Named, Now, Opening, Reaching, Remote, Reported, Resolve, Scope,
 };
 
 pub mod abi;
@@ -254,6 +254,7 @@ impl Berm {
             &syscalls,
             self.calls.enter.clone(),
             self.calls.budget.clone(),
+            self.calls.now.clone(),
         )?))
     }
 

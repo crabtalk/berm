@@ -40,6 +40,10 @@ pub type Enter = Arc<dyn Fn(&Program, &Callsite) -> Opening + Send + Sync>;
 /// `program`. `None` takes the engine's [`crate::Config`].
 pub type Budgeted = Arc<dyn Fn(&str, &str) -> Option<Budget> + Send + Sync>;
 
+/// What `berm.now` answers: milliseconds since the Unix epoch. Called inside a
+/// syscall, where an unwind aborts the process.
+pub type Now = Arc<dyn Fn() -> u64 + Send + Sync>;
+
 /// How a nested call to a deployed program's tool ended, as a host is told it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Called {
@@ -110,6 +114,7 @@ pub struct Calls {
     pub named: Named,
     pub enter: Enter,
     pub budget: Budgeted,
+    pub now: Now,
     pub called: Reported,
     pub remote: Remote,
 }
@@ -124,10 +129,18 @@ impl Calls {
             named: Arc::new(str::to_owned),
             enter: Arc::new(|_, _| Box::pin(async { Ok(Box::new(Unheld) as Box<dyn Scope>) })),
             budget: Arc::new(|_, _| None),
+            now: Arc::new(system_now),
             called: Arc::new(|_, _, _, _| {}),
             remote: Arc::new(|_, _, _, _, _| None),
         }
     }
+}
+
+/// The system clock, saturating at the epoch.
+pub fn system_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis() as u64)
 }
 
 /// Serve `berm.call` against `runtime`.
@@ -138,6 +151,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
         named,
         enter: _,
         budget: _,
+        now: _,
         called,
         remote,
     } = calls;

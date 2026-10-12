@@ -4,26 +4,39 @@
 
 use crate::{host, store::Store, usage};
 use anyhow::Result;
-use berm::Meter;
+use berm::{Meter, Now};
 use berm_api::host::Metered;
 use parking_lot::Mutex;
 use rusqlite::params;
 use std::{collections::HashMap, mem, path::Path};
 
 /// Meters not yet written, by service and day.
-#[derive(Default)]
-pub(crate) struct Meters(Mutex<HashMap<(String, i32), Meter>>);
+pub(crate) struct Meters {
+    pending: Mutex<HashMap<(String, i32), Meter>>,
+    now: Now,
+}
 
 impl Meters {
+    pub(crate) fn new(now: Now) -> Self {
+        Self {
+            pending: Mutex::default(),
+            now,
+        }
+    }
+
     /// Count `used` against `service` today.
     pub(crate) fn record(&self, service: &str, used: Meter) {
-        let day = (usage::now() / 86_400) as i32;
-        *self.0.lock().entry((service.to_owned(), day)).or_default() += used;
+        let day = (usage::seconds(&self.now) / 86_400) as i32;
+        *self
+            .pending
+            .lock()
+            .entry((service.to_owned(), day))
+            .or_default() += used;
     }
 
     /// Take what is pending.
     pub(crate) fn take(&self) -> Vec<((String, i32), Meter)> {
-        mem::take(&mut *self.0.lock()).into_iter().collect()
+        mem::take(&mut *self.pending.lock()).into_iter().collect()
     }
 }
 
@@ -68,9 +81,9 @@ pub(crate) async fn write(store: &Store, metered: Vec<((String, i32), Meter)>) -
         .await
 }
 
-/// Record what `service` stores today: its database file, if any, at
+/// Record what `service` stores on `day`: its database file, if any, at
 /// `database`, and its state and logs.
-pub(crate) async fn sample(store: &Store, service: &str, database: &Path) -> Result<()> {
+pub(crate) async fn sample(store: &Store, service: &str, database: &Path, day: i32) -> Result<()> {
     let file: u64 = ["sqlite", "sqlite-wal"]
         .iter()
         .filter_map(|extension| std::fs::metadata(database.with_extension(extension)).ok())
@@ -78,7 +91,6 @@ pub(crate) async fn sample(store: &Store, service: &str, database: &Path) -> Res
         .sum();
     let (scope, name) = host::split(service);
     let (scope, name) = (scope.to_owned(), name.to_owned());
-    let day = (usage::now() / 86_400) as i32;
     store
         .run(move |conn| {
             conn.execute(
@@ -97,10 +109,16 @@ pub(crate) async fn sample(store: &Store, service: &str, database: &Path) -> Res
         .await
 }
 
-/// `scope/name`'s meters over the last [`usage::WINDOW`] days, oldest first.
-pub(crate) async fn read(store: &Store, scope: &str, name: &str) -> Result<Vec<Metered>> {
+/// `scope/name`'s meters over the [`usage::WINDOW`] days to `today`, oldest
+/// first.
+pub(crate) async fn read(
+    store: &Store,
+    scope: &str,
+    name: &str,
+    today: i32,
+) -> Result<Vec<Metered>> {
     let (scope, name) = (scope.to_owned(), name.to_owned());
-    let since = (usage::now() / 86_400) as i32 - usage::WINDOW;
+    let since = today - usage::WINDOW;
     store
         .run(move |conn| {
             let mut statement = conn.prepare(

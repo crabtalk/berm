@@ -12,7 +12,7 @@ use berm_api::Failed;
 use std::fmt;
 
 pub use config::Config;
-pub use env::{Admit, Edges, Env, Images, Peers, Secrets};
+pub use env::{Admit, Clock, Edges, Env, Images, Peers, Secrets, System};
 pub use host::Host;
 
 mod budget;
@@ -27,6 +27,8 @@ mod meter;
 mod routes;
 mod service;
 mod store;
+#[cfg(feature = "test")]
+pub mod test;
 mod usage;
 mod wake;
 

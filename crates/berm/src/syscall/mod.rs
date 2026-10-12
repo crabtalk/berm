@@ -204,15 +204,9 @@ fn builtins() -> Table {
         }),
     );
 
-    // Saturating at the epoch: a syscall is reached across a boundary an
-    // unwind would abort the process at, so it cannot be allowed to panic.
     table.insert(
         abi::HOST_NOW,
-        handler(|_, _, _| {
-            Ok(std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |since| since.as_millis() as u64))
-        }),
+        handler(|guest, _, _| Ok((guest.data().now)())),
     );
 
     table

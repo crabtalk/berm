@@ -800,12 +800,10 @@ dependencies = [
  "berm-api",
  "berm-host",
  "clap",
- "hex",
  "reqwest",
  "rmcp",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "tokio",
  "toml 1.1.4+spec-1.1.0",
  "tower",
@@ -3272,8 +3270,11 @@ dependencies = [
 name = "hn"
 version = "0.0.8"
 dependencies = [
+ "anyhow",
+ "berm-host",
  "berm-lang",
  "lake",
+ "tokio",
 ]
 
 [[package]]
@@ -4226,8 +4227,11 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 name = "news"
 version = "0.0.8"
 dependencies = [
+ "anyhow",
+ "berm-host",
  "berm-lang",
  "lake",
+ "tokio",
 ]
 
 [[package]]
@@ -5492,8 +5496,11 @@ checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 name = "reddit"
 version = "0.0.8"
 dependencies = [
+ "anyhow",
+ "berm-host",
  "berm-lang",
  "lake",
+ "tokio",
 ]
 
 [[package]]

@@ -89,6 +89,14 @@ stands in for the host: it holds the argument blob and collects what a program
 logged. A call reaching a syscall that has no stand-in panics naming it,
 rather than reading a plausible zero.
 
+`berm_host::test::TestHost`, behind `berm-host`'s `test` feature, runs the built
+image instead: the real engine and host, with fetches answered from what the
+test arranged, a clock the test sets, and wakes the test fires. A call's result
+and meter, the logs and state it committed, and the wakes it armed are read back
+from it. `services/*/tests/replay.rs` run `hn`, `reddit` and `news` against
+recorded feeds this way, behind each service's `replay` feature; the recordings
+in `tests/recorded` are not in git.
+
 `berm-fixture` in this repository is the worked example — the smallest real
 program, and what berm's own tests run against. `services/` holds deployed
 programs: `hn`, `reddit` and `news` follow feeds on `lib/lake`, the runtime for a
