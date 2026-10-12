@@ -89,7 +89,7 @@ rather than reading a plausible zero.
 
 `berm-fixture` in this repository is the worked example — the smallest real
 program, and what berm's own tests run against. `services/` holds deployed
-programs: `hn` and `reddit` follow feeds on `lib/lake`, the runtime for a
+programs: `hn`, `reddit` and `news` follow feeds on `lib/lake`, the runtime for a
 program that fetches feeds on its own wake and emits what is new as logs.
 
 ## Queries

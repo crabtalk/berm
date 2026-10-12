@@ -14,4 +14,3 @@ path = "bin/main.rs"
 [dependencies]
 berm-lang.workspace = true
 lake.workspace = true
-xmlparser.workspace = true

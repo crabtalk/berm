@@ -5,7 +5,6 @@
 
 extern crate alloc;
 
-mod atom;
 mod reddit;
 mod sort;
 mod source;

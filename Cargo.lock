@@ -3773,6 +3773,7 @@ name = "lake"
 version = "0.0.8"
 dependencies = [
  "berm-lang",
+ "xmlparser",
 ]
 
 [[package]]
@@ -4220,6 +4221,14 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
+
+[[package]]
+name = "news"
+version = "0.0.8"
+dependencies = [
+ "berm-lang",
+ "lake",
+]
 
 [[package]]
 name = "no_std_io2"
@@ -5485,7 +5494,6 @@ version = "0.0.8"
 dependencies = [
  "berm-lang",
  "lake",
- "xmlparser",
 ]
 
 [[package]]

@@ -31,7 +31,7 @@ pub struct Feed {
     pub fetched: u64,
     /// The newest post time it has shown, in Unix milliseconds.
     pub watermark: u64,
-    /// The items it showed when last fetched.
+    /// The items it showed when last fetched; empty when `chronological`.
     pub shown: Vec<String>,
 }
 

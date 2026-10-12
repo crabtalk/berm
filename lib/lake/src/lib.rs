@@ -12,7 +12,9 @@
 
 extern crate alloc;
 
+pub mod rss;
 mod state;
+pub mod time;
 
 pub use state::{Feed, State, Watch};
 
@@ -143,7 +145,7 @@ fn posts<S: Source>(
 ) -> Result<usize, CallError> {
     let watches = S::watches(feed);
     let mut newest = feed.watermark;
-    let mut shown = Vec::with_capacity(listed.len());
+    let mut shown = Vec::new();
     let mut emitted = 0;
     for Listed { id, posted, item } in listed {
         newest = newest.max(posted);
@@ -158,9 +160,12 @@ fn posts<S: Source>(
         }
         let new = match feed.chronological {
             true => posted > feed.watermark,
-            false => !feed.shown.contains(&id),
+            false => {
+                let new = !feed.shown.contains(&id);
+                shown.push(id);
+                new
+            }
         };
-        shown.push(id);
         if new {
             emitted += S::post(feed, item)?;
         }

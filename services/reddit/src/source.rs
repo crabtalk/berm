@@ -2,14 +2,16 @@
 //! `{sub}/{sort}`.
 
 use crate::{
-    atom::{self, Entry},
     reddit,
     sort::Sort,
     tools::{Comment, Comments, Post},
 };
 use alloc::{format, string::String, vec::Vec};
 use berm_lang::{CallError, html};
-use lake::{Feed, Listed, Schedule, Source, Watch};
+use lake::{
+    Feed, Listed, Schedule, Source, Watch,
+    rss::{self, Entry},
+};
 
 pub struct Reddit;
 
@@ -32,7 +34,7 @@ impl Source for Reddit {
             .split_once('/')
             .and_then(|(sub, sort)| Some((sub, Sort::parse(sort)?)))
             .ok_or_else(|| format!("{} is not a listing", feed.key))?;
-        let entries = atom::entries(&reddit::listing(sub, sort)?)?;
+        let entries = rss::entries(&reddit::listing(sub, sort)?)?;
         Ok(entries
             .into_iter()
             .filter_map(|entry| {
@@ -57,7 +59,7 @@ impl Source for Reddit {
             title: entry.title,
             author: entry.author.map(|author| user(&author)),
             posted: entry.posted.unwrap_or_default(),
-            thumbnail: entry.thumbnail,
+            thumbnail: entry.image,
         })
     }
 
@@ -67,7 +69,7 @@ impl Source for Reddit {
 
     fn thread(watch: &Watch) -> Result<(u64, Vec<Comment>), String> {
         let sub = sub(watch);
-        let comments: Vec<Comment> = atom::entries(&reddit::comments(sub, &watch.id)?)?
+        let comments: Vec<Comment> = rss::entries(&reddit::comments(sub, &watch.id)?)?
             .into_iter()
             .filter_map(|entry| {
                 let id = entry.id.strip_prefix("t1_")?;

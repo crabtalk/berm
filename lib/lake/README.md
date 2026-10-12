@@ -1,8 +1,6 @@
 # lake
 
-A `no_std` runtime for Berm source services that fetch feeds and emit items
-and discussions as logs. Used by [`hn`](../../services/hn) and
-[`reddit`](../../services/reddit).
+A `no_std` runtime for Berm source services that fetch feeds and emit items and discussions as logs. Used by [`hn`](../../services/hn), [`reddit`](../../services/reddit) and [`news`](../../services/news).
 
 Implement `Source` to fetch and log items and threads, and set a `Schedule`
 with fetch limits and intervals in milliseconds. `Source::NAME` must match the
@@ -17,6 +15,8 @@ Each tick fetches due feeds and threads, logs new items and threads whose
 comment counts changed, saves state, and schedules the next tick. Fetch
 failures are traced and retried when next due. State is stored under the
 service's `lake` key.
+
+`rss::entries` reads the entries of an RSS 2.0, RSS 1.0 or Atom feed, and `time` reads the dates feeds and pages carry.
 
 ## License
 

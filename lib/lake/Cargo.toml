@@ -10,3 +10,4 @@ publish = false
 
 [dependencies]
 berm-lang.workspace = true
+xmlparser.workspace = true
