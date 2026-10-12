@@ -9,7 +9,8 @@
 //! their own: `echo` carries typed arguments across the boundary, `typed`
 //! deserializes the same payload to price a parse, `chatty` makes a hundred
 //! host calls to price one, `probe` allocates to show the heap arrives without
-//! a second entry into the guest, and `boom` fails on purpose.
+//! a second entry into the guest, `spin` loops past the instructions a call
+//! includes, and `boom` fails on purpose.
 //! `tick` arms itself, to show a wake outliving the invocation that asked for
 //! it, `wait` makes one host call a host can make slow, and `fetch` makes one
 //! HTTP request to a host its manifest declares. `note` writes and emits, and
@@ -62,6 +63,25 @@ mod tools {
         pub query: &'static str,
         /// Page number, zero-indexed.
         pub page: Option<u32>,
+    }
+
+    /// Loops as many times as its argument says, to run a call past the
+    /// instructions it includes.
+    #[public]
+    pub fn spin(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+        let rounds: u64 = core::str::from_utf8(args)
+            .unwrap_or("")
+            .trim()
+            .parse()
+            .unwrap_or(0);
+        let mut acc = 0u64;
+        for round in 0..rounds {
+            acc = core::hint::black_box(acc.wrapping_mul(31).wrapping_add(round));
+        }
+        let mut said = alloc::string::String::new();
+        let _ = core::fmt::Write::write_fmt(&mut said, format_args!("{acc}"));
+        out.write(said.as_bytes());
+        Ok(())
     }
 
     /// Makes 100 host calls, to price one.

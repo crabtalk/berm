@@ -21,6 +21,7 @@ mod config;
 mod deliver;
 mod env;
 mod fetch;
+mod hold;
 mod host;
 mod meter;
 mod routes;

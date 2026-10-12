@@ -53,8 +53,8 @@ pub(crate) async fn write(store: &Store, metered: Vec<((String, i32), Meter)>) -
                 tx.execute(
                     "INSERT INTO service_meters
                             (scope, name, day, calls, instructions, memory, read, written,
-                             proxied)
-                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+                             proxied, overage)
+                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
                       WHERE EXISTS (SELECT 1 FROM services WHERE scope = ?1 AND name = ?2)
                      ON CONFLICT (scope, name, day) DO UPDATE SET
                         calls = calls + excluded.calls,
@@ -62,7 +62,8 @@ pub(crate) async fn write(store: &Store, metered: Vec<((String, i32), Meter)>) -
                         memory = MAX(memory, excluded.memory),
                         read = read + excluded.read,
                         written = written + excluded.written,
-                        proxied = proxied + excluded.proxied",
+                        proxied = proxied + excluded.proxied,
+                        overage = overage + excluded.overage",
                     params![
                         scope,
                         name,
@@ -72,7 +73,8 @@ pub(crate) async fn write(store: &Store, metered: Vec<((String, i32), Meter)>) -
                         meter.memory as i64,
                         meter.read as i64,
                         meter.written as i64,
-                        meter.proxied as i64
+                        meter.proxied as i64,
+                        meter.overage as i64
                     ],
                 )?;
             }
@@ -122,7 +124,8 @@ pub(crate) async fn read(
     store
         .run(move |conn| {
             let mut statement = conn.prepare(
-                "SELECT day, calls, instructions, memory, read, written, proxied, stored
+                "SELECT day, calls, instructions, memory, read, written, proxied, stored,
+                        overage
                    FROM service_meters
                   WHERE scope = ?1 AND name = ?2 AND day > ?3
                   ORDER BY day",
@@ -137,6 +140,7 @@ pub(crate) async fn read(
                     written: row.get::<_, i64>(5)? as u64,
                     proxied: row.get::<_, i64>(6)? as u64,
                     stored: row.get::<_, i64>(7)? as u64,
+                    overage: row.get::<_, i64>(8)? as u64,
                 })
             })?;
             rows.collect()

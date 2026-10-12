@@ -143,6 +143,8 @@ const MIGRATIONS: &[&str] = &[
     INSERT INTO service_terms (scope, name, tool, instructions, rows)
         SELECT scope, name, tool, instructions, rows FROM service_budgets;
     DROP TABLE service_budgets;",
+    "ALTER TABLE service_meters ADD COLUMN overage INTEGER NOT NULL DEFAULT 0;",
+    "CREATE TABLE held_scopes (scope TEXT PRIMARY KEY);",
 ];
 
 /// One connection, shared. Every statement runs off the async workers.

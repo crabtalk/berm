@@ -356,8 +356,11 @@ impl Drop for TestHost {
 }
 
 /// Build binary `bin` of `package` for the guest target, release profile, and
-/// answer the image's bytes.
+/// answer the image's bytes. One build at a time across processes: cargo
+/// replaces the image it answers with on every build, fresh or not.
 pub fn build(package: &str, bin: &str) -> Result<Vec<u8>> {
+    let lock = std::fs::File::create(std::env::temp_dir().join("berm-test-build.lock"))?;
+    lock.lock()?;
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
     let output = Command::new(cargo)
         .args([

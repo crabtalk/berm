@@ -155,6 +155,10 @@ pub struct Metered {
     pub calls: u64,
     /// Wasm instructions those invocations executed.
     pub instructions: u64,
+    /// The instructions each of them executed past its first
+    /// [`INCLUDED_INSTRUCTIONS`](crate::INCLUDED_INSTRUCTIONS), summed.
+    #[serde(default)]
+    pub overage: u64,
     /// The largest linear memory one of them reached, in bytes.
     pub memory: u64,
     /// Rows read and written in the service's database and state.

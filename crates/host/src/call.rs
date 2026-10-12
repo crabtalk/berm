@@ -326,6 +326,9 @@ impl<E: Env> Host<E> {
             }
             Err(deny(StatusCode::FORBIDDEN, message))
         };
+        if self.holds.holds(host::split(service).0) {
+            return refused(format!("{service} is held"));
+        }
         if !program.public(tool) {
             return refused(format!("{service} has no public tool named {tool:?}"));
         }
@@ -405,6 +408,24 @@ impl<E: Env> Host<E> {
     /// Hold `routes` in place of the routes held.
     pub async fn route(&self, routes: Vec<Route>) -> Result<(), Denied> {
         Ok(self.routes.replace(routes).await?)
+    }
+
+    /// Hold `scopes` in place of the scopes held. A held scope's services fire
+    /// no wakes, take no deliveries and take no calls from services or peers;
+    /// what they stored and what was due stays, and runs once the scope is
+    /// released. Calls from outside are the daemon's to refuse.
+    pub async fn hold(&self, scopes: Vec<String>) -> Result<(), Denied> {
+        let released = self.holds.replace(scopes.into_iter().collect()).await?;
+        for scope in &released {
+            self.deliveries.released(scope);
+        }
+        self.waking.notify_one();
+        Ok(())
+    }
+
+    /// The scopes held.
+    pub fn held(&self) -> Vec<String> {
+        self.holds.list()
     }
 
     /// Add uses a peer counted of services this host runs.

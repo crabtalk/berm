@@ -10,10 +10,11 @@ pub fn run(client: &Client, name: &str) -> Result<()> {
         return Ok(());
     }
     println!(
-        "{:<10}  {:>8}  {:>14}  {:>10}  {:>10}  {:>10}  {:>13}  {:>12}",
+        "{:<10}  {:>8}  {:>14}  {:>14}  {:>10}  {:>10}  {:>10}  {:>13}  {:>12}",
         "DAY",
         "CALLS",
         "INSTRUCTIONS",
+        "OVERAGE",
         "READ",
         "WRITTEN",
         "MEMORY",
@@ -26,9 +27,10 @@ pub fn run(client: &Client, name: &str) -> Result<()> {
             |at| at.format("%Y-%m-%d").to_string(),
         );
         println!(
-            "{date:<10}  {:>8}  {:>14}  {:>10}  {:>10}  {:>8}Ki  {:>13}  {:>12}",
+            "{date:<10}  {:>8}  {:>14}  {:>14}  {:>10}  {:>10}  {:>8}Ki  {:>13}  {:>12}",
             day.calls,
             day.instructions,
+            day.overage,
             day.read,
             day.written,
             day.memory / 1024,

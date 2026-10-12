@@ -10,6 +10,7 @@ use crate::{
     deny,
     env::{Clock, Edges, Env, Images, Peers},
     fetch,
+    hold::Holds,
     meter::{self, Meters as Pending},
     routes::Routes,
     service,
@@ -71,6 +72,8 @@ pub struct Host<E: Env> {
     pub(crate) commits: Commits,
     /// Where the services this host does not run live.
     pub(crate) routes: Arc<Routes>,
+    /// The scopes held.
+    pub(crate) holds: Arc<Holds>,
     pub(crate) peers: Arc<E::Peers>,
     images: Arc<E::Images>,
     /// What a call from outside is put to.
@@ -101,6 +104,7 @@ impl<E: Env> Clone for Host<E> {
             databases: self.databases.clone(),
             commits: self.commits.clone(),
             routes: self.routes.clone(),
+            holds: self.holds.clone(),
             peers: self.peers.clone(),
             images: self.images.clone(),
             admit: self.admit.clone(),
@@ -135,6 +139,7 @@ impl<E: Env> Host<E> {
         let now: Now = Arc::new(move || clock.now());
         let store = Store::open(state)?;
         let routes = Arc::new(Routes::open(store.clone()).await?);
+        let holds = Arc::new(Holds::open(store.clone()).await?);
         let peers = Arc::new(peers);
         let engine = Engine::new(&berm::Config {
             cache_dir: config.cache_dir.clone(),
@@ -240,7 +245,16 @@ impl<E: Env> Host<E> {
         let (reaching, routing) = (peers.clone(), routes.clone());
         let calls = Calls {
             depth: config.depth,
-            resolve: Arc::new(|at: &Callsite, target: &str, _: &str| resolve(at, target)),
+            resolve: {
+                let holds = holds.clone();
+                Arc::new(move |at: &Callsite, target: &str, _: &str| {
+                    let key = resolve(at, target)?;
+                    if holds.holds(split(&key).0) {
+                        bail!("{target} is held");
+                    }
+                    Ok(key)
+                })
+            },
             // A call to a service on a peer is counted there.
             called: Arc::new(
                 move |at: &Callsite, deployed: &str, tool: &str, called: Called| {
@@ -321,6 +335,7 @@ impl<E: Env> Host<E> {
             databases,
             commits,
             routes,
+            holds,
             peers,
             images: Arc::new(images),
             admit: Arc::new(admit),

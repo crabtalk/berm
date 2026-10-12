@@ -42,6 +42,15 @@ struct Worker {
 }
 
 impl Deliveries {
+    /// Prompt the workers of every subscriber in `scope`.
+    pub(crate) fn released(&self, scope: &str) {
+        for ((subscriber, _), worker) in self.0.lock().iter() {
+            if host::split(subscriber).0 == scope {
+                worker.prompt.notify_one();
+            }
+        }
+    }
+
     /// Prompt the workers of every subscription to the service keyed
     /// `publisher`.
     pub(crate) fn published(&self, publisher: &str) {
@@ -130,13 +139,16 @@ impl<E: Env> Host<E> {
     }
 
     /// Deliver what `subscriber` has not had of `subscription`, stopping at the
-    /// first delivery that fails.
+    /// first delivery that fails or once its scope is held.
     async fn catch_up(&self, subscriber: &Program, subscription: &Subscription) -> Result<()> {
         let (scope, name) = host::split(&subscriber.name);
         let program = &subscription.program;
         let publisher = host::join(scope, program);
         let mut from = service::position(&self.store, scope, name, program).await?;
         loop {
+            if self.holds.holds(scope) {
+                return Ok(());
+            }
             let pending = self.read(scope, program, &publisher, from).await?;
             let Some(to) = pending.last().map(|log| log.seq as i64) else {
                 return Ok(());
@@ -167,6 +179,9 @@ impl<E: Env> Host<E> {
                 };
                 let args = serde_json::to_vec(&delivery)?;
                 let _slot = self.gate.acquire().await?;
+                if self.holds.holds(scope) {
+                    return Ok(());
+                }
                 let invoked = self
                     .invoke(
                         subscriber,

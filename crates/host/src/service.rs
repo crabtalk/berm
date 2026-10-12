@@ -307,14 +307,16 @@ pub(crate) async fn arm(
         .await
 }
 
-/// Take up to `limit` wakes due at `now`, pushing each one's `due` to `lease`
-/// so the timer does not take it again while it runs.
+/// Take up to `limit` wakes due at `now` outside the held scopes, pushing each
+/// one's `due` to `lease` so the timer does not take it again while it runs.
 pub(crate) async fn claim(store: &Store, now: i64, lease: i64, limit: i64) -> Result<Vec<Wake>> {
     store
         .run(move |conn| {
             let mut statement = conn.prepare(
                 "UPDATE service_wakes SET due = ?2
-                  WHERE rowid IN (SELECT rowid FROM service_wakes WHERE due <= ?1
+                  WHERE rowid IN (SELECT rowid FROM service_wakes
+                                   WHERE due <= ?1
+                                     AND scope NOT IN (SELECT scope FROM held_scopes)
                                    ORDER BY due LIMIT ?3)
                   RETURNING scope, name, program, tool, args, armed",
             )?;
@@ -382,9 +384,16 @@ pub(crate) async fn wakes(store: &Store) -> Result<Vec<(Wake, i64)>> {
         .await
 }
 
-/// When the next wake is due, if any is pending.
+/// When the next wake outside the held scopes is due, if any is pending.
 pub(crate) async fn next(store: &Store) -> Result<Option<i64>> {
     store
-        .run(|conn| conn.query_row("SELECT MIN(due) FROM service_wakes", [], |row| row.get(0)))
+        .run(|conn| {
+            conn.query_row(
+                "SELECT MIN(due) FROM service_wakes
+                  WHERE scope NOT IN (SELECT scope FROM held_scopes)",
+                [],
+                |row| row.get(0),
+            )
+        })
         .await
 }

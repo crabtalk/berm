@@ -32,7 +32,10 @@
 //! [`Calls::enter`].
 
 use anyhow::Result;
-pub use berm_api::{Budget, Delivery, Deps, Dry, Logged, Manifest, Meter, Subscription, ToolSpec};
+pub use berm_api::{
+    Budget, Delivery, Deps, Dry, INCLUDED_INSTRUCTIONS, Logged, Manifest, Meter, Subscription,
+    ToolSpec,
+};
 pub use engine::{Config, Engine};
 use journal::Journal;
 pub use journal::{Changes, Log, Write};

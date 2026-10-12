@@ -394,6 +394,10 @@ impl From<Output> for Result<String, String> {
     }
 }
 
+/// Instructions an invocation executes before those past them count as
+/// [`Meter::overage`].
+pub const INCLUDED_INSTRUCTIONS: u64 = 1_000_000;
+
 /// What a call used of one program: its invocations, the wasm instructions
 /// they executed, the largest linear memory one reached, in bytes, the rows
 /// they read and wrote, and the bytes sent and received through the proxy.
@@ -401,6 +405,10 @@ impl From<Output> for Result<String, String> {
 pub struct Meter {
     pub calls: u64,
     pub instructions: u64,
+    /// The instructions each invocation executed past its first
+    /// [`INCLUDED_INSTRUCTIONS`], summed.
+    #[serde(default)]
+    pub overage: u64,
     pub memory: u64,
     pub read: u64,
     pub written: u64,
@@ -412,6 +420,7 @@ impl std::ops::AddAssign for Meter {
     fn add_assign(&mut self, other: Meter) {
         self.calls += other.calls;
         self.instructions += other.instructions;
+        self.overage += other.overage;
         self.memory = self.memory.max(other.memory);
         self.read += other.read;
         self.written += other.written;
