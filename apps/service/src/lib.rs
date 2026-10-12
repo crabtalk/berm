@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use berm::Program;
-use berm_host::{Config, Host};
+use berm_host::{Config, Edges, Host};
 use std::{path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::broadcast};
 
@@ -46,7 +46,8 @@ pub struct Service {
 impl Service {
     /// Open `root`, restoring whatever was deployed before this process.
     /// Chains of programs calling programs nest at most `depth` deep.
-    pub async fn new(root: PathBuf, depth: u32) -> Result<Arc<Self>> {
+    /// `berm.http.proxy` goes through `proxy`, or direct without one.
+    pub async fn new(root: PathBuf, depth: u32, proxy: Option<&str>) -> Result<Arc<Self>> {
         let images = Stored::open(&root);
         let secrets = Grants::open(&root);
         let config = Config {
@@ -58,11 +59,14 @@ impl Service {
         let host = Host::open(
             &root.join("host.db"),
             &config,
-            Fetch::new()?,
-            images.clone(),
-            Alone,
-            secrets.clone(),
-            Open,
+            Edges {
+                fetch: Fetch::new(None)?,
+                proxy: Some(Fetch::new(proxy)?),
+                images: images.clone(),
+                peers: Alone,
+                secrets: secrets.clone(),
+                admit: Open,
+            },
         )
         .await
         .context("failed to open the host")?;

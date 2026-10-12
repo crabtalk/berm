@@ -1,4 +1,4 @@
-//! `berm.http.fetch`, sent straight from this process.
+//! `berm.http.fetch` and `berm.http.proxy`, sent from this process.
 
 use anyhow::{Context, Result, bail};
 use berm::syscall::http::{Request, Response};
@@ -17,11 +17,16 @@ const MAX_BODY: usize = 16 << 20;
 pub struct Fetch(reqwest::Client);
 
 impl Fetch {
-    pub fn new() -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .context("failed to build the HTTP client")?;
+    /// Through `proxy` when given, with no idle connection kept, so a rotating
+    /// proxy gives each request a fresh exit.
+    pub fn new(proxy: Option<&str>) -> Result<Self> {
+        let mut client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none());
+        if let Some(proxy) = proxy {
+            client = client
+                .proxy(reqwest::Proxy::all(proxy).context("the proxy URL is not one")?)
+                .pool_max_idle_per_host(0);
+        }
+        let client = client.build().context("failed to build the HTTP client")?;
         Ok(Self(client))
     }
 }

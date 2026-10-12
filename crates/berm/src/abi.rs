@@ -98,6 +98,13 @@ pub const HTTP_FETCH: &str = "berm.http.fetch";
 /// which the host substitutes; the guest never holds the value.
 pub const HOST_HTTP_FETCH: u64 = hash(HTTP_FETCH);
 
+/// What a host registers to serve [`HOST_HTTP_PROXY`].
+pub const HTTP_PROXY: &str = "berm.http.proxy";
+
+/// Make one HTTP request through the host's proxy. The request and reply are
+/// [`HOST_HTTP_FETCH`]'s.
+pub const HOST_HTTP_PROXY: u64 = hash(HTTP_PROXY);
+
 /// What a host registers to serve [`HOST_EMIT`].
 pub const EMIT: &str = "berm.emit";
 

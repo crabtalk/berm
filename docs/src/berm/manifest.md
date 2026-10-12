@@ -69,7 +69,9 @@ oldest first. A log is delivered when it carries any listed topic; no topics
 takes every log.
 
 `berm.http.fetch` holds a program to them: a host it does not declare, or a
-secret it does not declare, is refused before anything is sent. `berm.call`
+secret it does not declare, is refused before anything is sent.
+`berm.http.proxy` does the same for the hosts declared under it, and sends
+through the host's proxy. `berm.call`
 reaches the program itself and the programs it declares, and refuses any other
 name. A declared
 secret is substituted by the host for the chain's caller, and the guest never

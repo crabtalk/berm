@@ -51,6 +51,8 @@ pub const HOST_CALL: u64 = hash("berm.call");
 pub const HOST_CALL_AFTER: u64 = hash("berm.call.after");
 /// Make one HTTP request.
 pub const HOST_HTTP_FETCH: u64 = hash("berm.http.fetch");
+/// Make one HTTP request through the host's proxy.
+pub const HOST_HTTP_PROXY: u64 = hash("berm.http.proxy");
 /// Run one SQL statement against this program's own database.
 pub const HOST_SQL: u64 = hash("berm.sql");
 /// Milliseconds since the Unix epoch, as the host reads its clock.

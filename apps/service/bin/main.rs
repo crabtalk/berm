@@ -24,6 +24,11 @@ struct Args {
     /// ~720 bytes of it, and 64 MiB of guest address space.
     #[arg(long, default_value_t = call::DEFAULT_CALL_DEPTH)]
     max_call_depth: u32,
+
+    /// The proxy `berm.http.proxy` goes through, e.g.
+    /// `http://user:pass@gate.example.com:3120`. Without one it goes direct.
+    #[arg(long)]
+    proxy: Option<String>,
 }
 
 #[tokio::main]
@@ -44,7 +49,7 @@ async fn main() -> Result<()> {
         None => PathBuf::from(std::env::var("HOME").context("HOME is not set")?).join(".berm"),
     };
 
-    let service = Service::new(root, args.max_call_depth).await?;
+    let service = Service::new(root, args.max_call_depth, args.proxy.as_deref()).await?;
     let listener = TcpListener::bind(args.addr)
         .await
         .with_context(|| format!("failed to bind {}", args.addr))?;

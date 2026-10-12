@@ -28,10 +28,10 @@
 //!
 //! This crate declares the standard syscalls: [`call`] and [`after`] for
 //! reaching programs, [`get`] and [`set`] for a program's own bytes, [`emit`]
-//! for logs ([`emit!`] for an `#[event]` struct), and [`http::fetch`] for the
-//! network. berm serves [`call`] and
-//! [`emit`] itself; the rest run only under a host that registers them, and
-//! trap as unknown host calls otherwise.
+//! for logs ([`emit!`] for an `#[event]` struct), and [`http::fetch`] and
+//! [`http::proxy`] for the network. berm serves [`call`] and [`emit`] itself;
+//! the rest run only under a host that registers them, and trap as unknown host
+//! calls otherwise.
 //!
 //! What [`set`] writes and [`emit`] emits is kept only if the call the host
 //! started returns a result.
@@ -51,6 +51,7 @@ pub mod abi;
 mod call;
 mod emit;
 mod heap;
+pub mod html;
 pub mod http;
 #[doc(hidden)]
 pub mod json;
@@ -85,6 +86,8 @@ pub use logs::{Delivery, Logged};
 pub use sql::sql;
 #[cfg(feature = "alloc")]
 pub use store::{get, set};
+#[cfg(feature = "args")]
+pub use store::{get_json, set_json};
 
 // Re-exported so a program declares this SDK and nothing else. The `#[program]`
 // macro writes `#[serde(crate = "::berm_lang::serde")]` onto argument structs,

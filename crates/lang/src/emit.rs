@@ -32,13 +32,15 @@ pub trait Event {
 /// What [`crate::emit!`] expands to.
 #[cfg(feature = "args")]
 #[doc(hidden)]
-pub fn event<T: Event + serde_guest::Serialize>(event: &T) -> Result<(), CallError> {
+pub fn event<T: Event + serde_guest::Serialize>(event: &T) -> Result<usize, CallError> {
     let data = serde_json_guest::to_string(event)
         .map_err(|error| CallError::Failed(alloc::format!("unserializable event: {error}")))?;
-    emit(&[T::NAME], &data)
+    emit(&[T::NAME], &data)?;
+    Ok(data.len())
 }
 
-/// Emit an `#[event]` struct as a log under its name.
+/// Emit an `#[event]` struct as a log under its name, and answer the bytes of
+/// its data.
 ///
 /// ```ignore
 /// berm_lang::emit!(Posted { id: 1 })?;

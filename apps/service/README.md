@@ -32,7 +32,7 @@ curl -G --data-urlencode 'args={}' http://127.0.0.1:7777/programs/fixture/tools/
 
 What a program emitted is at `GET /programs/{name}/logs`, oldest first, after the sequence number `after`.
 
-A tool's answer carries `Berm-Meter`, what the call used across every program it reached, as JSON: `{"calls", "instructions", "memory", "read", "written"}` — wasm instructions executed, the largest linear memory one instance reached in bytes, and rows read and written. The same call against the same state counts the same here and on Cloud. `GET /programs/{name}/meters` answers a program's meters over the last 30 days, a day each, with the bytes it stored. An invocation stops at its tool's instruction budget, and a row syscall it makes once it has read and written its row budget together is refused: 1,000,000,000 instructions and 1,000,000 rows, unless `PUT /programs/{name}/tools/{tool}/budget` set `{"instructions", "rows"}` lower, from the next call. `GET /programs/{name}/terms` answers each public tool's as `{"tools": {"<tool>": {"budget": {"instructions", "rows"}}}}`, and MCP's tool list carries a tool's in `_meta.terms`.
+A tool's answer carries `Berm-Meter`, what the call used across every program it reached, as JSON: `{"calls", "instructions", "memory", "read", "written", "proxied"}` — wasm instructions executed, the largest linear memory one instance reached in bytes, rows read and written, and bytes sent and received through the proxy. The same call against the same state counts the same here and on Cloud. `GET /programs/{name}/meters` answers a program's meters over the last 30 days, a day each, with the bytes it stored. An invocation stops at its tool's instruction budget, and a row syscall it makes once it has read and written its row budget together is refused: 1,000,000,000 instructions and 1,000,000 rows, unless `PUT /programs/{name}/tools/{tool}/budget` set `{"instructions", "rows"}` lower, from the next call. `GET /programs/{name}/terms` answers each public tool's as `{"tools": {"<tool>": {"budget": {"instructions", "rows"}}}}`, and MCP's tool list carries a tool's in `_meta.terms`.
 
 A tool call may carry `X-Berm-Caller`, the caller a program reads from `berm_lang::caller()` and the user it reads from `berm_lang::user()`, as JSON: `{"id": "alice", "user": {"issuer": "https://id.example", "subject": "42"}}`. bermd checks none of it. A call without one has no caller.
 
@@ -64,7 +64,7 @@ turn.
 ## What a program can reach
 
 Its arguments, the log, its own stored keys, the clock, a callback timer, HTTP
-to the hosts its manifest declares under `berm.http.fetch`, itself, and the programs deployed beside it that its manifest declares in `programs`, by name.
+to the hosts its manifest declares under `berm.http.fetch` (or `berm.http.proxy`, through `--proxy` when given and direct otherwise), itself, and the programs deployed beside it that its manifest declares in `programs`, by name.
 
 ```sh
 berm deploy inner ./inner.wasm

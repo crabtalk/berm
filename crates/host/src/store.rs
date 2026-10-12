@@ -129,6 +129,7 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (scope, name, tool),
         FOREIGN KEY (scope, name) REFERENCES services (scope, name) ON DELETE CASCADE
     );",
+    "ALTER TABLE service_meters ADD COLUMN proxied INTEGER NOT NULL DEFAULT 0;",
 ];
 
 /// One connection, shared. Every statement runs off the async workers.

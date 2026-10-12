@@ -157,6 +157,8 @@ pub struct Metered {
     /// Rows read and written in the service's database and state.
     pub read: u64,
     pub written: u64,
+    /// Bytes sent and received through `berm.http.proxy`.
+    pub proxied: u64,
     /// Bytes the service stored when the day was sampled: its database file,
     /// state and logs.
     pub stored: u64,

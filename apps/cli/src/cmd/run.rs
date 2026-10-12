@@ -22,11 +22,12 @@ pub fn run(
     let (output, meter) = client.run(program, tool, arguments(inline)?, caller)?;
     if let Some(meter) = meter {
         eprintln!(
-            "{} instructions, {} rows read, {} written, {} KiB memory",
+            "{} instructions, {} rows read, {} written, {} KiB memory, {} bytes proxied",
             meter.instructions,
             meter.read,
             meter.written,
-            meter.memory / 1024
+            meter.memory / 1024,
+            meter.proxied
         );
     }
     match output {

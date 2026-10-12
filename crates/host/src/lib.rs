@@ -12,7 +12,7 @@ use berm_api::Failed;
 use std::fmt;
 
 pub use config::Config;
-pub use env::{Admit, Env, Images, Peers, Secrets};
+pub use env::{Admit, Edges, Env, Images, Peers, Secrets};
 pub use host::Host;
 
 mod budget;

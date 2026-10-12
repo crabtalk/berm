@@ -9,7 +9,7 @@ use crate::{
     config::Config,
     deliver::Deliveries,
     deny,
-    env::{Env, Images, Peers},
+    env::{Edges, Env, Images, Peers},
     fetch,
     meter::{self, Meters as Pending},
     routes::Routes,
@@ -113,19 +113,20 @@ impl<E: Env> Host<E> {
     /// A host with nothing deployed, keeping its state in `state` and sized by
     /// `config`. It serves `berm.get` and `berm.set` over `service_state` or
     /// the service's own database, `berm.call.after` over `service_wakes`,
-    /// `berm.sql` over the databases kept under `config.databases`, and
-    /// `berm.http.fetch` through `fetch`, with `secrets`. Images come from
-    /// `images`, a service it does not run is reached through `peers`, and a
-    /// call from outside is put to `admit`.
-    pub async fn open(
-        state: &Path,
-        config: &Config,
-        fetch: E::Fetch,
-        images: E::Images,
-        peers: E::Peers,
-        secrets: E::Secrets,
-        admit: E::Admit,
-    ) -> Result<Self> {
+    /// `berm.sql` over the databases kept under `config.databases`,
+    /// `berm.http.fetch` through `edges.fetch` and, when given one,
+    /// `berm.http.proxy` through `edges.proxy`, both with `edges.secrets`.
+    /// Images come from `edges.images`, a service it does not run is reached
+    /// through `edges.peers`, and a call from outside is put to `edges.admit`.
+    pub async fn open(state: &Path, config: &Config, edges: Edges<E>) -> Result<Self> {
+        let Edges {
+            fetch,
+            proxy,
+            images,
+            peers,
+            secrets,
+            admit,
+        } = edges;
         let store = Store::open(state)?;
         let routes = Arc::new(Routes::open(store.clone()).await?);
         let peers = Arc::new(peers);
@@ -136,7 +137,11 @@ impl<E: Env> Host<E> {
             rows: config.rows,
             ..Default::default()
         })?;
-        let mut syscalls = vec![fetch::syscall::<E>(fetch, Arc::new(secrets))];
+        let secrets = Arc::new(secrets);
+        let mut syscalls = vec![fetch::syscall::<E>(fetch, secrets.clone(), false)];
+        if let Some(proxy) = proxy {
+            syscalls.push(fetch::syscall::<E>(proxy, secrets, true));
+        }
         let runtime: Arc<OnceLock<Weak<Berm>>> = Arc::new(OnceLock::new());
         let databases = Arc::new(Databases::new(config.databases.clone()));
         let deployed = {

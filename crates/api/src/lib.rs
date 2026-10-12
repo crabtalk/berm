@@ -323,8 +323,8 @@ impl From<Output> for Result<String, String> {
 }
 
 /// What a call used of one program: its invocations, the wasm instructions
-/// they executed, the largest linear memory one reached, in bytes, and the
-/// rows they read and wrote.
+/// they executed, the largest linear memory one reached, in bytes, the rows
+/// they read and wrote, and the bytes sent and received through the proxy.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Meter {
     pub calls: u64,
@@ -332,6 +332,7 @@ pub struct Meter {
     pub memory: u64,
     pub read: u64,
     pub written: u64,
+    pub proxied: u64,
 }
 
 impl std::ops::AddAssign for Meter {
@@ -342,6 +343,7 @@ impl std::ops::AddAssign for Meter {
         self.memory = self.memory.max(other.memory);
         self.read += other.read;
         self.written += other.written;
+        self.proxied += other.proxied;
     }
 }
 
