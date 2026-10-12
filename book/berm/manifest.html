@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d65add4b.js";
+            window.path_to_searchindex_js = "../searchindex-5112c0b3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-487b46c0.js"></script>
@@ -194,9 +194,22 @@ a service listing a registry, actually needs.</p>
 for tool in &amp;manifest.tools {
     println!("{}: {}", tool.name, tool.description);
 }</code></pre>
-<p>A <code>ToolSpec</code> carries the tool’s name, the description a model reads, and a JSON
-Schema for its arguments. The <code>#[program]</code> macro writes all three at compile
-time from the module it expands.</p>
+<p>A <code>ToolSpec</code> carries the tool’s name, the description a model reads, a JSON
+Schema for its arguments, and optionally <code>returns</code>, a JSON Schema for its
+result, and <code>"query": true</code> for a read-only tool. <code>events</code> lists the typed logs
+the program emits, each with a name, a description and a JSON Schema of its
+<code>fields</code>. The <code>#[program]</code> macro writes them at compile time from the module it
+expands. Every object schema carries the struct’s name as <code>title</code>. A tool or
+event marked <code>#[deprecated]</code> carries <code>"deprecated": true</code>, and <code>version</code> is the
+crate’s version when it was built.</p>
+<h2 id="compatibility"><a class="header" href="#compatibility">Compatibility</a></h2>
+<p><code>Manifest::breaks(next)</code> lists every way <code>next</code> breaks a caller of this
+manifest: a tool or event removed, a tool no longer a query, an argument newly
+required, a result or event field no longer always present, a changed type, an
+unsigned integer becoming signed. Arguments are compared as the new program
+reads them, results and events as old callers read them; added fields break
+nothing. bermd refuses a redeploy that breaks a tool or event a caller used in
+the last 30 days, unless the deploy says <code>force=true</code>, and reports the rest.</p>
 <h2 id="usage"><a class="header" href="#usage">Usage</a></h2>
 <p><code>Manifest::usage</code> is the question no single tool’s description answers: when to
 reach for this program at all, and how its tools go together. An embedder puts
@@ -213,9 +226,18 @@ file at compile time when it outgrows an attribute.</p>
 name, syscalls it makes beyond the ABI’s own, each beside what it reaches
 through that call, and secrets it names as <code>{secret:NAME}</code> in a header. The
 manifest carries them as
-<code>"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...]}</code>.</p>
+<code>"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...], "logs": [...]}</code>.</p>
+<p>A tool subscribes to another program’s logs with <code>#[logs("hn" = ["item"])]</code>,
+listed under <code>logs</code> as <code>{"program": "hn", "topics": ["item"], "tool": "..."}</code>.
+The host calls that tool with a <code>Delivery</code> of the logs it has not had yet,
+oldest first. A log is delivered when it carries any listed topic; no topics
+takes every log.</p>
 <p><code>berm.http.fetch</code> holds a program to them: a host it does not declare, or a
-secret it does not declare, is refused before anything is sent. A declared
+secret it does not declare, is refused before anything is sent.
+<code>berm.http.proxy</code> does the same for the hosts declared under it, and sends
+through the host’s proxy. <code>berm.call</code>
+reaches the program itself and the programs it declares, and refuses any other
+name. A declared
 secret is substituted by the host for the chain’s caller, and the guest never
 holds its value. These are runtime
 and resolved wherever the image lands: nothing here is fetched, installed, or
@@ -225,9 +247,10 @@ compiled in, which is what separates them from the crate’s own
 the program computes at the call is invisible to any scan — a list built that
 way would be quietly short, and the runtime <code>Refused</code> would still be needed
 underneath it.</p>
-<p>Nothing is refused for an unmet dependency. <code>berm deploy</code> says so and carries
-on, and <code>berm inspect</code> marks the programs not deployed and the syscalls nothing
-registers. What a served syscall reaches through it is that syscall’s to grant.
+<p>A declared program not deployed refuses nothing: <code>berm deploy</code> says so and
+carries on, and <code>berm inspect</code> marks it. A syscall the host does not serve
+refuses the deploy. What a served syscall reaches through it is that syscall’s
+to grant.
 Refusing would make deploy order significant, and a restart brings programs
 back in whatever order the filesystem lists them — two that name each other
 could then never come up at all.</p>

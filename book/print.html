@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d65add4b.js";
+            window.path_to_searchindex_js = "searchindex-5112c0b3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-487b46c0.js"></script>
@@ -255,7 +255,8 @@ model reads when deciding whether to call it, so write it for that reader.</p>
 <ul>
 <li><code>#[args(Echo)]</code> names a struct declared beside the tool. Its fields and their
 doc comments become the JSON Schema, and <code>Option&lt;T&gt;</code> is what makes a field
-optional rather than required.</li>
+optional rather than required. A field may name another struct declared in
+the module; its schema is inlined.</li>
 <li><code>#[params("…")]</code> carries a JSON Schema literal, for a shape no struct
 describes.</li>
 <li>Neither: the schema is an open object.</li>
@@ -263,6 +264,10 @@ describes.</li>
 <p>Parsing is the author’s choice because not every program wants a JSON parser
 linked into it — a tool taking no arguments should not pay for one.</p>
 <h2 id="results-and-failure"><a class="header" href="#results-and-failure">Results and failure</a></h2>
+<p><code>#[returns(Peek)]</code> names a struct declared beside the tool, read the same way as
+<code>#[args]</code>, and its schema goes into the manifest as <code>returns</code>. The struct gets a
+<code>Serialize</code> derive; <code>berm_lang::tool::reply(&amp;value, out)</code> writes it as the
+result. An absent <code>Option</code> field is left out rather than written as <code>null</code>.</p>
 <p><code>Out</code> is a bounded sink over a caller-owned buffer, not an allocation, so a
 program that never needs a heap never pays for one. Writes past the end are
 dropped <em>and remembered</em>, which is what keeps a truncated payload from reaching
@@ -286,7 +291,36 @@ stands in for the host: it holds the argument blob and collects what a program
 logged. A call reaching a syscall that has no stand-in panics naming it,
 rather than reading a plausible zero.</p>
 <p><code>berm-fixture</code> in this repository is the worked example — the smallest real
-program, and what berm’s own tests run against.</p>
+program, and what berm’s own tests run against. <code>services/</code> holds deployed
+programs: <code>hn</code> and <code>reddit</code> follow feeds on <code>lib/lake</code>, the runtime for a
+program that fetches feeds on its own wake and emits what is new as logs.</p>
+<h2 id="queries"><a class="header" href="#queries">Queries</a></h2>
+<p><code>#[query]</code> marks a tool read-only. While it runs, and in every call it makes,
+<code>berm.set</code>, <code>berm.emit</code> and <code>berm.call.after</code> are refused, so it leaves nothing
+for the host to commit. A host may serve it over <code>GET</code>.</p>
+<h2 id="events"><a class="header" href="#events">Events</a></h2>
+<p>An <code>#[event]</code> struct in the module is a typed log. <code>berm_lang::emit!(Noted { word })</code> emits it under the topic <code>Noted</code>, its data the struct as JSON. The
+manifest lists each event under <code>events</code> with its doc comment and the schema of
+its fields.</p>
+<h2 id="calling-another-program"><a class="header" href="#calling-another-program">Calling another program</a></h2>
+<p><code>berm idl hn</code> writes the IDL of the program deployed as <code>hn</code> to <code>idls/hn.json</code>.
+<code>berm_lang::declare_program!(hn)</code> reads it from the crate’s directory or the
+nearest ancestor with an <code>idls/</code>, and generates:</p>
+<ul>
+<li><code>hn::types</code>: every struct in its tools’ arguments and results and its events.</li>
+<li><code>hn::calls</code>: one function per tool, taking the argument struct (<code>&amp;str</code> for a
+tool with none) and returning the result struct (<code>String</code> for a tool with
+none).</li>
+<li><code>hn::events</code>: its events, and an <code>Event</code> enum whose <code>read</code> takes a delivered
+<code>Logged</code>.</li>
+<li><code>hn::NAME</code>, which every call names.</li>
+</ul>
+<p>A tool or event the IDL marks <code>deprecated</code> is generated with <code>#[deprecated]</code>.</p>
+<h2 id="changing-an-interface"><a class="header" href="#changing-an-interface">Changing an interface</a></h2>
+<p>A tool’s callers were built against its IDL. A change that breaks them — see
+<a href="#compatibility">the manifest</a> — keeps the old tool beside the new
+one, marked <code>#[deprecated]</code>, until no caller uses it.</p>
+<p>The IDL is a file in the crate; it changes only when <code>berm idl</code> is run again.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="the-manifest"><a class="header" href="#the-manifest">The Manifest</a></h1>
 <p>What a program says it is: its ABI version, its tools, when to reach for them,
@@ -302,9 +336,22 @@ a service listing a registry, actually needs.</p>
 for tool in &amp;manifest.tools {
     println!("{}: {}", tool.name, tool.description);
 }</code></pre>
-<p>A <code>ToolSpec</code> carries the tool’s name, the description a model reads, and a JSON
-Schema for its arguments. The <code>#[program]</code> macro writes all three at compile
-time from the module it expands.</p>
+<p>A <code>ToolSpec</code> carries the tool’s name, the description a model reads, a JSON
+Schema for its arguments, and optionally <code>returns</code>, a JSON Schema for its
+result, and <code>"query": true</code> for a read-only tool. <code>events</code> lists the typed logs
+the program emits, each with a name, a description and a JSON Schema of its
+<code>fields</code>. The <code>#[program]</code> macro writes them at compile time from the module it
+expands. Every object schema carries the struct’s name as <code>title</code>. A tool or
+event marked <code>#[deprecated]</code> carries <code>"deprecated": true</code>, and <code>version</code> is the
+crate’s version when it was built.</p>
+<h2 id="compatibility"><a class="header" href="#compatibility">Compatibility</a></h2>
+<p><code>Manifest::breaks(next)</code> lists every way <code>next</code> breaks a caller of this
+manifest: a tool or event removed, a tool no longer a query, an argument newly
+required, a result or event field no longer always present, a changed type, an
+unsigned integer becoming signed. Arguments are compared as the new program
+reads them, results and events as old callers read them; added fields break
+nothing. bermd refuses a redeploy that breaks a tool or event a caller used in
+the last 30 days, unless the deploy says <code>force=true</code>, and reports the rest.</p>
 <h2 id="usage"><a class="header" href="#usage">Usage</a></h2>
 <p><code>Manifest::usage</code> is the question no single tool’s description answers: when to
 reach for this program at all, and how its tools go together. An embedder puts
@@ -321,9 +368,18 @@ file at compile time when it outgrows an attribute.</p>
 name, syscalls it makes beyond the ABI’s own, each beside what it reaches
 through that call, and secrets it names as <code>{secret:NAME}</code> in a header. The
 manifest carries them as
-<code>"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...]}</code>.</p>
+<code>"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...], "logs": [...]}</code>.</p>
+<p>A tool subscribes to another program’s logs with <code>#[logs("hn" = ["item"])]</code>,
+listed under <code>logs</code> as <code>{"program": "hn", "topics": ["item"], "tool": "..."}</code>.
+The host calls that tool with a <code>Delivery</code> of the logs it has not had yet,
+oldest first. A log is delivered when it carries any listed topic; no topics
+takes every log.</p>
 <p><code>berm.http.fetch</code> holds a program to them: a host it does not declare, or a
-secret it does not declare, is refused before anything is sent. A declared
+secret it does not declare, is refused before anything is sent.
+<code>berm.http.proxy</code> does the same for the hosts declared under it, and sends
+through the host’s proxy. <code>berm.call</code>
+reaches the program itself and the programs it declares, and refuses any other
+name. A declared
 secret is substituted by the host for the chain’s caller, and the guest never
 holds its value. These are runtime
 and resolved wherever the image lands: nothing here is fetched, installed, or
@@ -333,9 +389,10 @@ compiled in, which is what separates them from the crate’s own
 the program computes at the call is invisible to any scan — a list built that
 way would be quietly short, and the runtime <code>Refused</code> would still be needed
 underneath it.</p>
-<p>Nothing is refused for an unmet dependency. <code>berm deploy</code> says so and carries
-on, and <code>berm inspect</code> marks the programs not deployed and the syscalls nothing
-registers. What a served syscall reaches through it is that syscall’s to grant.
+<p>A declared program not deployed refuses nothing: <code>berm deploy</code> says so and
+carries on, and <code>berm inspect</code> marks it. A syscall the host does not serve
+refuses the deploy. What a served syscall reaches through it is that syscall’s
+to grant.
 Refusing would make deploy order significant, and a restart brings programs
 back in whatever order the filesystem lists them — two that name each other
 could then never come up at all.</p>
@@ -442,10 +499,12 @@ repository; reading never does.</p>
 <p><code>BERM_TOKEN</code> carries a credential when the service in front of you wants one.
 Never a GitHub token: an index has no business holding something that could act
 as you elsewhere.</p>
-<p><a href="https://github.com/crabtalk/berm/tree/main/apps/index"><code>berm-indexd</code></a> serves
+<p><a href="https://github.com/crabtalk/berm/blob/main/crates/index/examples/server.rs">The index server example</a> serves
 those two routes over a directory, so the loop can be run without deploying
 anything. What it writes is what a clone holds, so the same directory reads back
-with no service at all.</p>
+with no service at all. Start it from the workspace root:</p>
+<pre><code class="language-sh">cargo run -p berm-index --example server -- --index ./index
+</code></pre>
 <p><code>berm push</code> talks to no index at all — publishing is a separate act, so an
 upload that succeeded is never undone by a listing that failed.</p>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -464,10 +523,14 @@ berm ls
 <p>The control API is resource-shaped — <code>GET</code>, <code>PUT</code> and <code>DELETE</code> on
 <code>/programs/{name}</code> — for the reason dockerd’s is: the clients are a UI, a CLI,
 and <code>curl</code>, and a program is a resource.</p>
-<p>An image is compiled <em>before</em> it is stored. A rejected one therefore leaves
-nothing behind, rather than a file that fails again on every restart. What is
-stored is restored on the next start, and one unloadable image is reported and
-skipped rather than taking the service down with it.</p>
+<p>A deploy is recorded only once its image has compiled, so a rejected one is
+never restored. What is recorded is restored on the next start, and one
+unloadable image is reported and skipped rather than taking the service down
+with it.</p>
+<p>A tool is called with <code>POST /programs/{name}/tools/{tool}</code>, the body its
+argument object. A tool its manifest marks <code>query</code> also answers
+<code>GET /programs/{name}/tools/{tool}?args=&lt;json&gt;</code>, the argument object URL-encoded;
+any other tool answers that with <code>405</code>.</p>
 <p>There is no container here, so there is nothing to start or stop: a program is
 deployed or it is not, and dockerd’s lifecycle verbs have nothing to attach to.</p>
 <h2 id="one-endpoint"><a class="header" href="#one-endpoint">One endpoint</a></h2>
@@ -490,10 +553,9 @@ front of the model on every turn — which is the one thing
 <code>berm://{program}/usage</code> resource. A model reads it when choosing among one
 program’s tools, and pays nothing for the programs it is not considering.</p>
 <h2 id="what-a-deployed-program-can-reach"><a class="header" href="#what-a-deployed-program-can-reach">What a deployed program can reach</a></h2>
-<p>Its arguments, the log, and any other program on the same daemon.</p>
-<p>There is no wiring step and no per-pair permission. What is deployed is
-reachable by name, which is the reach containers on one network have of each
-other, bounded the same way: by what the operator chose to run.</p>
+<p>Its arguments, the log, itself, and the programs on the same daemon its
+manifest declares in <code>programs</code>. A call to any other name is
+<code>CallError::Refused</code>.</p>
 <pre><code class="language-rust">let result = berm_lang::call("inner", "echo", r#"{"query":"hi"}"#)?;</code></pre>
 <p><code>bermd</code> serves this as one syscall, <code>berm.call</code>, and the target is a
 field in the request rather than part of the call number. So an image is never

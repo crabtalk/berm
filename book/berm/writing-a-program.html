@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d65add4b.js";
+            window.path_to_searchindex_js = "../searchindex-5112c0b3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-487b46c0.js"></script>
@@ -216,7 +216,8 @@ model reads when deciding whether to call it, so write it for that reader.</p>
 <ul>
 <li><code>#[args(Echo)]</code> names a struct declared beside the tool. Its fields and their
 doc comments become the JSON Schema, and <code>Option&lt;T&gt;</code> is what makes a field
-optional rather than required.</li>
+optional rather than required. A field may name another struct declared in
+the module; its schema is inlined.</li>
 <li><code>#[params("…")]</code> carries a JSON Schema literal, for a shape no struct
 describes.</li>
 <li>Neither: the schema is an open object.</li>
@@ -224,6 +225,10 @@ describes.</li>
 <p>Parsing is the author’s choice because not every program wants a JSON parser
 linked into it — a tool taking no arguments should not pay for one.</p>
 <h2 id="results-and-failure"><a class="header" href="#results-and-failure">Results and failure</a></h2>
+<p><code>#[returns(Peek)]</code> names a struct declared beside the tool, read the same way as
+<code>#[args]</code>, and its schema goes into the manifest as <code>returns</code>. The struct gets a
+<code>Serialize</code> derive; <code>berm_lang::tool::reply(&amp;value, out)</code> writes it as the
+result. An absent <code>Option</code> field is left out rather than written as <code>null</code>.</p>
 <p><code>Out</code> is a bounded sink over a caller-owned buffer, not an allocation, so a
 program that never needs a heap never pays for one. Writes past the end are
 dropped <em>and remembered</em>, which is what keeps a truncated payload from reaching
@@ -247,7 +252,36 @@ stands in for the host: it holds the argument blob and collects what a program
 logged. A call reaching a syscall that has no stand-in panics naming it,
 rather than reading a plausible zero.</p>
 <p><code>berm-fixture</code> in this repository is the worked example — the smallest real
-program, and what berm’s own tests run against.</p>
+program, and what berm’s own tests run against. <code>services/</code> holds deployed
+programs: <code>hn</code> and <code>reddit</code> follow feeds on <code>lib/lake</code>, the runtime for a
+program that fetches feeds on its own wake and emits what is new as logs.</p>
+<h2 id="queries"><a class="header" href="#queries">Queries</a></h2>
+<p><code>#[query]</code> marks a tool read-only. While it runs, and in every call it makes,
+<code>berm.set</code>, <code>berm.emit</code> and <code>berm.call.after</code> are refused, so it leaves nothing
+for the host to commit. A host may serve it over <code>GET</code>.</p>
+<h2 id="events"><a class="header" href="#events">Events</a></h2>
+<p>An <code>#[event]</code> struct in the module is a typed log. <code>berm_lang::emit!(Noted { word })</code> emits it under the topic <code>Noted</code>, its data the struct as JSON. The
+manifest lists each event under <code>events</code> with its doc comment and the schema of
+its fields.</p>
+<h2 id="calling-another-program"><a class="header" href="#calling-another-program">Calling another program</a></h2>
+<p><code>berm idl hn</code> writes the IDL of the program deployed as <code>hn</code> to <code>idls/hn.json</code>.
+<code>berm_lang::declare_program!(hn)</code> reads it from the crate’s directory or the
+nearest ancestor with an <code>idls/</code>, and generates:</p>
+<ul>
+<li><code>hn::types</code>: every struct in its tools’ arguments and results and its events.</li>
+<li><code>hn::calls</code>: one function per tool, taking the argument struct (<code>&amp;str</code> for a
+tool with none) and returning the result struct (<code>String</code> for a tool with
+none).</li>
+<li><code>hn::events</code>: its events, and an <code>Event</code> enum whose <code>read</code> takes a delivered
+<code>Logged</code>.</li>
+<li><code>hn::NAME</code>, which every call names.</li>
+</ul>
+<p>A tool or event the IDL marks <code>deprecated</code> is generated with <code>#[deprecated]</code>.</p>
+<h2 id="changing-an-interface"><a class="header" href="#changing-an-interface">Changing an interface</a></h2>
+<p>A tool’s callers were built against its IDL. A change that breaks them — see
+<a href="manifest.html#compatibility">the manifest</a> — keeps the old tool beside the new
+one, marked <code>#[deprecated]</code>, until no caller uses it.</p>
+<p>The IDL is a file in the crate; it changes only when <code>berm idl</code> is run again.</p>
 
                     </main>
 

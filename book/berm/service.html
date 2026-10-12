@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d65add4b.js";
+            window.path_to_searchindex_js = "../searchindex-5112c0b3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-487b46c0.js"></script>
@@ -195,10 +195,14 @@ berm ls
 <p>The control API is resource-shaped — <code>GET</code>, <code>PUT</code> and <code>DELETE</code> on
 <code>/programs/{name}</code> — for the reason dockerd’s is: the clients are a UI, a CLI,
 and <code>curl</code>, and a program is a resource.</p>
-<p>An image is compiled <em>before</em> it is stored. A rejected one therefore leaves
-nothing behind, rather than a file that fails again on every restart. What is
-stored is restored on the next start, and one unloadable image is reported and
-skipped rather than taking the service down with it.</p>
+<p>A deploy is recorded only once its image has compiled, so a rejected one is
+never restored. What is recorded is restored on the next start, and one
+unloadable image is reported and skipped rather than taking the service down
+with it.</p>
+<p>A tool is called with <code>POST /programs/{name}/tools/{tool}</code>, the body its
+argument object. A tool its manifest marks <code>query</code> also answers
+<code>GET /programs/{name}/tools/{tool}?args=&lt;json&gt;</code>, the argument object URL-encoded;
+any other tool answers that with <code>405</code>.</p>
 <p>There is no container here, so there is nothing to start or stop: a program is
 deployed or it is not, and dockerd’s lifecycle verbs have nothing to attach to.</p>
 <h2 id="one-endpoint"><a class="header" href="#one-endpoint">One endpoint</a></h2>
@@ -221,10 +225,9 @@ front of the model on every turn — which is the one thing
 <code>berm://{program}/usage</code> resource. A model reads it when choosing among one
 program’s tools, and pays nothing for the programs it is not considering.</p>
 <h2 id="what-a-deployed-program-can-reach"><a class="header" href="#what-a-deployed-program-can-reach">What a deployed program can reach</a></h2>
-<p>Its arguments, the log, and any other program on the same daemon.</p>
-<p>There is no wiring step and no per-pair permission. What is deployed is
-reachable by name, which is the reach containers on one network have of each
-other, bounded the same way: by what the operator chose to run.</p>
+<p>Its arguments, the log, itself, and the programs on the same daemon its
+manifest declares in <code>programs</code>. A call to any other name is
+<code>CallError::Refused</code>.</p>
 <pre><code class="language-rust">let result = berm_lang::call("inner", "echo", r#"{"query":"hi"}"#)?;</code></pre>
 <p><code>bermd</code> serves this as one syscall, <code>berm.call</code>, and the target is a
 field in the request rather than part of the call number. So an image is never

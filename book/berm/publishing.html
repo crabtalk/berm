@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d65add4b.js";
+            window.path_to_searchindex_js = "../searchindex-5112c0b3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-487b46c0.js"></script>
@@ -270,10 +270,12 @@ repository; reading never does.</p>
 <p><code>BERM_TOKEN</code> carries a credential when the service in front of you wants one.
 Never a GitHub token: an index has no business holding something that could act
 as you elsewhere.</p>
-<p><a href="https://github.com/crabtalk/berm/tree/main/apps/index"><code>berm-indexd</code></a> serves
+<p><a href="https://github.com/crabtalk/berm/blob/main/crates/index/examples/server.rs">The index server example</a> serves
 those two routes over a directory, so the loop can be run without deploying
 anything. What it writes is what a clone holds, so the same directory reads back
-with no service at all.</p>
+with no service at all. Start it from the workspace root:</p>
+<pre><code class="language-sh">cargo run -p berm-index --example server -- --index ./index
+</code></pre>
 <p><code>berm push</code> talks to no index at all — publishing is a separate act, so an
 upload that succeeded is never undone by a listing that failed.</p>
 
