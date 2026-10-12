@@ -19,9 +19,24 @@ for tool in &manifest.tools {
 }
 ```
 
-A `ToolSpec` carries the tool's name, the description a model reads, and a JSON
-Schema for its arguments. The `#[program]` macro writes all three at compile
-time from the module it expands.
+A `ToolSpec` carries the tool's name, the description a model reads, a JSON
+Schema for its arguments, and optionally `returns`, a JSON Schema for its
+result, and `"query": true` for a read-only tool. `events` lists the typed logs
+the program emits, each with a name, a description and a JSON Schema of its
+`fields`. The `#[program]` macro writes them at compile time from the module it
+expands. Every object schema carries the struct's name as `title`. A tool or
+event marked `#[deprecated]` carries `"deprecated": true`, and `version` is the
+crate's version when it was built.
+
+## Compatibility
+
+`Manifest::breaks(next)` lists every way `next` breaks a caller of this
+manifest: a tool or event removed, a tool no longer a query, an argument newly
+required, a result or event field no longer always present, a changed type, an
+unsigned integer becoming signed. Arguments are compared as the new program
+reads them, results and events as old callers read them; added fields break
+nothing. bermd refuses a redeploy that breaks a tool or event a caller used in
+the last 30 days, unless the deploy says `force=true`, and reports the rest.
 
 ## Usage
 
@@ -45,10 +60,20 @@ is what an image says it will reach for once it runs: programs it calls by
 name, syscalls it makes beyond the ABI's own, each beside what it reaches
 through that call, and secrets it names as `{secret:NAME}` in a header. The
 manifest carries them as
-`"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...]}`.
+`"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...], "logs": [...]}`.
+
+A tool subscribes to another program's logs with `#[logs("hn" = ["item"])]`,
+listed under `logs` as `{"program": "hn", "topics": ["item"], "tool": "..."}`.
+The host calls that tool with a `Delivery` of the logs it has not had yet,
+oldest first. A log is delivered when it carries any listed topic; no topics
+takes every log.
 
 `berm.http.fetch` holds a program to them: a host it does not declare, or a
-secret it does not declare, is refused before anything is sent. A declared
+secret it does not declare, is refused before anything is sent.
+`berm.http.proxy` does the same for the hosts declared under it, and sends
+through the host's proxy. `berm.call`
+reaches the program itself and the programs it declares, and refuses any other
+name. A declared
 secret is substituted by the host for the chain's caller, and the guest never
 holds its value. These are runtime
 and resolved wherever the image lands: nothing here is fetched, installed, or
@@ -60,9 +85,10 @@ the program computes at the call is invisible to any scan — a list built that
 way would be quietly short, and the runtime `Refused` would still be needed
 underneath it.
 
-Nothing is refused for an unmet dependency. `berm deploy` says so and carries
-on, and `berm inspect` marks the programs not deployed and the syscalls nothing
-registers. What a served syscall reaches through it is that syscall's to grant.
+A declared program not deployed refuses nothing: `berm deploy` says so and
+carries on, and `berm inspect` marks it. A syscall the host does not serve
+refuses the deploy. What a served syscall reaches through it is that syscall's
+to grant.
 Refusing would make deploy order significant, and a restart brings programs
 back in whatever order the filesystem lists them — two that name each other
 could then never come up at all.

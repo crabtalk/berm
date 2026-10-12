@@ -16,8 +16,8 @@
 //! hashes to a number no closure is registered for, so the first call traps
 //! as an unknown host call rather than reaching the wrong syscall.
 
-/// Write a UTF-8 message to the host log. `(ptr, len) -> 0`
-pub const HOST_LOG: u64 = hash("berm.log");
+/// Write a UTF-8 message to the host's trace. `(ptr, len) -> 0`
+pub const HOST_TRACE: u64 = hash("berm.trace");
 /// Byte length of this invocation's argument blob. `() -> len`
 pub const HOST_ARG_LEN: u64 = hash("berm.args.len");
 /// Copy the argument blob into guest memory. `(ptr, cap) -> full length`
@@ -98,6 +98,33 @@ pub const HTTP_FETCH: &str = "berm.http.fetch";
 /// which the host substitutes; the guest never holds the value.
 pub const HOST_HTTP_FETCH: u64 = hash(HTTP_FETCH);
 
+/// What a host registers to serve [`HOST_HTTP_PROXY`].
+pub const HTTP_PROXY: &str = "berm.http.proxy";
+
+/// Make one HTTP request through the host's proxy. The request and reply are
+/// [`HOST_HTTP_FETCH`]'s.
+pub const HOST_HTTP_PROXY: u64 = hash(HTTP_PROXY);
+
+/// What a host registers to serve [`HOST_EMIT`].
+pub const EMIT: &str = "berm.emit";
+
+/// Emit one log. `(ptr, len) -> staged length`
+///
+/// Request fields are the data, then each topic, all UTF-8; the reply is
+/// empty. The host takes the log, or has it held in the chain's journal until
+/// it reaches the host in [`crate::Changes`].
+pub const HOST_EMIT: u64 = hash(EMIT);
+
+/// What a host registers to serve [`HOST_SQL`].
+pub const SQL: &str = "berm.sql";
+
+/// Run one SQL statement against this program's own database.
+/// `(ptr, len) -> staged length`
+///
+/// Request fields are the statement and its parameters as a JSON array. The
+/// reply is JSON: `{"columns": [..], "rows": [[..]], "read": n, "written": n}`.
+pub const HOST_SQL: u64 = hash(SQL);
+
 /// What a host registers to serve [`HOST_GET`] and [`HOST_SET`].
 pub const GET: &str = "berm.get";
 pub const SET: &str = "berm.set";
@@ -114,8 +141,29 @@ pub const HOST_GET: u64 = hash(GET);
 
 /// Write one. `(ptr, len) -> staged length`
 ///
-/// Request fields are the key and the value; the reply is empty.
+/// Request fields are the key and the value; the reply is empty. The host takes
+/// the write, or has it held in the chain's journal until it reaches the host
+/// in [`crate::Changes`].
 pub const HOST_SET: u64 = hash(SET);
+
+/// Who made this call. `(ptr, len) -> staged length`, the pair ignored.
+///
+/// The reply is no fields when the host started the chain on the program's
+/// own behalf, else two: `outside` or `program`, then the name. berm serves
+/// this one itself, from the [`crate::Callsite`].
+pub const HOST_CALLER: u64 = hash("berm.caller");
+
+/// The end user the chain runs for. `(ptr, len) -> staged length`, the pair
+/// ignored.
+///
+/// The reply is no fields when the embedder vouched for none, else the issuer
+/// and the subject. berm serves this one itself, from the [`crate::Callsite`].
+pub const HOST_USER: u64 = hash("berm.user");
+
+/// Mark this invocation's failure as refusing its caller. `() -> 0`
+///
+/// berm serves this one itself; the host reads it in [`crate::Outcome`].
+pub const HOST_DENY: u64 = hash("berm.deny");
 
 /// Milliseconds since the Unix epoch, as the host reads its clock. `() -> millis`
 ///

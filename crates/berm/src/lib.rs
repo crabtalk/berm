@@ -6,28 +6,39 @@
 //! nothing survives the call.
 //!
 //! ```ignore
-//! let berm = Berm::new(&engine, syscall::call::DEFAULT_CALL_DEPTH, vec![]);
+//! let calls = Calls::by_name(syscall::call::DEFAULT_CALL_DEPTH);
+//! let berm = Berm::new(&engine, calls, vec![], storage::Memory::new());
 //! berm.deploy("example", &wasm)?;
-//! let result = berm.call(None, "example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
+//! let outcome = berm.call(None, "example", "echo", br#"{"query":"hi"}"#.to_vec()).await?;
 //! ```
 //!
 //! An image is a WebAssembly module, run under wasmtime.
 //!
-//! What is deployed is reachable, by name, from any other program deployed
-//! beside it — which is the one syscall berm serves itself, because it
-//! is the only one that needs nothing but the set berm already holds.
+//! What is deployed is reachable from any other program deployed beside it,
+//! through `berm.call`, which berm serves against the set it already holds.
+//! Which deployed program a call's target names is the embedder's
+//! [`Calls::resolve`].
 //!
 //! Everything else a program reaches is a [`Syscall`] the embedder passed in,
 //! and that list is the linker it is instantiated with: a call to anything else
 //! traps because nothing is registered for it, not because a check said no.
-//! The standard ones — `berm.get`/`berm.set`, `berm.call.after`,
+//! The standard ones — `berm.get`/`berm.set`, `berm.emit`, `berm.call.after`,
 //! `berm.http.fetch` — are built with [`syscall`]'s constructors, which read
 //! and check the request and hand the work to the embedder's closures.
+//!
+//! What `berm.set` and `berm.emit` leave to berm is held in a journal and
+//! handed back from [`Program::call`] as [`Changes`], for the host to commit as
+//! one. Every invocation runs inside a [`Scope`] the host opens through
+//! [`Calls::enter`].
 
 use anyhow::Result;
-pub use berm_api::{Deps, Manifest, ToolSpec};
+pub use berm_api::{Budget, Delivery, Deps, Logged, Manifest, Meter, Subscription, ToolSpec};
 pub use engine::{Config, Engine};
-pub use program::{Invocation, Program, Refused};
+use journal::Journal;
+pub use journal::{Changes, Log, Write};
+pub use meter::Meters;
+use meter::Rows;
+pub use program::{Ended, Invocation, Link, Outcome, Program, Refused};
 use std::{
     collections::BTreeMap,
     pin::Pin,
@@ -35,10 +46,17 @@ use std::{
     time::Instant,
 };
 pub use storage::{Records, Storage};
+pub use syscall::call::{
+    Budgeted, Called, Calls, Enter, Named, Opening, Reaching, Remote, Reported, Resolve, Scope,
+};
 
 pub mod abi;
 mod bound;
+#[cfg(feature = "sqlite")]
+pub mod database;
 mod engine;
+mod journal;
+mod meter;
 mod program;
 pub mod storage;
 pub mod syscall;
@@ -67,15 +85,69 @@ pub struct Callsite {
     pub program: Arc<str>,
     /// What this program's manifest declares it reaches for.
     pub deps: Arc<Deps>,
-    /// Who started the chain, as the embedder named them at its first call.
+    /// Who made this call: whoever the embedder named at the chain's first
+    /// call, or the program that called this one. `None` when the host
+    /// started the chain on the program's own behalf.
+    pub caller: Option<Caller>,
+    /// The end user the embedder vouched for at the chain's first call.
     /// Carried unchanged into every nested call.
-    pub caller: Option<Arc<str>>,
+    pub user: Option<User>,
     /// How many guests the chain holds, this one included.
     pub depth: u32,
+    /// The programs this call sits under, outermost first, this one last.
+    pub stack: Arc<[Arc<str>]>,
+    /// Whether this invocation is of a `query` tool, or sits under one. A
+    /// query is refused `berm.set`, `berm.emit` and `berm.call.after`.
+    pub query: bool,
+    /// Which chain this is, unique within the process.
+    pub chain: u64,
     /// When the chain has to be done by. A guest suspended in a syscall cannot
     /// notice it until the reply resolves, so a syscall bounds its own wait
     /// inside this.
     pub deadline: Instant,
+    /// What the chain has written and emitted so far.
+    pub(crate) journal: Arc<Journal>,
+    /// What the chain has used so far, by program.
+    pub(crate) meters: Arc<Meters>,
+    /// This invocation's rows, against its budget.
+    pub(crate) rows: Arc<Rows>,
+}
+
+impl Callsite {
+    /// Count `used` against this program in the chain, its rows against this
+    /// invocation's budget.
+    pub fn meter(&self, used: Meter) {
+        self.rows.add(used.read + used.written);
+        self.meters.add(&self.program, used);
+    }
+
+    /// Refused once this invocation has used its budget of rows.
+    pub fn rows_left(&self) -> Result<()> {
+        self.rows.left()
+    }
+
+    /// Count `used` against `program`, run elsewhere for this chain.
+    pub fn meter_of(&self, program: &str, used: Meter) {
+        self.meters.add(program, used);
+    }
+}
+
+/// Who made a call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Caller {
+    /// Named by the embedder at the chain's first call.
+    Outside(Arc<str>),
+    /// The program that called through `berm.call`, as [`Calls::named`] names
+    /// it.
+    Program(Arc<str>),
+}
+
+/// An end user, as the embedder verified them: who vouched for them, and who
+/// they are to it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct User {
+    pub issuer: Arc<str>,
+    pub subject: Arc<str>,
 }
 
 /// The programs a host is running.
@@ -87,8 +159,8 @@ pub struct Berm {
     /// Every deployed program, by the name it answers to. Never held across an
     /// await.
     programs: RwLock<BTreeMap<String, Arc<Program>>>,
-    /// See [`syscall::call::DEFAULT_CALL_DEPTH`].
-    depth: u32,
+    /// How `berm.call` reaches programs.
+    calls: Calls,
     /// What the embedder gives every program, beside what berm serves itself.
     syscalls: Vec<Syscall>,
     /// Where this runtime's own records live. Held as the trait: berm decides
@@ -108,14 +180,14 @@ impl Berm {
     /// process.
     pub fn new(
         engine: &Engine,
-        depth: u32,
+        calls: Calls,
         syscalls: Vec<Syscall>,
         storage: Arc<dyn Storage>,
     ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             engine: engine.clone(),
             programs: RwLock::new(BTreeMap::new()),
-            depth,
+            calls,
             syscalls,
             storage,
             me: me.clone(),
@@ -174,12 +246,14 @@ impl Berm {
     /// Compile an image against the syscalls this runtime serves.
     fn load(&self, name: &str, image: &[u8]) -> Result<Arc<Program>> {
         let mut syscalls = self.syscalls.clone();
-        syscalls.push(syscall::call::syscalls(self.me.clone(), self.depth));
+        syscalls.push(syscall::call::syscalls(self.me.clone(), self.calls.clone()));
         Ok(Arc::new(Program::load(
             &self.engine,
             image,
             name,
             &syscalls,
+            self.calls.enter.clone(),
+            self.calls.budget.clone(),
         )?))
     }
 
@@ -218,16 +292,15 @@ impl Berm {
 
     /// Run one tool on one program.
     ///
-    /// The outer `Result` is the host's — no such program, no such tool, a
-    /// trap. The inner one is the program's own reported failure, which is a
-    /// tool result rather than an error.
+    /// `Err` is the host's — no such program, no such tool, a trap. The
+    /// program's own reported failure is [`Outcome::result`].
     pub async fn call(
         &self,
         caller: Option<Arc<str>>,
         program: &str,
         tool: &str,
         args: impl Into<Vec<u8>>,
-    ) -> Result<Result<String, String>> {
+    ) -> Result<Outcome> {
         let Some(program) = self.get(program) else {
             anyhow::bail!("no program named {program:?} is deployed");
         };

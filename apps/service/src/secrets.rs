@@ -9,10 +9,11 @@
 //! hosts = ["127.0.0.1"]
 //! ```
 //!
-//! Read at every lookup, so an edit applies to the next request. bermd starts
-//! no chain with a caller, so a grant is the program's whatever starts it.
+//! Read at every lookup, so an edit applies to the next request. A grant is
+//! the program's whatever starts it.
 
 use anyhow::{Context, Result};
+use berm_host::Secrets;
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
@@ -32,34 +33,19 @@ struct Grant {
 }
 
 /// Every grant, by program and then by secret name.
-type Grants = BTreeMap<String, BTreeMap<String, Grant>>;
+type Table = BTreeMap<String, BTreeMap<String, Grant>>;
 
 /// Where the grants live.
 #[derive(Clone)]
-pub(crate) struct Secrets {
+pub struct Grants {
     path: PathBuf,
 }
 
-impl Secrets {
-    pub(crate) fn open(root: &Path) -> Self {
+impl Grants {
+    pub fn open(root: &Path) -> Self {
         Self {
             path: root.join(FILE),
         }
-    }
-
-    /// The value of `name` granted to `program` for `host`, if any.
-    pub(crate) fn grant(&self, program: &str, name: &str, host: &str) -> Result<Option<String>> {
-        let mut grants = self.read()?;
-        Ok(grants
-            .remove(program)
-            .and_then(|mut granted| granted.remove(name))
-            .filter(|grant| {
-                grant
-                    .hosts
-                    .iter()
-                    .any(|allowed| allowed.eq_ignore_ascii_case(host))
-            })
-            .map(|grant| grant.value))
     }
 
     /// The names granted to `program`, for whatever hosts.
@@ -72,11 +58,11 @@ impl Secrets {
     }
 
     /// Every grant, or none when the file is absent.
-    fn read(&self) -> Result<Grants> {
+    fn read(&self) -> Result<Table> {
         let text = match fs::read_to_string(&self.path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Grants::new());
+                return Ok(Table::new());
             }
             Err(error) => {
                 return Err(error)
@@ -84,5 +70,21 @@ impl Secrets {
             }
         };
         toml::from_str(&text).with_context(|| format!("{} is not valid", self.path.display()))
+    }
+}
+
+impl Secrets for Grants {
+    async fn grant(&self, program: &str, secret: &str, host: &str) -> Result<Option<String>> {
+        Ok(self
+            .read()?
+            .remove(program)
+            .and_then(|mut granted| granted.remove(secret))
+            .filter(|grant| {
+                grant
+                    .hosts
+                    .iter()
+                    .any(|allowed| allowed.eq_ignore_ascii_case(host))
+            })
+            .map(|grant| grant.value))
     }
 }

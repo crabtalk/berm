@@ -11,8 +11,8 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, Config, Engine, storage, syscall::call};
-use std::{fs, path::PathBuf};
+use berm::{Berm, Calls, Config, Engine, storage, syscall::call};
+use std::{fs, path::PathBuf, sync::Arc};
 
 const GUEST: (&str, &str) = (
     "target/wasm32-unknown-unknown/release/fixture.wasm",
@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
 
     let berm = Berm::new(
         &engine,
-        call::DEFAULT_CALL_DEPTH,
+        Calls::by_name(call::DEFAULT_CALL_DEPTH),
         vec![],
         storage::Memory::new(),
     );
@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
     let result = berm
         .call(None, "outer", "nest", br#"{"query":"hi"}"#.to_vec())
         .await?
+        .result
         .map_err(anyhow::Error::msg)?;
     println!("reached:  {result}");
     assert!(
@@ -66,6 +67,7 @@ async fn main() -> Result<()> {
     let failure = berm
         .call(None, "outer", "nest", br#"{"query":"hi"}"#.to_vec())
         .await?
+        .result
         .expect_err("a refused call fails its caller");
     println!("refused:  {failure}");
     assert!(
@@ -80,8 +82,51 @@ async fn main() -> Result<()> {
     let reached = berm
         .call(None, "outer", "recurse", b"0".to_vec())
         .await?
+        .result
         .map_err(anyhow::Error::msg)?;
     println!("depth:    {reached} levels before the runtime refused");
+
+    // A resolver decides what a name reaches. Here, as in a host that keeps
+    // programs per owner, `inner` reaches the `inner` beside the caller.
+    let owned = Berm::new(
+        &engine,
+        Calls {
+            depth: call::DEFAULT_CALL_DEPTH,
+            resolve: Arc::new(|at, target, _| {
+                let (owner, _) = at
+                    .program
+                    .split_once('/')
+                    .context("deployed without an owner")?;
+                Ok(format!("{owner}/{target}"))
+            }),
+            // A callee is told the caller's name within the owner.
+            named: Arc::new(|program| {
+                program
+                    .split_once('/')
+                    .map_or(program, |(_, name)| name)
+                    .to_owned()
+            }),
+            ..Calls::by_name(call::DEFAULT_CALL_DEPTH)
+        },
+        vec![],
+        storage::Memory::new(),
+    );
+    owned.deploy("alice/outer", &image)?;
+    owned.deploy("alice/inner", &image)?;
+    owned.deploy("bob/outer", &image)?;
+    let reached = owned
+        .call(None, "alice/outer", "nest", br#"{"query":"hi"}"#.to_vec())
+        .await?
+        .result
+        .map_err(anyhow::Error::msg)?;
+    println!("resolved: {reached}");
+    let failure = owned
+        .call(None, "bob/outer", "nest", br#"{"query":"hi"}"#.to_vec())
+        .await?
+        .result
+        .expect_err("bob has no inner");
+    println!("unowned:  {failure}");
+    assert!(failure.contains("bob/inner"), "{failure}");
 
     println!("\nok");
     Ok(())

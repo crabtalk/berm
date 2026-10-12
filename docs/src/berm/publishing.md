@@ -123,10 +123,14 @@ repository; reading never does.
 Never a GitHub token: an index has no business holding something that could act
 as you elsewhere.
 
-[`berm-indexd`](https://github.com/crabtalk/berm/tree/main/apps/index) serves
+[The index server example](https://github.com/crabtalk/berm/blob/main/crates/index/examples/server.rs) serves
 those two routes over a directory, so the loop can be run without deploying
 anything. What it writes is what a clone holds, so the same directory reads back
-with no service at all.
+with no service at all. Start it from the workspace root:
+
+```sh
+cargo run -p berm-index --example server -- --index ./index
+```
 
 `berm push` talks to no index at all — publishing is a separate act, so an
 upload that succeeded is never undone by a listing that failed.

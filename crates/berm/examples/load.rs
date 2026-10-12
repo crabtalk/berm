@@ -65,8 +65,13 @@ async fn main() -> Result<()> {
         instances: 10_000,
         ..Config::default()
     })?;
-    let program =
-        Berm::new(&engine, 0, vec![get], berm::storage::Memory::new()).deploy("fixture", &image)?;
+    let program = Berm::new(
+        &engine,
+        berm::Calls::by_name(0),
+        vec![get],
+        berm::storage::Memory::new(),
+    )
+    .deploy("fixture", &image)?;
 
     println!("cores: {}", std::thread::available_parallelism()?);
     header("echo");
@@ -109,6 +114,7 @@ async fn row(
                 program
                     .call(None, tool, b"{}".to_vec())
                     .await?
+                    .result
                     .map_err(anyhow::Error::msg)?;
                 latencies.push(submitted.elapsed());
             }

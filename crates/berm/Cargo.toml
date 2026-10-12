@@ -12,11 +12,17 @@ anyhow.workspace = true
 berm-api.workspace = true
 berm-codegen.workspace = true
 hex.workspace = true
+rusqlite = { workspace = true, optional = true }
 sha2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 wasmtime.workspace = true
+tokio = { workspace = true, optional = true }
+
+[features]
+# `database`: a program's own SQLite database, for a host serving `berm.sql`.
+sqlite = ["dep:rusqlite", "dep:tokio"]
 
 [dev-dependencies]
 tokio.workspace = true

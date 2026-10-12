@@ -20,10 +20,15 @@ The control API is resource-shaped — `GET`, `PUT` and `DELETE` on
 `/programs/{name}` — for the reason dockerd's is: the clients are a UI, a CLI,
 and `curl`, and a program is a resource.
 
-An image is compiled *before* it is stored. A rejected one therefore leaves
-nothing behind, rather than a file that fails again on every restart. What is
-stored is restored on the next start, and one unloadable image is reported and
-skipped rather than taking the service down with it.
+A deploy is recorded only once its image has compiled, so a rejected one is
+never restored. What is recorded is restored on the next start, and one
+unloadable image is reported and skipped rather than taking the service down
+with it.
+
+A tool is called with `POST /programs/{name}/tools/{tool}`, the body its
+argument object. A tool its manifest marks `query` also answers
+`GET /programs/{name}/tools/{tool}?args=<json>`, the argument object URL-encoded;
+any other tool answers that with `405`.
 
 There is no container here, so there is nothing to start or stop: a program is
 deployed or it is not, and dockerd's lifecycle verbs have nothing to attach to.
@@ -56,11 +61,9 @@ program's tools, and pays nothing for the programs it is not considering.
 
 ## What a deployed program can reach
 
-Its arguments, the log, and any other program on the same daemon.
-
-There is no wiring step and no per-pair permission. What is deployed is
-reachable by name, which is the reach containers on one network have of each
-other, bounded the same way: by what the operator chose to run.
+Its arguments, the log, itself, and the programs on the same daemon its
+manifest declares in `programs`. A call to any other name is
+`CallError::Refused`.
 
 ```rust
 let result = berm_lang::call("inner", "echo", r#"{"query":"hi"}"#)?;

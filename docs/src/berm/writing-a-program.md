@@ -41,7 +41,8 @@ The handler always receives the raw blob. Declaring a shape is about the
 
 - `#[args(Echo)]` names a struct declared beside the tool. Its fields and their
   doc comments become the JSON Schema, and `Option<T>` is what makes a field
-  optional rather than required.
+  optional rather than required. A field may name another struct declared in
+  the module; its schema is inlined.
 - `#[params("…")]` carries a JSON Schema literal, for a shape no struct
   describes.
 - Neither: the schema is an open object.
@@ -50,6 +51,11 @@ Parsing is the author's choice because not every program wants a JSON parser
 linked into it — a tool taking no arguments should not pay for one.
 
 ## Results and failure
+
+`#[returns(Peek)]` names a struct declared beside the tool, read the same way as
+`#[args]`, and its schema goes into the manifest as `returns`. The struct gets a
+`Serialize` derive; `berm_lang::tool::reply(&value, out)` writes it as the
+result. An absent `Option` field is left out rather than written as `null`.
 
 `Out` is a bounded sink over a caller-owned buffer, not an allocation, so a
 program that never needs a heap never pays for one. Writes past the end are
@@ -82,4 +88,43 @@ logged. A call reaching a syscall that has no stand-in panics naming it,
 rather than reading a plausible zero.
 
 `berm-fixture` in this repository is the worked example — the smallest real
-program, and what berm's own tests run against.
+program, and what berm's own tests run against. `services/` holds deployed
+programs: `hn` and `reddit` follow feeds on `lib/lake`, the runtime for a
+program that fetches feeds on its own wake and emits what is new as logs.
+
+## Queries
+
+`#[query]` marks a tool read-only. While it runs, and in every call it makes,
+`berm.set`, `berm.emit` and `berm.call.after` are refused, so it leaves nothing
+for the host to commit. A host may serve it over `GET`.
+
+## Events
+
+An `#[event]` struct in the module is a typed log. `berm_lang::emit!(Noted {
+word })` emits it under the topic `Noted`, its data the struct as JSON. The
+manifest lists each event under `events` with its doc comment and the schema of
+its fields.
+
+## Calling another program
+
+`berm idl hn` writes the IDL of the program deployed as `hn` to `idls/hn.json`.
+`berm_lang::declare_program!(hn)` reads it from the crate's directory or the
+nearest ancestor with an `idls/`, and generates:
+
+- `hn::types`: every struct in its tools' arguments and results and its events.
+- `hn::calls`: one function per tool, taking the argument struct (`&str` for a
+  tool with none) and returning the result struct (`String` for a tool with
+  none).
+- `hn::events`: its events, and an `Event` enum whose `read` takes a delivered
+  `Logged`.
+- `hn::NAME`, which every call names.
+
+A tool or event the IDL marks `deprecated` is generated with `#[deprecated]`.
+
+## Changing an interface
+
+A tool's callers were built against its IDL. A change that breaks them — see
+[the manifest](manifest.md#compatibility) — keeps the old tool beside the new
+one, marked `#[deprecated]`, until no caller uses it.
+
+The IDL is a file in the crate; it changes only when `berm idl` is run again.

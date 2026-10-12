@@ -56,3 +56,81 @@ pub fn after(delay: u64, program: &str, tool: &str, args: &str) -> Result<(), Ca
     host::call(abi::HOST_CALL_AFTER, &request)?;
     Ok(())
 }
+
+/// Who made a call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Caller {
+    /// Someone the host authenticated: an account, as the host names it.
+    Outside(String),
+    /// Another program, through [`call`], as the host names it.
+    Program(String),
+}
+
+/// Who made this call, as the host says. `None` when the host started it on
+/// this program's own behalf: a subscription's delivery or a wake.
+///
+/// Set by the host, never by the caller, so it can be checked:
+///
+/// ```ignore
+/// if berm_lang::caller()? != Some(Caller::Program("lake".into())) {
+///     return Err(Failed);
+/// }
+/// ```
+pub fn caller() -> Result<Option<Caller>, CallError> {
+    let reply = host::call(abi::HOST_CALLER, &[])?;
+    let unreadable =
+        || CallError::Failed(String::from("host framed a reply this guest cannot read"));
+    let fields = wire::fields(&reply).ok_or_else(unreadable)?;
+    match fields.as_slice() {
+        [] => Ok(None),
+        [kind, name] => {
+            let name = String::from_utf8_lossy(name).into_owned();
+            match *kind {
+                b"outside" => Ok(Some(Caller::Outside(name))),
+                b"program" => Ok(Some(Caller::Program(name))),
+                _ => Err(unreadable()),
+            }
+        }
+        _ => Err(unreadable()),
+    }
+}
+
+/// An end user, as the host verified them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct User {
+    /// Who vouched for them: an identity provider's issuer URL.
+    pub issuer: String,
+    /// Who they are to that issuer.
+    pub subject: String,
+}
+
+/// The end user this chain runs for, as the host verified them, carried into
+/// every nested call. [`caller`] says who made this call, which in a nested
+/// call is the program that relayed the user.
+pub fn user() -> Result<Option<User>, CallError> {
+    let reply = host::call(abi::HOST_USER, &[])?;
+    let unreadable =
+        || CallError::Failed(String::from("host framed a reply this guest cannot read"));
+    match wire::fields(&reply).ok_or_else(unreadable)?.as_slice() {
+        [] => Ok(None),
+        [issuer, subject] => Ok(Some(User {
+            issuer: String::from_utf8_lossy(issuer).into_owned(),
+            subject: String::from_utf8_lossy(subject).into_owned(),
+        })),
+        _ => Err(unreadable()),
+    }
+}
+
+/// Refuse this call's caller: the tool fails, and the host counts the call as
+/// denied rather than failed.
+///
+/// ```ignore
+/// if berm_lang::caller()? != Some(Caller::Program("lake".into())) {
+///     out.write(b"only lake calls this");
+///     return Err(berm_lang::deny());
+/// }
+/// ```
+pub fn deny() -> crate::Failed {
+    crate::abi::deny();
+    crate::Failed
+}

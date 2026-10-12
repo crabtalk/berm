@@ -7,10 +7,10 @@
 //! free until the reply resolves.
 
 use crate::{
-    Invocation,
+    Budget, Invocation, Meter,
     syscall::{self, Door, Table},
 };
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use std::{
     path::PathBuf,
     sync::Arc,
@@ -19,7 +19,7 @@ use std::{
 };
 use wasmtime::{
     Caller, Extern, InstanceAllocationStrategy, InstancePre, Linker, Memory, Module,
-    PoolingAllocationConfig, Store, ToWasmtimeResult, TypedFunc,
+    PoolingAllocationConfig, Store, ToWasmtimeResult,
 };
 
 /// The module every syscall is imported from, and the one name under it.
@@ -45,6 +45,12 @@ pub struct Config {
     pub instances: u32,
     /// The largest linear memory one guest may grow to, in bytes.
     pub memory: usize,
+    /// The most wasm instructions one invocation may execute.
+    pub fuel: u64,
+    /// The most rows one invocation may read and write together. A row
+    /// syscall made once they are used is refused; the statement that crosses
+    /// the budget runs to its end.
+    pub rows: u64,
 }
 
 impl Default for Config {
@@ -53,6 +59,8 @@ impl Default for Config {
             cache_dir: None,
             instances: 1_000,
             memory: 64 << 20,
+            fuel: 1_000_000_000,
+            rows: 1_000_000,
         }
     }
 }
@@ -61,7 +69,13 @@ impl Default for Config {
 ///
 /// Cheap to clone; each compiled image keeps its own handle.
 #[derive(Clone)]
-pub struct Engine(wasmtime::Engine);
+pub struct Engine {
+    wasmtime: wasmtime::Engine,
+    /// [`Config::fuel`].
+    fuel: u64,
+    /// [`Config::rows`].
+    rows: u64,
+}
 
 impl Engine {
     pub fn new(config: &Config) -> Result<Self> {
@@ -69,6 +83,9 @@ impl Engine {
         // Without this the compiled code has no checks to notice a deadline,
         // and a guest that loops forever holds the calling thread forever.
         wasmtime.epoch_interruption(true);
+        // Instructions are counted in fuel, one per wasm operator. A guest
+        // bound by computation runs measurably slower for it.
+        wasmtime.consume_fuel(true);
         if let Some(dir) = &config.cache_dir {
             let mut cache = wasmtime::CacheConfig::new();
             cache.with_directory(dir.join("wasm"));
@@ -88,7 +105,11 @@ impl Engine {
         wasmtime.allocation_strategy(InstanceAllocationStrategy::Pooling(pool));
         let engine = wasmtime::Engine::new(&wasmtime)?;
         tick(&engine);
-        Ok(Self(engine))
+        Ok(Self {
+            wasmtime: engine,
+            fuel: config.fuel,
+            rows: config.rows,
+        })
     }
 }
 
@@ -121,6 +142,8 @@ fn tick(engine: &wasmtime::Engine) {
 /// One compiled program, ready to instantiate.
 pub(crate) struct Image {
     engine: wasmtime::Engine,
+    /// [`Config::fuel`] and [`Config::rows`].
+    pub(crate) budget: Budget,
     /// Imports resolved once, at deploy. A guest reaching for something no
     /// syscall is registered for is refused by the deploy that introduced it,
     /// rather than trapping on a model's turn.
@@ -131,7 +154,11 @@ pub(crate) struct Image {
 impl Image {
     /// Compile `image` against `table`.
     pub(crate) fn compile(engine: &Engine, image: &[u8], table: Table) -> Result<Self> {
-        let engine = engine.0.clone();
+        let budget = Budget {
+            instructions: engine.fuel,
+            rows: engine.rows,
+        };
+        let engine = engine.wasmtime.clone();
         let module = Module::new(&engine, image)?;
 
         let mut linker: Linker<Invocation> = Linker::new(&engine);
@@ -165,6 +192,7 @@ impl Image {
             exports: module.exports().map(|e| e.name().to_owned()).collect(),
             pre: linker.instantiate_pre(&module)?,
             engine,
+            budget,
         })
     }
 
@@ -174,12 +202,19 @@ impl Image {
         self.exports.iter().map(String::as_str).collect()
     }
 
-    /// Instantiate and run one tool.
+    /// Instantiate and run one tool, executing at most `fuel` instructions, and
+    /// meter the instructions it executed and the linear memory it reached
+    /// against its program, trapped or not.
     ///
     /// The invocation goes in carrying the arguments and comes back carrying
     /// whatever the tool answered with. Nothing else survives: the instance is
     /// built for this call and dropped with it.
-    pub(crate) async fn call(&self, symbol: &str, invocation: Invocation) -> Result<Invocation> {
+    pub(crate) async fn call(
+        &self,
+        symbol: &str,
+        invocation: Invocation,
+        fuel: u64,
+    ) -> Result<Invocation> {
         let deadline = invocation.at.deadline;
         let mut store = Store::new(&self.engine, invocation);
 
@@ -189,10 +224,35 @@ impl Image {
         let remaining = deadline.saturating_duration_since(Instant::now());
         let ticks = remaining.div_duration_f64(TICK).ceil() as u64;
         store.set_epoch_deadline(ticks.max(1));
+        store.set_fuel(fuel)?;
 
-        let instance = self.pre.instantiate_async(&mut store).await?;
-        let tool: TypedFunc<(), ()> = instance.get_typed_func(&mut store, symbol)?;
-        tool.call_async(&mut store, ()).await?;
+        // Instantiating runs the guest's own start-up, which is counted with
+        // its call.
+        let instance = self.pre.instantiate_async(&mut store).await;
+        let called = match &instance {
+            Ok(instance) => match instance.get_typed_func::<(), ()>(&mut store, symbol) {
+                Ok(tool) => tool.call_async(&mut store, ()).await,
+                Err(error) => Err(error),
+            },
+            Err(_) => Ok(()),
+        };
+        let left = store.get_fuel()?;
+        let instructions = fuel - left;
+        let memory = instance.as_ref().ok().map_or(0, |instance| {
+            instance
+                .get_memory(&mut store, "memory")
+                .map_or(0, |memory| memory.data_size(&store) as u64)
+        });
+        store.data().at.meter(Meter {
+            instructions,
+            memory,
+            ..Meter::default()
+        });
+        if (instance.is_err() || called.is_err()) && left == 0 {
+            bail!("ran past its budget of {} instructions", fuel);
+        }
+        instance?;
+        called?;
         Ok(store.into_data())
     }
 }

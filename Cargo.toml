@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/*", "crates/*"]
+members = ["apps/*", "crates/*", "lib/*", "services/*"]
 resolver = "3"
 
 [workspace.package]
@@ -16,14 +16,17 @@ categories = ["virtualization", "wasm"]
 berm = { path = "crates/berm", version = "0.0.8" }
 berm-api = { path = "crates/api", version = "0.0.8" }
 berm-codegen = { path = "crates/codegen", version = "0.0.8" }
+berm-host = { path = "crates/host", version = "0.0.8" }
 berm-index = { path = "crates/index", version = "0.0.8" }
 berm-lang = { path = "crates/lang", version = "0.0.8" }
 berm-oci = { path = "crates/oci", version = "0.0.8" }
+lake = { path = "lib/lake" }
 bermd = { path = "apps/service", version = "0.0.8" }
 
 # crates-io
 anyhow = "1.0"
 axum = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 # Named rather than inherited: 0.1.11 emptied `default`, and a bezel without
 # these registers no font, leaving the window on the system stack.
 bezel = { version = "=0.1.11", features = [
@@ -39,6 +42,7 @@ gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.10", features
 ] }
 linked_list_allocator = "0.10"
 object = { version = "0.40", features = ["wasm"] }
+parking_lot = "0.12"
 proc-macro2 = "1"
 quote = "1"
 reqwest = { version = "0.13", default-features = false }
@@ -47,6 +51,10 @@ rmcp = { version = "2.2", default-features = false, features = [
     "transport-streamable-http-server",
 ] }
 hex = "0.4"
+# 0.39 for libsqlite3-sys 0.37: Cloud's sqlx 0.9 takes libsqlite3-sys below
+# 0.38, and Cargo counts it though Cloud builds no SQLite driver. One package
+# per graph may link sqlite3.
+rusqlite = { version = "0.39", features = ["bundled", "hooks"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The same crates for guests, which are `no_std` with an allocator. Second
@@ -59,6 +67,7 @@ serde_guest = { package = "serde", version = "1", default-features = false, feat
 serde_json_guest = { package = "serde_json", version = "1", default-features = false, features = [
     "alloc",
 ] }
+xmlparser = { version = "0.13", default-features = false }
 sha2 = "0.11"
 syn = { version = "2", features = ["full"] }
 tokio = { version = "1", features = [
@@ -71,8 +80,10 @@ tokio = { version = "1", features = [
     "time",
 ] }
 toml = "1"
+tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+utoipa = "5"
 # Off by default: `cache` drags in a config format nothing here reads.
 wasmtime = { version = "48", default-features = false, features = [
     "anyhow",
@@ -92,3 +103,9 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = 0
+
+# rusqlite and libsqlite3-sys 0.39 / 0.37 with libSQL's rows-read and
+# rows-written statement counters in the bundled SQLite.
+[patch.crates-io]
+rusqlite = { git = "https://github.com/crabtalk/rusqlite", branch = "rows-0.39" }
+libsqlite3-sys = { git = "https://github.com/crabtalk/rusqlite", branch = "rows-0.39" }

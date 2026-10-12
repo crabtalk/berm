@@ -1,12 +1,14 @@
 //! One MCP endpoint over every deployed program.
 
 use crate::Service;
+use berm_api::Callers;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     model::{
         CallToolRequestParams, CallToolResult, ContentBlock, Implementation, ListResourcesResult,
-        ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult,
-        Resource, ResourceContents, ServerCapabilities, ServerInfo, Tool,
+        ListToolsResult, Meta, PaginatedRequestParams, ReadResourceRequestParams,
+        ReadResourceResult, Resource, ResourceContents, ServerCapabilities, ServerInfo, Tool,
+        ToolAnnotations,
     },
     service::{NotificationContext, RequestContext, RoleServer},
 };
@@ -22,6 +24,8 @@ const INSTRUCTIONS: &str = "Tools are named `{program}.{tool}`. Each program pub
 
 const USAGE_SCHEME: &str = "berm://";
 const USAGE_PATH: &str = "/usage";
+/// The `_meta` key a listed tool carries its terms under.
+const TERMS: &str = "terms";
 
 pub struct Mcp {
     service: Arc<Service>,
@@ -77,13 +81,31 @@ impl ServerHandler for Mcp {
             .list()
             .iter()
             .flat_map(|deployed| {
-                deployed.manifest().tools.iter().map(|tool| {
-                    Tool::new(
-                        format!("{}.{}", deployed.name, tool.name),
-                        tool.description.clone(),
-                        Arc::new(tool.parameters.as_object().cloned().unwrap_or_default()),
-                    )
-                })
+                let terms = self.service.host.terms(&deployed.name).unwrap_or_default();
+                deployed
+                    .manifest()
+                    .tools
+                    .iter()
+                    .filter(|tool| tool.public && tool.callers != Some(Callers::Services))
+                    .map(move |tool| {
+                        let mut listed = Tool::new(
+                            format!("{}.{}", deployed.name, tool.name),
+                            tool.description.clone(),
+                            Arc::new(tool.parameters.as_object().cloned().unwrap_or_default()),
+                        );
+                        if let Some(returns) = tool.returns.as_ref().and_then(|v| v.as_object()) {
+                            listed = listed.with_raw_output_schema(Arc::new(returns.clone()));
+                        }
+                        if tool.query {
+                            listed = listed.annotate(ToolAnnotations::new().read_only(true));
+                        }
+                        if let Some(held) = terms.tools.get(&tool.name) {
+                            let mut meta = Meta::new();
+                            meta.insert(TERMS.into(), serde_json::json!(held));
+                            listed = listed.with_meta(meta);
+                        }
+                        listed
+                    })
             })
             .collect();
         Ok(ListToolsResult::with_all_items(tools))
@@ -112,7 +134,34 @@ impl ServerHandler for Mcp {
             None => Vec::new(),
         };
 
+        if !self
+            .service
+            .get(program)
+            .is_some_and(|deployed| deployed.public(tool) && deployed.reached_by_accounts(tool))
+        {
+            return Err(McpError::invalid_params(
+                format!("{program} has no public tool named {tool:?}"),
+                None,
+            ));
+        }
+
+        // A tool listed with an output schema answers with structured content
+        // as well, which MCP requires of it.
+        let structured = self.service.get(program).is_some_and(|deployed| {
+            deployed
+                .manifest()
+                .tools
+                .iter()
+                .any(|spec| spec.name == tool && spec.returns.is_some())
+        });
+
         match self.service.call(program, tool, args).await {
+            Ok(Ok(result)) if structured => match serde_json::from_str(&result) {
+                Ok(value) => Ok(CallToolResult::structured(value)),
+                Err(error) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "{program}.{tool} declares a result schema and answered something that is not JSON: {error}"
+                ))])),
+            },
             Ok(Ok(result)) => Ok(CallToolResult::success(vec![ContentBlock::text(result)])),
             // The program ran and reported failure. That is a tool result the
             // model should see and react to, not a protocol error.

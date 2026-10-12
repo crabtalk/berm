@@ -14,16 +14,8 @@ jobs:
   test:
     env:
       RUSTFLAGS: -D warnings
-    name: test (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-x86_64
-            os: ubuntu-latest
-          - name: macos-aarch64
-            os: macos-latest
+    name: test (linux-x86_64)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

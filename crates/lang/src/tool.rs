@@ -29,6 +29,22 @@ pub fn parse<T: for<'de> serde_guest::Deserialize<'de>>(
     }
 }
 
+/// Write `value` as this tool's result, the JSON its `#[returns(...)]` schema
+/// describes.
+#[cfg(feature = "args")]
+pub fn reply<T: serde_guest::Serialize>(value: &T, out: &mut Out) -> Result<(), Failed> {
+    match serde_json_guest::to_vec(value) {
+        Ok(json) => {
+            out.write(&json);
+            Ok(())
+        }
+        Err(error) => {
+            let _ = write!(out, "unserializable result: {error}");
+            Err(Failed)
+        }
+    }
+}
+
 /// Turn a syscall's failure into this tool's failure, unchanged. The host
 /// already said what went wrong, and in more detail than a rewording would
 /// keep.

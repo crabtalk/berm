@@ -1,0 +1,270 @@
+{
+  "name": "fixture",
+  "version": "0.0.8",
+  "digest": "e7dba94f5118e9d657fb227def9ae64a43ef846e39b15539a69c7fb1f069063e",
+  "usage": "",
+  "tools": [
+    {
+      "name": "echo",
+      "description": "Echo the argument blob back inside a JSON envelope.",
+      "parameters": {
+        "properties": {
+          "page": {
+            "description": "Page number, zero-indexed.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "query": {
+            "description": "The text to echo back.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "Echo",
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "chatty",
+      "description": "Makes 100 host calls, to price one.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "typed",
+      "description": "Deserializes its arguments, to price a JSON parse against `echo`, which carries the same payload without reading it.",
+      "parameters": {
+        "properties": {
+          "page": {
+            "description": "Page number, zero-indexed.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "query": {
+            "description": "The text to read back.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "Typed",
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "probe",
+      "description": "Allocates, to prove the heap arrives without a second entry.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "wait",
+      "description": "Reads one stored key and answers whether it was set. Under `examples/load.rs` the read stands in for a host call that waits on I/O.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "fetch",
+      "description": "Fetches the URL in its arguments and answers the status and the body's length. A second word onward is one `Name: Value` header, which may name `{secret:fixture}`.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "whoami",
+      "description": "Says who called: `outside NAME`, `program NAME`, or `none`.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "guarded",
+      "description": "Answers `ok` to a program, and denies any other caller.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "fromservices",
+      "description": "Answers `ok`; only programs may call it.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true,
+      "callers": "services"
+    },
+    {
+      "name": "askguarded",
+      "description": "Calls `guarded` and `fromservices` on `fixture`, and answers what they said.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "askwho",
+      "description": "Calls `whoami` on `fixture`, and answers what it said.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "boom",
+      "description": "Always fails, to exercise the error path.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "nest",
+      "description": "Calls `echo` on whatever is deployed as `inner`, to prove a program can reach a program. Says which kind of failure came back, because telling \"it ran and said no\" from \"it was never there\" is the point of the second bit on the wire.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "note",
+      "description": "Writes its argument under `note`, emits it as a `Noted` event, answers what it reads back, and fails when the argument is `fail`.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "relay",
+      "description": "Calls `note` on `inner` with its argument, carries on whether or not that failed, emits under the topic `relay`, and answers what this program reads back under `note`.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "ask",
+      "description": "Calls `peek` on `fixture`, then `echo` on `fixture` with the note it read, and answers what `echo` did.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "peek",
+      "description": "Reads `note`, then tries to write it, emit under `note`, arm `tick` and call `note` on `inner`, and answers what it read and what each attempt was told.",
+      "parameters": {
+        "type": "object"
+      },
+      "returns": {
+        "properties": {
+          "attempts": {
+            "properties": {
+              "after": {
+                "type": "string"
+              },
+              "call": {
+                "type": "string"
+              },
+              "emit": {
+                "type": "string"
+              },
+              "set": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "set",
+              "emit",
+              "after",
+              "call"
+            ],
+            "title": "Attempts",
+            "type": "object"
+          },
+          "note": {
+            "description": "What `note` held, if anything.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempts"
+        ],
+        "title": "Peek",
+        "type": "object"
+      },
+      "query": true,
+      "public": true
+    },
+    {
+      "name": "recurse",
+      "description": "Calls itself on `inner`, which is this same program when deployed under that name — the runaway a depth limit exists to stop. Reports how many levels got through before the host refused.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    }
+  ],
+  "deps": {
+    "programs": [
+      "inner"
+    ],
+    "syscalls": {
+      "berm.call.after": [],
+      "berm.get": [],
+      "berm.http.fetch": [
+        "127.0.0.1"
+      ],
+      "berm.set": []
+    },
+    "secrets": [
+      "fixture"
+    ],
+    "logs": [
+      {
+        "program": "fixture",
+        "topics": [
+          "Noted"
+        ],
+        "tool": "seen"
+      }
+    ]
+  },
+  "events": [
+    {
+      "name": "Noted",
+      "description": "A word `note` wrote.",
+      "fields": {
+        "properties": {
+          "bytes": {
+            "description": "Its length in bytes.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "word": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "word",
+          "bytes"
+        ],
+        "title": "Noted",
+        "type": "object"
+      }
+    }
+  ]
+}

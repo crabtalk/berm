@@ -2,8 +2,9 @@
 //!
 //! berm reads the request; holding the wake, writing it down so a restart
 //! keeps it, and firing it are the host's, and arrive as the closure below.
+//! Each wake armed is metered as one row written.
 
-use crate::{Callsite, Syscall, abi, wire};
+use crate::{Callsite, Meter, Refused, Syscall, abi, wire};
 use anyhow::{Context, Result};
 use std::{future::Future, sync::Arc};
 
@@ -30,10 +31,21 @@ where
     Syscall {
         name: abi::CALL_AFTER.to_owned(),
         call: Arc::new(move |at: Callsite, request: Vec<u8>| match read(&request) {
+            Ok(_) if at.query => Box::pin(std::future::ready(Err(Refused(
+                "a query cannot arm a wake".to_owned(),
+            )
+            .into()))),
             Ok(wake) => {
-                let armed = arm(at, wake);
+                if let Err(error) = at.rows_left() {
+                    return Box::pin(std::future::ready(Err(error)));
+                }
+                let armed = arm(at.clone(), wake);
                 Box::pin(async move {
                     armed.await?;
+                    at.meter(Meter {
+                        written: 1,
+                        ..Meter::default()
+                    });
                     Ok(Vec::new())
                 })
             }

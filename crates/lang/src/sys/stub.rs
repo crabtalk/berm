@@ -3,7 +3,8 @@
 //! Off wasm this crate is an ordinary library, so a program author can build
 //! and unit test their handlers natively rather than cross-compiling to see
 //! anything at all. The calls a test can reasonably answer — the argument blob,
-//! the log, the failure channel — are served from [`crate::test`]'s state.
+//! the trace, emitted logs, the failure channel — are served from
+//! [`crate::test`]'s state.
 //! Anything else panics naming the syscall, because a test that reached a
 //! real syscall should say so rather than read a plausible zero.
 
@@ -17,7 +18,9 @@ std::thread_local! {
 /// The bits of a host a test can stand in for.
 pub(crate) struct Host {
     pub args: Vec<u8>,
-    pub logged: Vec<String>,
+    pub traced: Vec<String>,
+    /// Each emitted log's topics and data.
+    pub emitted: Vec<(Vec<String>, String)>,
     /// What the tool answered with, whichever door it used.
     pub done: Option<Vec<u8>>,
     pub failure: Option<String>,
@@ -35,7 +38,8 @@ impl Host {
     const fn new() -> Self {
         Self {
             args: Vec::new(),
-            logged: Vec::new(),
+            traced: Vec::new(),
+            emitted: Vec::new(),
             done: None,
             failure: None,
             result: Vec::new(),
@@ -67,8 +71,23 @@ pub fn call2(number: u64, a0: u64, a1: u64) -> u64 {
             unsafe { core::ptr::copy_nonoverlapping(host.args.as_ptr(), a0 as *mut u8, taken) };
             host.args.len() as u64
         }),
-        abi::HOST_LOG => {
-            with(|host| host.logged.push(read(a0, a1)));
+        abi::HOST_TRACE => {
+            with(|host| host.traced.push(read(a0, a1)));
+            0
+        }
+        abi::HOST_EMIT => {
+            let request = unsafe { core::slice::from_raw_parts(a0 as *const u8, a1 as usize) };
+            let Some(fields) = crate::abi::wire::fields(request) else {
+                no_host(number)
+            };
+            let mut fields = fields
+                .iter()
+                .map(|field| String::from_utf8_lossy(field).into_owned());
+            let data = fields.next().unwrap_or_default();
+            with(|host| {
+                host.emitted.push((fields.collect(), data));
+                host.result.clear();
+            });
             0
         }
         abi::HOST_DONE => {

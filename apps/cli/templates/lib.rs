@@ -13,6 +13,7 @@ mod tools {
     use berm_lang::{Failed, Out};
 
     /// Echo the argument blob back inside a JSON envelope.
+    #[public]
     #[args(Echo)]
     pub fn echo(args: &[u8], out: &mut Out) -> Result<(), Failed> {
         out.write(br#"{"echo":"#);

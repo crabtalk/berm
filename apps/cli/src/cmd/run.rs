@@ -2,7 +2,7 @@
 
 use crate::Client;
 use anyhow::{Context, Result};
-use berm_api::Output;
+use berm_api::{Output, host::Caller};
 use std::{
     io::{IsTerminal, Read},
     process::ExitCode,
@@ -12,8 +12,25 @@ use std::{
 /// two leave by different doors so a script can tell them apart.
 const FAILED: u8 = 2;
 
-pub fn run(client: &Client, program: &str, tool: &str, inline: Option<&str>) -> Result<ExitCode> {
-    match client.run(program, tool, arguments(inline)?)? {
+pub fn run(
+    client: &Client,
+    program: &str,
+    tool: &str,
+    inline: Option<&str>,
+    caller: Option<&Caller>,
+) -> Result<ExitCode> {
+    let (output, meter) = client.run(program, tool, arguments(inline)?, caller)?;
+    if let Some(meter) = meter {
+        eprintln!(
+            "{} instructions, {} rows read, {} written, {} KiB memory, {} bytes proxied",
+            meter.instructions,
+            meter.read,
+            meter.written,
+            meter.memory / 1024,
+            meter.proxied
+        );
+    }
+    match output {
         Output::Done(result) => {
             println!("{result}");
             Ok(ExitCode::SUCCESS)

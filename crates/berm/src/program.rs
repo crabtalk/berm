@@ -1,15 +1,30 @@
 //! One compiled program, and the state of one invocation of it.
 
 use crate::{
-    Callsite, Deps, Syscall, abi,
+    Caller, Callsite, Deps, Meter, Meters, Syscall, User, abi,
     bound::watchdog,
     engine::{Engine, Image},
-    syscall,
+    journal::{Changes, Journal},
+    meter::Rows,
+    syscall::{
+        self,
+        call::{Budgeted, Enter},
+    },
 };
 use anyhow::{Context, Result, bail};
-use berm_api::Manifest;
+use berm_api::{Callers, Manifest};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, sync::Arc, time::Instant};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Instant,
+};
+
+/// The last [`Callsite::chain`] handed out.
+static CHAINS: AtomicU64 = AtomicU64::new(0);
 
 /// One compiled program: an image, its tools, and the syscalls it was linked
 /// against. Compilation is paid once; every invocation gets a fresh instance so
@@ -27,8 +42,17 @@ pub struct Program {
     /// The manifest's deps, as every invocation's [`Callsite`] carries them.
     deps: Arc<Deps>,
     /// Each tool beside the symbol it is exported as, resolved once so a call
-    /// spends no allocation rebuilding the name.
-    tools: BTreeMap<String, String>,
+    /// spends no allocation rebuilding the name, and whether it is a query.
+    tools: BTreeMap<String, Tool>,
+    /// What each invocation runs inside.
+    enter: Enter,
+    /// Each invocation's budget, by tool.
+    budget: Budgeted,
+}
+
+struct Tool {
+    symbol: String,
+    query: bool,
 }
 
 impl Program {
@@ -40,16 +64,29 @@ impl Program {
         image: &[u8],
         name: impl Into<Arc<str>>,
         syscalls: &[Syscall],
+        enter: Enter,
+        budget: Budgeted,
     ) -> Result<Self> {
         let compiled = Image::compile(engine, image, syscall::table(syscalls)?)
             .context("failed to compile program")?;
 
-        let tools: BTreeMap<String, String> = compiled
+        let manifest = Manifest::from_image(image)?;
+        let tools: BTreeMap<String, Tool> = compiled
             .exports()
             .into_iter()
             .filter_map(|export| {
-                let tool = export.strip_prefix(abi::TOOL_PREFIX)?;
-                Some((tool.to_owned(), export.to_owned()))
+                let name = export.strip_prefix(abi::TOOL_PREFIX)?;
+                let query = manifest
+                    .tools
+                    .iter()
+                    .any(|spec| spec.name == name && spec.query);
+                Some((
+                    name.to_owned(),
+                    Tool {
+                        symbol: export.to_owned(),
+                        query,
+                    },
+                ))
             })
             .collect();
         if tools.is_empty() {
@@ -60,7 +97,6 @@ impl Program {
         // dispatch, on a model's turn, as a missing symbol. The export table
         // and the manifest are both in hand here, so disagreement is caught
         // before the program is ever offered.
-        let manifest = Manifest::from_image(image)?;
         for tool in &manifest.tools {
             if !tools.contains_key(&tool.name) {
                 bail!(
@@ -77,12 +113,40 @@ impl Program {
             deps: Arc::new(manifest.deps.clone()),
             manifest,
             tools,
+            enter,
+            budget,
         })
     }
 
     /// The tools this program exports, as its export table reports them.
     pub fn tools(&self) -> impl Iterator<Item = &str> {
         self.tools.keys().map(String::as_str)
+    }
+
+    /// Whether `tool` is one any caller may reach.
+    pub fn public(&self, tool: &str) -> bool {
+        self.manifest
+            .tools
+            .iter()
+            .any(|spec| spec.name == tool && spec.public)
+    }
+
+    /// Whether `tool` takes calls from other programs, as its manifest's
+    /// `callers` says.
+    pub fn reached_by_programs(&self, tool: &str) -> bool {
+        self.manifest
+            .tools
+            .iter()
+            .any(|spec| spec.name == tool && spec.callers != Some(Callers::Accounts))
+    }
+
+    /// Whether `tool` takes calls from outside, as its manifest's `callers`
+    /// says.
+    pub fn reached_by_accounts(&self, tool: &str) -> bool {
+        self.manifest
+            .tools
+            .iter()
+            .any(|spec| spec.name == tool && spec.callers != Some(Callers::Services))
     }
 
     /// What the program says it is: ABI version, tools, and usage.
@@ -92,65 +156,240 @@ impl Program {
 
     /// Run one tool by name, as the first link of a chain.
     ///
-    /// The outer `Result` is the host's — a missing tool, a trap, a broken
-    /// image. The inner one is the guest's: `Err` means the program reported
-    /// failure, which is what a tool result carries back to the model.
+    /// `Err` is the host's — a missing tool, a trap, a broken image. The
+    /// program's own reported failure is [`Outcome::result`].
     ///
-    /// `caller` is who the chain runs on behalf of, as the embedder names
-    /// them; a syscall reads it off its [`Callsite`].
+    /// `caller` is who is calling, as the embedder names them; a syscall reads
+    /// it off its [`Callsite`] as [`Caller::Outside`]. Any tool may be called
+    /// this way: which tools an outside caller reaches is the embedder's to
+    /// decide.
     pub async fn call(
         &self,
         caller: Option<Arc<str>>,
         tool: &str,
         args: impl Into<Vec<u8>>,
-    ) -> Result<Result<String, String>> {
-        self.invoke(tool, args.into(), caller, 1, watchdog::fresh())
-            .await
+    ) -> Result<Outcome> {
+        self.call_as(caller, None, tool, args, Arc::default()).await
     }
 
-    /// Run one tool as link `depth` of a chain started by `caller` that has to
-    /// be done by `deadline`.
+    /// [`Program::call`] on behalf of `user`, which every call in the chain
+    /// reads off its [`Callsite`], metered in `meters`.
+    pub async fn call_as(
+        &self,
+        caller: Option<Arc<str>>,
+        user: Option<User>,
+        tool: &str,
+        args: impl Into<Vec<u8>>,
+        meters: Arc<Meters>,
+    ) -> Result<Outcome> {
+        let journal = Arc::new(Journal::default());
+        let Ended { result, denied } = self
+            .invoke(
+                tool,
+                args.into(),
+                caller.map(Caller::Outside),
+                user,
+                1,
+                false,
+                watchdog::fresh(),
+                CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
+                journal.clone(),
+                meters,
+                Arc::from([self.name.clone()]),
+            )
+            .await?;
+        let changes = match result {
+            Ok(_) => journal.take(),
+            Err(_) => Changes::default(),
+        };
+        Ok(Outcome {
+            result,
+            denied,
+            changes,
+        })
+    }
+
+    /// Run one tool as `link`, a link of a chain another runtime holds,
+    /// metered in `meters`. The chain's journal starts here, and what this link
+    /// changes is handed back as [`Outcome::changes`] like a first call's.
+    pub async fn link(
+        &self,
+        link: Link,
+        tool: &str,
+        args: impl Into<Vec<u8>>,
+        meters: Arc<Meters>,
+    ) -> Result<Outcome> {
+        let Link {
+            caller,
+            user,
+            depth,
+            query,
+            deadline,
+            stack,
+        } = link;
+        let journal = Arc::new(Journal::default());
+        let Ended { result, denied } = self
+            .invoke(
+                tool,
+                args.into(),
+                caller,
+                user,
+                depth,
+                query,
+                deadline,
+                CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
+                journal.clone(),
+                meters,
+                stack,
+            )
+            .await?;
+        let changes = match result {
+            Ok(_) => journal.take(),
+            Err(_) => Changes::default(),
+        };
+        Ok(Outcome {
+            result,
+            denied,
+            changes,
+        })
+    }
+
+    /// Run one tool as link `depth` of chain `chain`, called by `caller`, that
+    /// has to be done by `deadline`, under the programs in `stack`. `query` is
+    /// whether a link above it is a query. What it keeps lands in `journal`,
+    /// and a failure takes it back out; what it uses lands in `meters`, failed
+    /// or not.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn invoke(
         &self,
         tool: &str,
         args: Vec<u8>,
-        caller: Option<Arc<str>>,
+        caller: Option<Caller>,
+        user: Option<User>,
         depth: u32,
+        query: bool,
         deadline: Instant,
-    ) -> Result<Result<String, String>> {
-        let Some(symbol) = self.tools.get(tool) else {
+        chain: u64,
+        journal: Arc<Journal>,
+        meters: Arc<Meters>,
+        stack: Arc<[Arc<str>]>,
+    ) -> Result<Ended> {
+        let Some(Tool {
+            symbol,
+            query: declared,
+        }) = self.tools.get(tool)
+        else {
             bail!("program exports no tool named {tool:?}");
         };
 
+        let budget = (self.budget)(&self.name, tool).unwrap_or(self.image.budget);
+        let mut at = Callsite {
+            program: self.name.clone(),
+            deps: self.deps.clone(),
+            caller,
+            user,
+            depth,
+            stack,
+            query: query || *declared,
+            deadline,
+            chain,
+            journal: journal.clone(),
+            meters,
+            rows: Arc::new(Rows::new(budget.rows)),
+        };
+        at.meter(Meter {
+            calls: 1,
+            ..Meter::default()
+        });
+        let scope = (self.enter)(self, &at).await?;
+        let own = scope.own();
+        if own {
+            at.journal = Arc::new(Journal::default());
+        }
+        let held = at.journal.clone();
+        let mark = journal.mark();
         let invocation = Invocation {
-            at: Callsite {
-                program: self.name.clone(),
-                deps: self.deps.clone(),
-                caller,
-                depth,
-                deadline,
-            },
+            at,
             args,
             staged: Vec::new(),
             outcome: None,
+            denied: false,
         };
 
-        let finished = self
-            .image
-            .call(symbol, invocation)
-            .await
-            .with_context(|| format!("program trapped in {tool}"))?;
+        let ended = async {
+            let finished = self
+                .image
+                .call(symbol, invocation, budget.instructions)
+                .await
+                .with_context(|| format!("program trapped in {tool}"))?;
 
-        // A tool that returned without answering wrote nothing, which is an
-        // empty result rather than a missing one.
-        match finished.outcome {
-            Some(Err(failure)) => Ok(Err(failure)),
-            Some(Ok(result)) => Ok(Ok(
-                String::from_utf8(result).context("program returned invalid UTF-8")?
-            )),
-            None => Ok(Ok(String::new())),
+            // A tool that returned without answering wrote nothing, which is
+            // an empty result rather than a missing one.
+            let result = match finished.outcome {
+                Some(Err(failure)) => Err(failure),
+                Some(Ok(result)) => {
+                    Ok(String::from_utf8(result).context("program returned invalid UTF-8")?)
+                }
+                None => Ok(String::new()),
+            };
+            Ok(Ended {
+                denied: finished.denied && result.is_err(),
+                result,
+            })
         }
+        .await;
+        match &ended {
+            Ok(Ended { result: Ok(_), .. }) => {
+                let changes = match own {
+                    true => held.take(),
+                    false => Changes::default(),
+                };
+                let kept = scope
+                    .close(changes)
+                    .await
+                    .and_then(|left| journal.extend(left));
+                if let Err(error) = kept {
+                    journal.revert(mark);
+                    return Err(error);
+                }
+            }
+            _ => journal.revert(mark),
+        }
+        ended
     }
+}
+
+/// Where an invocation sits in a chain that reached it from outside this
+/// runtime. `stack` ends with the program being invoked.
+#[derive(Clone, Debug)]
+pub struct Link {
+    pub caller: Option<Caller>,
+    pub user: Option<User>,
+    pub depth: u32,
+    pub query: bool,
+    pub deadline: Instant,
+    pub stack: Arc<[Arc<str>]>,
+}
+
+/// How one invocation ended.
+#[derive(Debug)]
+pub struct Ended {
+    pub result: Result<String, String>,
+    /// The program failed the call through `berm.deny`.
+    pub denied: bool,
+}
+
+/// What one chain answered with, and what it left for the host to commit.
+#[derive(Debug)]
+pub struct Outcome {
+    /// `Err` is the program's own reported failure, which is a tool result
+    /// rather than an error.
+    pub result: Result<String, String>,
+    /// `result` is `Err` because the program refused its caller, through
+    /// `berm.deny`.
+    pub denied: bool,
+    /// Empty when `result` is `Err`.
+    pub changes: Changes,
 }
 
 /// Guest state for one invocation. Memory is per-invocation; anything a
@@ -168,6 +407,8 @@ pub struct Invocation {
     /// reported failure, which is how a tool that failed is told apart from one
     /// that returned the word "error".
     pub(crate) outcome: Option<Result<Vec<u8>, String>>,
+    /// Set by `berm.deny`.
+    pub(crate) denied: bool,
 }
 
 /// A syscall's answer when it refused the call and nothing ran.

@@ -18,6 +18,27 @@ for entry in source.search("read a file")? {
 from what it said it was, and this holds and searches the result. `Source` is
 what goes and gets one, from a clone or from a service.
 
+## Local server example
+
+Run a local index service over a directory from the workspace root:
+
+```sh
+cargo run -p berm-index --example server -- --index ./index
+```
+
+In another terminal, publish an artifact already pushed to a registry and search:
+
+```sh
+berm publish --index http://127.0.0.1:7788 ghcr.io/me/example:v1
+berm search --index http://127.0.0.1:7788 "read a file"
+berm search --index ./index "read a file"
+```
+
+The server verifies artifacts through anonymous registry access and records
+their metadata locally. It has no authentication or git integration and is
+intended for local development. Use `--addr` to change the default
+`127.0.0.1:7788` address.
+
 ## License
 
 Apache-2.0

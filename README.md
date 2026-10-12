@@ -26,7 +26,7 @@ match berm.call(None, "example", "echo", br#"{"query":"hello"}"#.to_vec()).await
 }
 ```
 
-What is deployed is reachable by name from anything deployed beside it. Beyond
+A program's public tools are reachable by name from anything deployed beside it that declares it. Beyond
 that a program reaches the world only through the *syscalls* it was given, and
 that table is the linker it is instantiated with — a call to anything else traps
 because nothing is registered for it, not because a check said no. berm ships
@@ -36,6 +36,8 @@ about a host, and berm has no host.
 `Manifest::from_image(bytes)` reads what an image claims to be — its tools,
 their schemas, when to reach for them, and what it will reach for itself —
 without compiling or running it.
+
+**A tool is internal unless marked `#[public]`.** Only the host calls an internal tool, for the program's own subscriptions and wakes. A `#[public]` tool can be called by any account the host authenticates and any program allowed to reach it, with arguments the caller chooses; `berm_lang::caller()` says who called. A deploy that makes a tool public is refused until the deployer confirms it.
 
 ## Running programs
 

@@ -1,0 +1,364 @@
+//! What a daemon's routes ask of a host: calls from outside and from peers,
+//! and reading and setting what each service is.
+
+use crate::{
+    Denied, deny,
+    env::{Admit, Env},
+    host::{self, Host},
+    meter, service,
+    usage::{self, Kind, Outcome, Source},
+};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+use berm::{Budget, Meters, Program, Refused};
+use berm_api::{
+    Logged, Output, Terms, ToolTerms,
+    host::{self as wire, Caller, Link, Metered, Reply, Route, Usage, Used},
+};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+/// The most logs one page answers.
+const MAX_PAGE: i64 = 1000;
+
+impl<E: Env> Host<E> {
+    /// `service`'s IDL.
+    pub async fn idl(&self, service: &str) -> Result<berm_api::Program, Denied> {
+        let (program, _) = self.deployed(service).await?;
+        Ok(host::idl(host::split(service).1, &program))
+    }
+
+    /// The IDL of every service in `scope` this host runs.
+    pub fn idls(&self, scope: &str) -> Vec<berm_api::Program> {
+        self.list(scope)
+            .into_iter()
+            .map(|(name, program)| host::idl(&name, &program))
+            .collect()
+    }
+
+    /// `service`'s terms: each public tool's budget, what its owner set or
+    /// else this host's.
+    pub fn terms(&self, service: &str) -> Result<Terms, Denied> {
+        let program = self
+            .get(service)
+            .ok_or_else(|| deny(StatusCode::NOT_FOUND, "no such service"))?;
+        let tools = program
+            .manifest()
+            .tools
+            .iter()
+            .filter(|tool| tool.public)
+            .map(|tool| {
+                let budget = self.budgets.get(service, &tool.name).unwrap_or(self.budget);
+                (tool.name.clone(), ToolTerms { budget })
+            })
+            .collect();
+        Ok(Terms { tools })
+    }
+
+    /// Set what one invocation of `tool` of `service` may use, from its next
+    /// call. Refused past this host's budget.
+    pub async fn set_budget(
+        &self,
+        service: &str,
+        tool: &str,
+        budget: Budget,
+    ) -> Result<(), Denied> {
+        let (program, _) = self.deployed(service).await?;
+        if !program.tools().any(|exported| exported == tool) {
+            return Err(deny(
+                StatusCode::NOT_FOUND,
+                format!("the service has no tool named {tool:?}"),
+            ));
+        }
+        if budget.instructions == 0
+            || budget.rows == 0
+            || budget.instructions > self.budget.instructions
+            || budget.rows > self.budget.rows
+        {
+            return Err(deny(
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "a budget is between 1 and {} instructions, and 1 and {} rows",
+                    self.budget.instructions, self.budget.rows
+                ),
+            ));
+        }
+        Ok(self.budgets.set(&self.store, service, tool, budget).await?)
+    }
+
+    /// `service`'s commit count.
+    pub async fn commits(&self, service: &str) -> Result<i64, Denied> {
+        let (_, commits) = self.deployed(service).await?;
+        Ok(commits)
+    }
+
+    /// Run `tool` on `service` from outside, as `caller` when there is one,
+    /// counted as its use. `query` holds it to a tool the IDL marks `query`.
+    /// Answers with the deprecation headers the tool's answer carries.
+    pub async fn call(
+        &self,
+        service: &str,
+        caller: Option<&Caller>,
+        tool: &str,
+        args: Vec<u8>,
+        query: bool,
+    ) -> Result<(HeaderMap, Output), Denied> {
+        let (program, _) = self.deployed(service).await?;
+        let Some(spec) = program
+            .manifest()
+            .tools
+            .iter()
+            .find(|spec| spec.name == tool && spec.public)
+        else {
+            return Err(deny(
+                StatusCode::NOT_FOUND,
+                format!("the service has no public tool named {tool:?}"),
+            ));
+        };
+        if query && !spec.query {
+            return Err(deny(
+                StatusCode::METHOD_NOT_ALLOWED,
+                format!("{tool} is not a query; POST it"),
+            ));
+        }
+        let (source, who) = counted(caller);
+        let refused = |denied: Denied| {
+            self.usage
+                .record(service, Kind::Tool, tool, source, who, Outcome::Refused);
+            Err(denied)
+        };
+        if !program.reached_by_accounts(tool) {
+            return refused(deny(
+                StatusCode::FORBIDDEN,
+                format!("{tool} takes calls from services only"),
+            ));
+        }
+        if let Err(denied) = self.admit.admit(service, tool, spec.query, caller).await {
+            return refused(denied);
+        }
+        let mut headers = HeaderMap::new();
+        let (scope, name) = host::split(service);
+        if spec.deprecated
+            && let Some((since, sunset)) =
+                usage::deprecation(&self.store, scope, name, tool).await?
+        {
+            headers.insert(
+                HeaderName::from_static("deprecation"),
+                HeaderValue::from_str(&format!("@{since}")).expect("a number is a header value"),
+            );
+            if let Some(at) = sunset.and_then(|at| chrono::DateTime::from_timestamp(at, 0)) {
+                headers.insert(
+                    HeaderName::from_static("sunset"),
+                    HeaderValue::from_str(&at.format("%a, %d %b %Y %H:%M:%S GMT").to_string())
+                        .expect("a date is a header value"),
+                );
+            }
+        }
+        let Ok(_slot) = self.gate.try_acquire() else {
+            return Err(deny(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "every call slot is taken; retry",
+            ));
+        };
+        let invoked = self
+            .invoke(
+                &program,
+                caller.map(|caller| caller.id.as_str()),
+                caller
+                    .and_then(|caller| caller.user.as_ref())
+                    .map(host::user),
+                tool,
+                args,
+                None,
+            )
+            .await
+            .map_err(|e| deny(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+        self.usage
+            .record(service, Kind::Tool, tool, source, who, invoked.outcome());
+        headers.insert(
+            HeaderName::from_static(wire::METER),
+            HeaderValue::from_str(&serde_json::to_string(&invoked.meter).expect("a meter is JSON"))
+                .expect("JSON of numbers is a header value"),
+        );
+        Ok((headers, invoked.result.into()))
+    }
+
+    /// Set or clear a deprecated tool's sunset.
+    pub async fn sunset(&self, service: &str, tool: &str, at: Option<i64>) -> Result<(), Denied> {
+        let (scope, name) = host::split(service);
+        if !usage::sunset(&self.store, scope, name, tool, at).await? {
+            return Err(deny(
+                StatusCode::CONFLICT,
+                format!("{tool} is not a deprecated tool of this service"),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Who uses `service`.
+    pub async fn usage(&self, service: &str) -> Result<Vec<Usage>, Denied> {
+        self.flush().await?;
+        let (scope, name) = host::split(service);
+        let mut used = usage::read(&self.store, scope, name, None).await?;
+        if let Some(program) = self.get(service) {
+            for row in used.iter_mut().filter(|row| row.kind == "tool") {
+                row.public = Some(program.public(&row.item));
+            }
+        }
+        Ok(used)
+    }
+
+    /// `service`'s logs, oldest first, after the sequence number `after`,
+    /// those carrying `topic` when one is given. At most `limit`, held to
+    /// [`MAX_PAGE`].
+    pub async fn logs(
+        &self,
+        service: &str,
+        topic: Option<String>,
+        after: i64,
+        limit: i64,
+    ) -> Result<Vec<Logged>, Denied> {
+        self.deployed(service).await?;
+        let (scope, name) = host::split(service);
+        Ok(service::logs(
+            &self.store,
+            scope,
+            name,
+            topic,
+            after,
+            limit.clamp(1, MAX_PAGE),
+        )
+        .await?)
+    }
+
+    /// A call from a service on a peer, run as `link` and committed here. A
+    /// refusal is `403` with its reason.
+    pub async fn link(
+        &self,
+        service: &str,
+        tool: &str,
+        args: Vec<u8>,
+        link: Link,
+    ) -> Result<Reply, Denied> {
+        let program = self.get(service).ok_or_else(|| {
+            deny(
+                StatusCode::NOT_FOUND,
+                format!("no program named {service:?} is deployed"),
+            )
+        })?;
+        let refused = |message: String| {
+            self.usage.record(
+                service,
+                Kind::Tool,
+                tool,
+                Source::Service,
+                &link.from,
+                Outcome::Refused,
+            );
+            Err(deny(StatusCode::FORBIDDEN, message))
+        };
+        if !program.public(tool) {
+            return refused(format!("{service} has no public tool named {tool:?}"));
+        }
+        if link.caller.is_some() && !program.reached_by_programs(tool) {
+            return refused(format!("{service}.{tool} takes no calls from programs"));
+        }
+        let _slot = self.gate.acquire().await.map_err(anyhow::Error::from)?;
+        let meters = Arc::new(Meters::default());
+        let outcome = program
+            .link(
+                berm::Link {
+                    caller: link
+                        .caller
+                        .as_deref()
+                        .map(|caller| berm::Caller::Program(caller.into())),
+                    user: link.user.as_ref().map(host::user),
+                    depth: link.depth,
+                    query: link.query,
+                    deadline: Instant::now() + Duration::from_millis(link.timeout),
+                    stack: link
+                        .stack
+                        .iter()
+                        .map(|program| Arc::from(program.as_str()))
+                        .collect(),
+                },
+                tool,
+                args,
+                meters.clone(),
+            )
+            .await;
+        let used = meters.take();
+        self.metered(used.clone());
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(error) => match error.downcast::<Refused>() {
+                Ok(Refused(message)) => return refused(message),
+                Err(error) => return Err(error.into()),
+            },
+        };
+        if outcome.result.is_ok() {
+            self.commits.commit(&outcome.changes, None).await?;
+        }
+        let ended = match (&outcome.result, outcome.denied) {
+            (Ok(_), _) => Outcome::Done,
+            (Err(_), true) => Outcome::Denied,
+            (Err(_), false) => Outcome::Failed,
+        };
+        self.usage.record(
+            service,
+            Kind::Tool,
+            tool,
+            Source::Service,
+            &link.from,
+            ended,
+        );
+        Ok(Reply {
+            result: outcome.result,
+            denied: outcome.denied,
+            meters: used
+                .into_iter()
+                .map(|(service, used)| (service.to_string(), used))
+                .collect(),
+        })
+    }
+
+    /// `service`'s meters over the last 30 days, oldest first.
+    pub async fn meters(&self, service: &str) -> Result<Vec<Metered>, Denied> {
+        self.deployed(service).await?;
+        self.flush().await?;
+        let (scope, name) = host::split(service);
+        Ok(meter::read(&self.store, scope, name).await?)
+    }
+
+    /// Hold `routes` in place of the routes held.
+    pub async fn route(&self, routes: Vec<Route>) -> Result<(), Denied> {
+        Ok(self.routes.replace(routes).await?)
+    }
+
+    /// Add uses a peer counted of services this host runs.
+    pub async fn record(&self, used: Vec<Used>) -> Result<(), Denied> {
+        Ok(usage::write(&self.store, used).await?)
+    }
+
+    /// The program `service` runs now, and its commit count.
+    async fn deployed(&self, service: &str) -> Result<(Arc<Program>, i64), Denied> {
+        let missing = || deny(StatusCode::NOT_FOUND, "no such service");
+        let (scope, name) = host::split(service);
+        let commits = service::commits(&self.store, scope, name)
+            .await?
+            .ok_or_else(missing)?;
+        let program = self.get(service).ok_or_else(missing)?;
+        Ok((program, commits))
+    }
+}
+
+/// How a call from outside is counted: by its app, by its account, or as
+/// anonymous without a caller.
+fn counted(caller: Option<&Caller>) -> (Source, &str) {
+    match caller {
+        Some(Caller { app: Some(app), .. }) => (Source::App, app),
+        Some(caller) => (Source::Account, &caller.id),
+        None => (Source::Anonymous, ""),
+    }
+}

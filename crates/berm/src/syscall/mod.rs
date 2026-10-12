@@ -4,22 +4,25 @@
 //! native code behind an address. berm serves [`call`] itself, resolving
 //! against the set it already holds.
 //!
-//! The standard calls — [`store`], [`after`], [`http`] — are berm's to read
-//! and check, and a host's to carry out: each module turns the request into a
-//! typed value and hands it to closures the embedder registers with it.
+//! The standard calls — [`store`], [`emit`], [`after`], [`http`], [`sql`] —
+//! are berm's to read and check, and a host's to carry out: each module turns
+//! the request into a typed value and hands it to closures the embedder
+//! registers with it.
 //! Anything else is a [`crate::Syscall`] the embedder writes whole.
 //!
 //! Every one of them, berm's own included, is reached through the one table
 //! below.
 
-use crate::{Call, Callsite, Invocation, Refused, Syscall, abi, engine};
+use crate::{Call, Caller as Asking, Callsite, Invocation, Refused, Syscall, abi, engine, wire};
 use anyhow::{Result, bail};
 use std::{collections::HashMap, sync::Arc};
 use wasmtime::Caller;
 
 pub mod after;
 pub mod call;
+pub mod emit;
 pub mod http;
+pub mod sql;
 pub mod store;
 
 /// One of the ABI's own doors: request bytes at `(ptr, len)` in, a staged
@@ -110,10 +113,41 @@ fn builtins() -> Table {
     let mut table = Table::new();
 
     table.insert(
-        abi::HOST_LOG,
+        abi::HOST_TRACE,
         handler(|guest, ptr, len| {
             let message = engine::read(guest, ptr, len)?;
             tracing::info!(target: "program", "{}", String::from_utf8_lossy(&message));
+            Ok(0)
+        }),
+    );
+
+    table.insert(
+        abi::HOST_CALLER,
+        handler(|guest, _, _| {
+            let reply = match &guest.data().at.caller {
+                Some(Asking::Outside(name)) => wire::frame(&[b"outside", name.as_bytes()]),
+                Some(Asking::Program(name)) => wire::frame(&[b"program", name.as_bytes()]),
+                None => Vec::new(),
+            };
+            Ok(stage(guest, Ok(reply)))
+        }),
+    );
+
+    table.insert(
+        abi::HOST_USER,
+        handler(|guest, _, _| {
+            let reply = match &guest.data().at.user {
+                Some(user) => wire::frame(&[user.issuer.as_bytes(), user.subject.as_bytes()]),
+                None => Vec::new(),
+            };
+            Ok(stage(guest, Ok(reply)))
+        }),
+    );
+
+    table.insert(
+        abi::HOST_DENY,
+        handler(|guest, _, _| {
+            guest.data_mut().denied = true;
             Ok(0)
         }),
     );

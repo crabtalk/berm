@@ -1,11 +1,11 @@
-//! `berm.http.fetch` — one HTTP request, to a host the program's manifest
-//! names under it.
+//! `berm.http.fetch` and `berm.http.proxy` — one HTTP request, to a host the
+//! program's manifest names under the syscall it makes.
 //!
 //! berm checks the request against the asking program's [`crate::Deps`] and
 //! substitutes every `{secret:NAME}` in a header value. Resolving a secret and
 //! sending the request are the host's, and arrive as the two closures below.
 
-use crate::{Callsite, Refused, Syscall, abi, wire};
+use crate::{Callsite, Meter, Refused, Syscall, abi, wire};
 use anyhow::{Result, bail};
 use std::{future::Future, sync::Arc};
 
@@ -46,14 +46,38 @@ where
     R: Fn(Callsite, String, String) -> Found + Send + Sync + 'static,
     Found: Future<Output = Result<Option<String>>> + Send + 'static,
 {
+    serve(abi::HTTP_FETCH, send, secret)
+}
+
+/// Serve `berm.http.proxy`: [`fetch`], to the hosts the manifest names under
+/// it, where `send` goes through the host's proxy. Each answered request meters
+/// [`Meter::proxied`]: its URL, header names and values and body, and the
+/// response's header names and values and body.
+pub fn proxy<S, Sent, R, Found>(send: S, secret: R) -> Syscall
+where
+    S: Fn(Callsite, Request) -> Sent + Send + Sync + 'static,
+    Sent: Future<Output = Result<Response>> + Send + 'static,
+    R: Fn(Callsite, String, String) -> Found + Send + Sync + 'static,
+    Found: Future<Output = Result<Option<String>>> + Send + 'static,
+{
+    serve(abi::HTTP_PROXY, send, secret)
+}
+
+fn serve<S, Sent, R, Found>(name: &'static str, send: S, secret: R) -> Syscall
+where
+    S: Fn(Callsite, Request) -> Sent + Send + Sync + 'static,
+    Sent: Future<Output = Result<Response>> + Send + 'static,
+    R: Fn(Callsite, String, String) -> Found + Send + Sync + 'static,
+    Found: Future<Output = Result<Option<String>>> + Send + 'static,
+{
     let (send, secret) = (Arc::new(send), Arc::new(secret));
     Syscall {
-        name: abi::HTTP_FETCH.to_owned(),
+        name: name.to_owned(),
         call: Arc::new(move |at: Callsite, request: Vec<u8>| {
             let (send, secret) = (send.clone(), secret.clone());
             Box::pin(async move {
                 let mut request = read(&request)?;
-                permitted(&at, &request.host)?;
+                permitted(&at, name, &request.host)?;
                 for at_header in 0..request.headers.len() {
                     let value = &request.headers[at_header].1;
                     if !value.contains(SECRET) {
@@ -90,26 +114,39 @@ where
                     substituted.push_str(rest);
                     request.headers[at_header].1 = substituted;
                 }
-                let response = send(at, request).await?;
+                let sent = request.url.len() + request.body.len() + headers(&request.headers);
+                let response = send(at.clone(), request).await?;
+                if name == abi::HTTP_PROXY {
+                    at.meter(Meter {
+                        proxied: (sent + response.body.len() + headers(&response.headers)) as u64,
+                        ..Meter::default()
+                    });
+                }
                 Ok(write(&response))
             })
         }),
     }
 }
 
-/// Refuse a host the asking program's manifest does not name under
-/// [`abi::HTTP_FETCH`].
-fn permitted(at: &Callsite, host: &str) -> Result<()> {
-    let declared = at.deps.syscalls.get(abi::HTTP_FETCH);
+/// The bytes of `headers`' names and values.
+fn headers(headers: &[(String, String)]) -> usize {
+    headers
+        .iter()
+        .map(|(name, value)| name.len() + value.len())
+        .sum()
+}
+
+/// Refuse a host the asking program's manifest does not name under `syscall`.
+fn permitted(at: &Callsite, syscall: &str, host: &str) -> Result<()> {
+    let declared = at.deps.syscalls.get(syscall);
     if !declared.is_some_and(|hosts| {
         hosts
             .iter()
             .any(|allowed| allowed.eq_ignore_ascii_case(host))
     }) {
         return Err(Refused(format!(
-            "{} does not declare {host} under {}",
-            at.program,
-            abi::HTTP_FETCH
+            "{} does not declare {host} under {syscall}",
+            at.program
         ))
         .into());
     }

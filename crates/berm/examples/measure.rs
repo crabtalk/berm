@@ -11,7 +11,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use berm::{Berm, Config, Engine, Program, storage};
+use berm::{Berm, Calls, Config, Engine, Program, storage};
 use std::{
     fs,
     path::PathBuf,
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
 
     println!(
         "heap probe:            {:?}",
-        program.call(None, "probe", b"".to_vec()).await?
+        program.call(None, "probe", b"".to_vec()).await?.result
     );
 
     // A payload in the range a real tool call carries.
@@ -66,11 +66,16 @@ async fn main() -> Result<()> {
     let echoed = program
         .call(None, "echo", args.as_bytes())
         .await?
+        .result
         .map_err(anyhow::Error::msg)?;
     assert!(echoed.contains(&args), "round trip lost the payload");
     println!(
         "failure path:          {:?}",
-        program.call(None, "boom", b"".to_vec()).await?.unwrap_err()
+        program
+            .call(None, "boom", b"".to_vec())
+            .await?
+            .result
+            .unwrap_err()
     );
 
     let mut chatty = Vec::with_capacity(ROUNDS);
@@ -153,7 +158,7 @@ fn compile(dir: &std::path::Path, image: &[u8]) -> Result<Arc<Program>> {
         cache_dir: Some(dir.to_path_buf()),
         ..Config::default()
     })?;
-    Berm::new(&engine, 0, vec![], storage::Memory::new()).deploy("fixture", image)
+    Berm::new(&engine, Calls::by_name(0), vec![], storage::Memory::new()).deploy("fixture", image)
 }
 
 fn time<T>(f: impl FnOnce() -> Result<T>) -> Result<Duration> {

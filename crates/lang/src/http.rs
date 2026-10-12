@@ -1,5 +1,6 @@
 //! One HTTP request, to a host this program's manifest declares under
-//! `berm.http.fetch`.
+//! `berm.http.fetch`, or under `berm.http.proxy` to send it through the host's
+//! proxy.
 //!
 //! A header value may carry `{secret:NAME}` for a secret the manifest
 //! declares. The host substitutes it, and this program never holds the value.
@@ -35,12 +36,33 @@ pub fn fetch(
     headers: &[(&str, &str)],
     body: &[u8],
 ) -> Result<Response, CallError> {
+    send(abi::HOST_HTTP_FETCH, method, url, headers, body)
+}
+
+/// [`fetch`], through the host's proxy. The host meters the bytes sent and
+/// received against this program as `proxied`.
+pub fn proxy(
+    method: &str,
+    url: &str,
+    headers: &[(&str, &str)],
+    body: &[u8],
+) -> Result<Response, CallError> {
+    send(abi::HOST_HTTP_PROXY, method, url, headers, body)
+}
+
+fn send(
+    number: u64,
+    method: &str,
+    url: &str,
+    headers: &[(&str, &str)],
+    body: &[u8],
+) -> Result<Response, CallError> {
     let mut request = wire::request(&[method.as_bytes(), url.as_bytes(), body]);
     for (name, value) in headers {
         wire::field(&mut request, name.as_bytes());
         wire::field(&mut request, value.as_bytes());
     }
-    let reply = host::call(abi::HOST_HTTP_FETCH, &request)?;
+    let reply = host::call(number, &request)?;
 
     let unreadable =
         || CallError::Failed(String::from("host framed a reply this guest cannot read"));

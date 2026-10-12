@@ -2,16 +2,19 @@
 
 use crate::Client;
 use anyhow::Result;
-use berm_api::{Program, ToolSpec};
+use berm_api::{Program, Terms};
 use serde_json::Value;
 
 pub fn run(client: &Client, name: &str) -> Result<()> {
-    show(&client.inspect(name)?);
+    show(&client.inspect(name)?, &client.terms(name)?);
     Ok(())
 }
 
-pub fn show(program: &Program) {
+pub fn show(program: &Program, terms: &Terms) {
     println!("{}", program.name);
+    if !program.version.is_empty() {
+        println!("  version {}", program.version);
+    }
     println!("  digest  {}", program.digest);
     if !program.usage.is_empty() {
         println!("  usage   {}", program.usage);
@@ -36,27 +39,63 @@ pub fn show(program: &Program) {
         let missing = program.unresolved.secrets.contains(name);
         println!("  secret  {name}{}", answered(missing));
     }
+    for broken in &program.breaks {
+        println!("  breaks  {broken}");
+    }
 
     for tool in &program.tools {
         println!();
-        println!("  {}", tool.name);
+        let marks = [
+            (tool.public, " (public)"),
+            (tool.query, " (query)"),
+            (tool.deprecated, " (deprecated)"),
+        ];
+        let marks: String = marks
+            .iter()
+            .filter(|(set, _)| *set)
+            .map(|(_, mark)| *mark)
+            .collect();
+        println!("  {}{marks}", tool.name);
         println!("    {}", tool.description);
-        for parameter in parameters(tool) {
+        if let Some(held) = terms.tools.get(&tool.name) {
+            println!(
+                "    at most {} instructions and {} rows a call",
+                held.budget.instructions, held.budget.rows
+            );
+        }
+        for parameter in properties(&tool.parameters) {
             println!("    {parameter}");
+        }
+        if let Some(returns) = &tool.returns {
+            println!("    returns");
+            for field in properties(returns) {
+                println!("      {field}");
+            }
+        }
+    }
+
+    for event in &program.events {
+        println!();
+        match event.deprecated {
+            true => println!("  event {} (deprecated)", event.name),
+            false => println!("  event {}", event.name),
+        }
+        println!("    {}", event.description);
+        for field in properties(&event.fields) {
+            println!("    {field}");
         }
     }
 }
 
-/// Render the tool's JSON Schema as the argument list it describes. A schema
+/// Render an object's JSON Schema as the field list it describes. A schema
 /// printed raw is something an operator has to read past to see the two fields
 /// it declares.
-fn parameters(tool: &ToolSpec) -> Vec<String> {
-    let Some(properties) = tool.parameters.get("properties").and_then(Value::as_object) else {
+fn properties(schema: &Value) -> Vec<String> {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return Vec::new();
     };
 
-    let required: Vec<&str> = tool
-        .parameters
+    let required: Vec<&str> = schema
         .get("required")
         .and_then(Value::as_array)
         .map(|names| names.iter().filter_map(Value::as_str).collect())

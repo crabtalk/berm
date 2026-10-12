@@ -27,8 +27,8 @@ pub mod host;
 #[doc(hidden)]
 pub mod wire;
 
-/// Write a UTF-8 message to the host log.
-pub const HOST_LOG: u64 = hash("berm.log");
+/// Write a UTF-8 message to the host's trace.
+pub const HOST_TRACE: u64 = hash("berm.trace");
 /// Byte length of this invocation's argument blob.
 pub const HOST_ARG_LEN: u64 = hash("berm.args.len");
 /// Copy the argument blob into guest memory.
@@ -43,14 +43,26 @@ pub const HOST_RESULT_READ: u64 = hash("berm.result.read");
 pub const HOST_GET: u64 = hash("berm.get");
 /// Write one.
 pub const HOST_SET: u64 = hash("berm.set");
+/// Emit one log.
+pub const HOST_EMIT: u64 = hash("berm.emit");
 /// Call a tool on another program the same host is running.
 pub const HOST_CALL: u64 = hash("berm.call");
 /// Call a tool on one later, replacing whatever this program had pending.
 pub const HOST_CALL_AFTER: u64 = hash("berm.call.after");
 /// Make one HTTP request.
 pub const HOST_HTTP_FETCH: u64 = hash("berm.http.fetch");
+/// Make one HTTP request through the host's proxy.
+pub const HOST_HTTP_PROXY: u64 = hash("berm.http.proxy");
+/// Run one SQL statement against this program's own database.
+pub const HOST_SQL: u64 = hash("berm.sql");
 /// Milliseconds since the Unix epoch, as the host reads its clock.
 pub const HOST_NOW: u64 = hash("berm.now");
+/// Who made this call.
+pub const HOST_CALLER: u64 = hash("berm.caller");
+/// The end user the chain runs for.
+pub const HOST_USER: u64 = hash("berm.user");
+/// Mark this invocation's failure as refusing its caller.
+pub const HOST_DENY: u64 = hash("berm.deny");
 
 /// Set on the length a syscall returns when the staged bytes are an error
 /// message rather than a result. A length never reaches this bit on its own,
@@ -74,9 +86,9 @@ pub const fn hash(name: &str) -> u64 {
     result
 }
 
-/// Write a line to the host's log.
-pub fn log(message: &str) {
-    sys::call2(HOST_LOG, message.as_ptr() as u64, message.len() as u64);
+/// Write a line to the host's trace.
+pub fn trace(message: &str) {
+    sys::call2(HOST_TRACE, message.as_ptr() as u64, message.len() as u64);
 }
 
 /// What time the host says it is, in milliseconds since the Unix epoch.
@@ -85,6 +97,11 @@ pub fn log(message: &str) {
 /// otherwise tell a wake that arrived on time from one that arrived late.
 pub fn now() -> u64 {
     sys::call0(HOST_NOW)
+}
+
+/// Mark this invocation's failure as refusing its caller.
+pub fn deny() {
+    sys::call0(HOST_DENY);
 }
 
 /// How many bytes this invocation was given.

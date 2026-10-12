@@ -22,11 +22,13 @@ bytes land is still a host's, and arrives as two closures.
 Everything else is a `Syscall` the embedder registers, and that list is the
 linker a program is instantiated with: a call to anything else traps because
 nothing is registered for it, not because a check said no. The standard calls —
-`berm.get`/`berm.set`, `berm.call.after`, `berm.http.fetch` — come from
-`berm::syscall`'s constructors, which read and check the request and hand the
-work to closures the embedder supplies. `berm.http.fetch` refuses a host the
-program's manifest does not declare, and substitutes `{secret:NAME}` in header
-values so the guest never holds a secret.
+`berm.get`/`berm.set`, `berm.call.after`, `berm.http.fetch`, `berm.http.proxy`
+— come from `berm::syscall`'s constructors, which read and check the request
+and hand the work to closures the embedder supplies. `berm.http.fetch` and
+`berm.http.proxy` refuse a host the program's manifest does not declare under
+the one called, and substitute `{secret:NAME}` in header values so the guest
+never holds a secret. `berm.http.proxy` meters the bytes it sends and receives
+as `proxied`.
 
 ## What an invocation runs under
 
