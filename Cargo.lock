@@ -773,6 +773,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "berm-keeper"
+version = "0.0.8"
+dependencies = [
+ "anyhow",
+ "berm-api",
+ "berm-host",
+ "berm-lang",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "berm-lang"
 version = "0.0.8"
 dependencies = [

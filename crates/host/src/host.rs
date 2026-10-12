@@ -172,14 +172,23 @@ impl<E: Env> Host<E> {
                     .map(|_| databases.get(program))
             }
         };
+        let deliveries = Arc::new(Deliveries::default());
+        let commits = Commits::new(store.clone(), databases.clone(), deliveries.clone());
         let (reading, writing) = (kept.clone(), kept.clone());
-        let store_reading = store.clone();
+        let (store_reading, commits_reading) = (store.clone(), commits.clone());
         syscalls.extend(state::programs(
             move |at: Callsite, key: String| {
                 let (store, kept) = (store_reading.clone(), reading(&at.program));
+                let set = at
+                    .dry
+                    .as_ref()
+                    .and_then(|_| commits_reading.kept(at.chain, &at.program, &key));
                 async move {
                     if let Some(database) = kept {
                         return database?.get(at.chain, key).await;
+                    }
+                    if set.is_some() {
+                        return Ok(set);
                     }
                     let (scope, name) = split(&at.program);
                     service::read(&store, scope, name, key).await
@@ -234,8 +243,6 @@ impl<E: Env> Host<E> {
             routes.clone(),
             waking.clone(),
         ));
-        let deliveries = Arc::new(Deliveries::default());
-        let commits = Commits::new(store.clone(), databases.clone(), deliveries.clone());
         let usage = Arc::new(Counts::new(now.clone()));
         let meters = Arc::new(Pending::new(now.clone()));
         let (reporting, reported) = (usage.clone(), deployed);

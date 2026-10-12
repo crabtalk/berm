@@ -37,7 +37,16 @@ pub(crate) struct Commits {
     deliveries: Arc<Deliveries>,
     /// What each dry chain's links hold, by chain, until its outermost link on
     /// this host ends.
-    kept: Arc<parking_lot::Mutex<HashMap<u64, Vec<Held>>>>,
+    kept: Arc<parking_lot::Mutex<HashMap<u64, Kept>>>,
+}
+
+/// What one dry chain's ended links hold on this host.
+#[derive(Default)]
+struct Kept {
+    held: Vec<Held>,
+    /// The last value a link set under each service's key, for services
+    /// without a database.
+    writes: HashMap<(String, String), Vec<u8>>,
 }
 
 impl Commits {
@@ -53,6 +62,15 @@ impl Commits {
             deliveries,
             kept: Arc::default(),
         }
+    }
+
+    /// What an ended link of dry `chain` last set under `program`'s `key`.
+    pub(crate) fn kept(&self, chain: u64, program: &str, key: &str) -> Option<Vec<u8>> {
+        let kept = self.kept.lock();
+        kept.get(&chain)?
+            .writes
+            .get(&(program.to_owned(), key.to_owned()))
+            .cloned()
     }
 
     /// Copy what waits in the outbox of the database keyed `key` to
@@ -156,11 +174,9 @@ impl Commits {
 /// returns ok, and its logs are shipped; unless it is the chain's first, the
 /// rest of what it wrote and emitted is committed then.
 ///
-/// In a dry chain nothing is committed: each link's hold is kept until the
-/// chain's outermost link on this host ends, then every one is rolled back.
-// TODO: a service without a database reads `berm.get` from what was
-// committed, so in a dry chain it does not read what an earlier link of the
-// chain set.
+/// In a dry chain nothing is committed: each link's hold and writes are kept
+/// until the chain's outermost link on this host ends, then every one is
+/// rolled back.
 pub(crate) fn enter(commits: Commits) -> Enter {
     Arc::new(move |program: &Program, at: &Callsite| {
         let (commits, entering) = (commits.clone(), commits.databases.enter(program, at));
@@ -168,7 +184,7 @@ pub(crate) fn enter(commits: Commits) -> Enter {
         let keep = at.dry.as_ref().and_then(|_| {
             let mut kept = commits.kept.lock();
             (!kept.contains_key(&at.chain)).then(|| {
-                kept.insert(at.chain, Vec::new());
+                kept.insert(at.chain, Kept::default());
                 Keep {
                     kept: commits.kept.clone(),
                     chain: at.chain,
@@ -202,7 +218,7 @@ struct Entered {
 
 /// Drops every hold a dry chain kept, which rolls each back.
 struct Keep {
-    kept: Arc<parking_lot::Mutex<HashMap<u64, Vec<Held>>>>,
+    kept: Arc<parking_lot::Mutex<HashMap<u64, Kept>>>,
     chain: u64,
 }
 
@@ -230,14 +246,17 @@ impl Scope for Entered {
                 dry,
             } = *self;
             if let Some((chain, keep)) = dry {
-                match keep {
-                    Some(keep) => drop((keep, held)),
-                    None => {
-                        if let Some(kept) = commits.kept.lock().get_mut(&chain) {
-                            kept.push(held);
+                let Some(keep) = keep else {
+                    if let Some(kept) = commits.kept.lock().get_mut(&chain) {
+                        kept.held.push(held);
+                        for write in changes.writes {
+                            kept.writes
+                                .insert((write.program.to_string(), write.key), write.value);
                         }
                     }
-                }
+                    return Ok(Changes::default());
+                };
+                drop((keep, held));
                 return Ok(match first {
                     true => changes,
                     false => Changes::default(),

@@ -32,6 +32,21 @@ async fn a_dry_call_keeps_nothing_and_costs_what_the_call_does() -> Result<()> {
 }
 
 #[tokio::test]
+async fn a_dry_chain_reads_what_its_earlier_links_set() -> Result<()> {
+    let host = TestHost::open(0).await?;
+    host.deploy("inner", &test::build("berm-fixture", "fixture")?)
+        .await?;
+
+    let dry = host.dry("inner", "relay", b"hi", Dry::default()).await?;
+    assert_eq!(dry.result.as_deref(), Ok("hi"));
+    assert_eq!(host.state("inner", "note").await?, None);
+
+    let real = host.call("inner", "relay", b"hi").await?;
+    assert_eq!(real.result.as_deref(), Ok("hi"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_dry_call_arms_no_wake() -> Result<()> {
     let host = deployed().await?;
     let dry = host.dry("fixture", "tick", b"1000", Dry::default()).await?;
