@@ -27,19 +27,7 @@ bermd = { path = "apps/service", version = "0.0.8" }
 anyhow = "1.0"
 axum = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-# Named rather than inherited: 0.1.11 emptied `default`, and a bezel without
-# these registers no font, leaving the window on the system stack.
-bezel = { version = "=0.1.11", features = [
-    "geist-sans",
-    "geist-mono",
-    "geist-weights",
-] }
 clap = { version = "4", features = ["derive"] }
-# The one thing the facade does not re-export. `gpui::Application` builds only
-# from a platform, and this is where the platform comes from.
-gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.10", features = [
-    "font-kit",
-] }
 linked_list_allocator = "0.10"
 object = { version = "0.40", features = ["wasm"] }
 parking_lot = "0.12"
