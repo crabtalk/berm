@@ -3280,6 +3280,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hn"
+version = "0.0.8"
+dependencies = [
+ "berm-lang",
+ "lake",
+]
+
+[[package]]
 name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3769,6 +3777,13 @@ dependencies = [
  "euclid",
  "polycool",
  "smallvec",
+]
+
+[[package]]
+name = "lake"
+version = "0.0.8"
+dependencies = [
+ "berm-lang",
 ]
 
 [[package]]
@@ -5474,6 +5489,15 @@ name = "reborrow"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
+
+[[package]]
+name = "reddit"
+version = "0.0.8"
+dependencies = [
+ "berm-lang",
+ "lake",
+ "xmlparser",
+]
 
 [[package]]
 name = "redox_syscall"
@@ -8704,6 +8728,12 @@ name = "xml-rs"
 version = "0.8.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
+
+[[package]]
+name = "xmlparser"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xmlwriter"

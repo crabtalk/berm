@@ -88,7 +88,9 @@ logged. A call reaching a syscall that has no stand-in panics naming it,
 rather than reading a plausible zero.
 
 `berm-fixture` in this repository is the worked example — the smallest real
-program, and what berm's own tests run against.
+program, and what berm's own tests run against. `services/` holds deployed
+programs: `hn` and `reddit` follow feeds on `lib/lake`, the runtime for a
+program that fetches feeds on its own wake and emits what is new as logs.
 
 ## Queries
 
