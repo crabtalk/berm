@@ -43,10 +43,32 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
         let doc = schema["description"]
             .as_str()
             .map(|text| quote!(#[doc = #text]));
-        let required: Vec<&str> = schema["required"]
-            .as_array()
-            .map(|names| names.iter().filter_map(Value::as_str).collect())
-            .unwrap_or_default();
+        if let Some(values) = schema["enum"].as_array() {
+            let variants = values.iter().filter_map(Value::as_str).map(|value| {
+                let variant = format_ident!("{}", camel(value));
+                quote! {
+                    #[serde(rename = #value)]
+                    #variant,
+                }
+            });
+            return quote! {
+                #doc
+                #[derive(
+                    Debug,
+                    Clone,
+                    Copy,
+                    PartialEq,
+                    Eq,
+                    ::berm_lang::serde::Serialize,
+                    ::berm_lang::serde::Deserialize,
+                )]
+                #[serde(crate = "::berm_lang::serde")]
+                pub enum #ident {
+                    #(#variants)*
+                }
+            };
+        }
+        let required = required(schema);
         let fields =
             schema["properties"]
                 .as_object()
@@ -149,30 +171,73 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
         let doc = tool["description"].as_str().unwrap_or_default();
         let deprecated = deprecation(tool);
         let types = quote!(super::types::);
-        let (args, encode) = match tool["parameters"]["title"].as_str() {
-            Some(_) => {
-                let ty = rust_type(&tool["parameters"], &types);
-                (
-                    quote!(args: &#ty),
-                    quote!(let args = ::berm_lang::json::to(args)?;),
-                )
+        let parameters = &tool["parameters"];
+        let required = required(parameters);
+        let properties: Vec<_> = parameters["properties"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(name, property)| {
+                let ident = field_ident(name);
+                let ty = rust_type(property, &types);
+                match required.contains(&name.as_str()) {
+                    true => (
+                        quote!(#ident: #ty),
+                        quote! {
+                            #[serde(rename = #name)]
+                            #ident: #ty,
+                        },
+                    ),
+                    false => (
+                        quote!(#ident: ::core::option::Option<#ty>),
+                        quote! {
+                            #[serde(
+                                rename = #name,
+                                skip_serializing_if = "::core::option::Option::is_none"
+                            )]
+                            #ident: ::core::option::Option<#ty>,
+                        },
+                    ),
+                }
+            })
+            .collect();
+        let params = properties.iter().map(|(param, _)| param);
+        let encode = match properties.is_empty() {
+            true => quote!(let args = ::berm_lang::__private::String::new();),
+            false => {
+                let fields = properties.iter().map(|(_, field)| field);
+                let idents = parameters["properties"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(name, _)| field_ident(name));
+                quote! {
+                    #[derive(::berm_lang::serde::Serialize)]
+                    #[serde(crate = "::berm_lang::serde")]
+                    struct Args {
+                        #(#fields)*
+                    }
+                    let args = ::berm_lang::json::to(&Args { #(#idents),* })?;
+                }
             }
-            None => (quote!(args: &str), quote!()),
         };
-        let (returns, decode) = match tool["returns"]["title"].as_str() {
-            Some(_) => (
+        let (returns, decode) = match tool["returns"].is_object() {
+            true => (
                 rust_type(&tool["returns"], &types),
                 quote!(::berm_lang::json::from(&result)),
             ),
-            None => (
-                quote!(::berm_lang::__private::String),
-                quote!(::core::result::Result::Ok(result)),
+            false => (
+                quote!(()),
+                quote! {
+                    let _ = result;
+                    ::core::result::Result::Ok(())
+                },
             ),
         };
         quote! {
             #[doc = #doc]
             #deprecated
-            pub fn #ident(#args) -> ::core::result::Result<#returns, ::berm_lang::CallError> {
+            pub fn #ident(#(#params),*) -> ::core::result::Result<#returns, ::berm_lang::CallError> {
                 #encode
                 let result = ::berm_lang::call(super::NAME, #tool_name, &args)?;
                 #decode
@@ -272,6 +337,28 @@ fn rust_type(schema: &Value, path: &TokenStream) -> TokenStream {
         }
         _ => quote!(::berm_lang::serde_json::Value),
     }
+}
+
+/// The names an object schema requires.
+fn required(schema: &Value) -> Vec<&str> {
+    schema["required"]
+        .as_array()
+        .map(|names| names.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default()
+}
+
+/// A `snake_case` enum value as the `CamelCase` variant it was written from.
+fn camel(value: &str) -> String {
+    value
+        .split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map(|first| first.to_ascii_uppercase().to_string() + chars.as_str())
+                .unwrap_or_default()
+        })
+        .collect()
 }
 
 /// A Rust identifier for a JSON name, raw when the name is a keyword.

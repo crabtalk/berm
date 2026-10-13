@@ -4,27 +4,29 @@
 // ordinary library, so `cargo test` runs the tools below natively.
 #![cfg_attr(target_arch = "wasm32", no_std, no_main)]
 
-// Needed the moment this program declares one it calls: `berm_lang::programs!`
-// expands to owned types reached through `alloc`, which is not in the prelude.
 extern crate alloc;
+
+use alloc::string::String;
+use berm_lang::Schema;
 
 #[berm_lang::program]
 mod tools {
-    use berm_lang::{Failed, Out};
+    use crate::Echo;
+    use alloc::string::String;
+    use berm_lang::Result;
 
-    /// Echo the argument blob back inside a JSON envelope.
+    /// Answers its argument back.
     #[public]
-    #[args(Echo)]
-    pub fn echo(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        out.write(br#"{"echo":"#);
-        out.write(args);
-        out.write(b"}");
-        Ok(())
-    }
-
-    /// Arguments for `echo`.
-    pub struct Echo {
+    pub fn echo(
         /// The text to echo back.
-        pub query: &'static str,
+        query: String,
+    ) -> Result<Echo> {
+        Ok(Echo { query })
     }
+}
+
+/// What `echo` answers.
+#[derive(Schema)]
+pub struct Echo {
+    pub query: String,
 }

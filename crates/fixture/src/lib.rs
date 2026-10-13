@@ -6,9 +6,9 @@
 //! from the SDK.
 //!
 //! Each tool prices or proves one thing, which is why they are not useful on
-//! their own: `echo` carries typed arguments across the boundary, `typed`
-//! deserializes the same payload to price a parse, `chatty` makes a hundred
-//! host calls to price one, `probe` allocates to show the heap arrives without
+//! their own: `echo` reads its arguments and answers them back, `carry` takes
+//! the same payload without reading it to price a parse, `chatty` makes a
+//! hundred host calls to price one, `probe` allocates to show the heap arrives without
 //! a second entry into the guest, `spin` loops past the instructions a call
 //! includes, and `boom` fails on purpose.
 //! `tick` arms itself, to show a wake outliving the invocation that asked for
@@ -30,10 +30,13 @@
 
 extern crate alloc;
 
+use alloc::string::String;
+use berm_lang::{Schema, event};
+
 berm_lang::declare_program!(fixture);
 
-// `inner` is what `nest` and `recurse` reach for. It is not resolved here,
-// only declared.
+// `inner` is what `nest`, `relay` and `recurse` reach for. It is not resolved
+// here, only declared.
 #[berm_lang::program(
     programs = ["inner"],
     syscalls = {
@@ -45,195 +48,138 @@ berm_lang::declare_program!(fixture);
     secrets = ["fixture"],
 )]
 mod tools {
-    use berm_lang::{Failed, Out};
+    use crate::{Attempts, Echo, Fetched, Noted, Peek, Round, Wait};
+    use alloc::{format, string::String, vec::Vec};
+    use berm_lang::{Caller, Logged, Result};
 
-    /// Echo the argument blob back inside a JSON envelope.
-    #[args(Echo)]
+    /// Answers its arguments back.
     #[public]
-    pub fn echo(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        out.write(br#"{"echo":"#);
-        out.write(args);
-        out.write(b"}");
+    pub fn echo(
+        /// The text to echo back.
+        query: String,
+        /// Page number, zero-indexed.
+        page: Option<u32>,
+    ) -> Result<Echo> {
+        Ok(Echo { query, page })
+    }
+
+    /// Takes its arguments without reading them, to price the parse `echo`
+    /// makes of the same payload.
+    #[public]
+    pub fn carry() -> Result<()> {
         Ok(())
     }
 
-    /// Arguments for `echo`.
-    pub struct Echo {
-        /// The text to echo back.
-        pub query: &'static str,
-        /// Page number, zero-indexed.
-        pub page: Option<u32>,
-    }
-
-    /// Loops as many times as its argument says, to run a call past the
-    /// instructions it includes.
+    /// Loops `rounds` times, to run a call past the instructions it includes.
     #[public]
-    pub fn spin(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let rounds: u64 = core::str::from_utf8(args)
-            .unwrap_or("")
-            .trim()
-            .parse()
-            .unwrap_or(0);
+    pub fn spin(rounds: u64) -> Result<u64> {
         let mut acc = 0u64;
         for round in 0..rounds {
             acc = core::hint::black_box(acc.wrapping_mul(31).wrapping_add(round));
         }
-        let mut said = alloc::string::String::new();
-        let _ = core::fmt::Write::write_fmt(&mut said, format_args!("{acc}"));
-        out.write(said.as_bytes());
-        Ok(())
+        Ok(acc)
     }
 
     /// Makes 100 host calls, to price one.
     #[public]
-    pub fn chatty(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+    pub fn chatty() -> Result<()> {
         let mut total = 0;
         for _ in 0..100 {
             total += berm_lang::args_len();
         }
         if total == usize::MAX {
-            return Err(Failed);
+            return Err("impossible".into());
         }
-        out.write(b"ok");
         Ok(())
-    }
-
-    /// Deserializes its arguments, to price a JSON parse against `echo`, which
-    /// carries the same payload without reading it.
-    #[args(Typed)]
-    #[public]
-    pub fn typed(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let parsed: Typed = berm_lang::tool::parse(args, out)?;
-        out.write(parsed.query.as_bytes());
-        Ok(())
-    }
-
-    /// Arguments for `typed`.
-    pub struct Typed {
-        /// The text to read back.
-        pub query: alloc::string::String,
-        /// Page number, zero-indexed.
-        pub page: Option<u32>,
     }
 
     /// Allocates, to prove the heap arrives without a second entry.
     #[public]
-    pub fn probe(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+    pub fn probe() -> Result<Vec<u8>> {
         let v = alloc::vec![7u8; 4096];
-        out.write(&v[..2]);
-        Ok(())
+        Ok(v[..2].to_vec())
     }
 
     /// Reads one stored key and answers whether it was set. Under
     /// `examples/load.rs` the read stands in for a host call that waits on
     /// I/O.
     #[public]
-    pub fn wait(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        match berm_lang::get("wait") {
-            Ok(Some(_)) => out.write(b"set"),
-            Ok(None) => out.write(b"unset"),
-            Err(_) => return Err(Failed),
-        }
-        Ok(())
+    pub fn wait() -> Result<Wait> {
+        Ok(match berm_lang::get("wait")? {
+            Some(_) => Wait::Set,
+            None => Wait::Unset,
+        })
     }
 
-    /// Fetches the URL in its arguments and answers the status and the body's
-    /// length. A second word onward is one `Name: Value` header, which may
-    /// name `{secret:fixture}`.
+    /// Fetches `url` and answers the status and the body's length.
     #[public]
-    pub fn fetch(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let args = core::str::from_utf8(args).unwrap_or("").trim();
-        let (url, header) = args.split_once(char::is_whitespace).unwrap_or((args, ""));
-        let header = header
-            .split_once(':')
-            .map(|(name, value)| (name.trim(), value.trim()));
-        let response = berm_lang::http::fetch("GET", url, header.as_slice(), b"")
-            .map_err(|error| berm_lang::tool::syscall::<()>(Err(error), out).unwrap_err())?;
-
-        let mut said = alloc::string::String::new();
-        let _ = core::fmt::Write::write_fmt(
-            &mut said,
-            format_args!(
-                r#"{{"status":{},"bytes":{}}}"#,
-                response.status,
-                response.body.len()
-            ),
-        );
-        out.write(said.as_bytes());
-        Ok(())
+    pub fn fetch(
+        url: String,
+        /// One `Name: Value` header, which may name `{secret:fixture}`.
+        header: Option<String>,
+    ) -> Result<Fetched> {
+        let header = header.as_deref().and_then(|header| {
+            header
+                .split_once(':')
+                .map(|(name, value)| (name.trim(), value.trim()))
+        });
+        let response = berm_lang::http::fetch("GET", &url, header.as_slice(), b"")?;
+        Ok(Fetched {
+            status: response.status,
+            bytes: response.body.len() as u64,
+        })
     }
 
-    /// Says who called: `outside NAME`, `program NAME`, or `none`.
+    /// Says who called: `outside NAME`, `program NAME`, or `none`, then
+    /// ` user ISSUER SUBJECT` when the chain runs for a user.
     #[public]
-    pub fn whoami(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        match berm_lang::tool::syscall(berm_lang::caller(), out)? {
-            Some(berm_lang::Caller::Outside(name)) => {
-                out.write(b"outside ");
-                out.write(name.as_bytes());
-            }
-            Some(berm_lang::Caller::Program(name)) => {
-                out.write(b"program ");
-                out.write(name.as_bytes());
-            }
-            None => out.write(b"none"),
+    pub fn whoami() -> Result<String> {
+        let mut said = match berm_lang::caller()? {
+            Some(Caller::Outside(name)) => format!("outside {name}"),
+            Some(Caller::Program(name)) => format!("program {name}"),
+            None => String::from("none"),
+        };
+        if let Some(user) = berm_lang::user()? {
+            said.push_str(&format!(" user {} {}", user.issuer, user.subject));
         }
-        if let Some(user) = berm_lang::tool::syscall(berm_lang::user(), out)? {
-            out.write(b" user ");
-            out.write(user.issuer.as_bytes());
-            out.write(b" ");
-            out.write(user.subject.as_bytes());
-        }
-        Ok(())
+        Ok(said)
     }
 
     /// Answers `ok` to a program, and denies any other caller.
     #[public]
-    pub fn guarded(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        match berm_lang::tool::syscall(berm_lang::caller(), out)? {
-            Some(berm_lang::Caller::Program(_)) => {
-                out.write(b"ok");
-                Ok(())
-            }
-            _ => {
-                out.write(b"programs only");
-                Err(berm_lang::deny())
-            }
+    pub fn guarded() -> Result<String> {
+        match berm_lang::caller()? {
+            Some(Caller::Program(_)) => Ok("ok".into()),
+            _ => Err(berm_lang::deny("programs only")),
         }
     }
 
     /// Answers `ok`; only programs may call it.
     #[public]
     #[callers(services)]
-    pub fn fromservices(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        out.write(b"ok");
-        Ok(())
+    pub fn fromservices() -> Result<String> {
+        Ok("ok".into())
     }
 
-    /// Calls `guarded` and `fromservices` on `fixture`, and answers what they said.
+    /// Calls `guarded` and `fromservices` on `fixture`, and answers what they
+    /// said.
     #[public]
-    pub fn askguarded(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let guarded = berm_lang::tool::syscall(berm_lang::call("fixture", "guarded", ""), out)?;
-        let services =
-            berm_lang::tool::syscall(berm_lang::call("fixture", "fromservices", ""), out)?;
-        out.write(guarded.as_bytes());
-        out.write(b" ");
-        out.write(services.as_bytes());
-        Ok(())
+    pub fn askguarded() -> Result<String> {
+        use crate::fixture::calls;
+
+        Ok(format!("{} {}", calls::guarded()?, calls::fromservices()?))
     }
 
     /// Calls `whoami` on `fixture`, and answers what it said.
     #[public]
-    pub fn askwho(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let said = berm_lang::tool::syscall(berm_lang::call("fixture", "whoami", ""), out)?;
-        out.write(said.as_bytes());
-        Ok(())
+    pub fn askwho() -> Result<String> {
+        Ok(crate::fixture::calls::whoami()?)
     }
 
     /// Always fails, to exercise the error path.
     #[public]
-    pub fn boom(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        out.write(b"boom, as requested");
-        Err(Failed)
+    pub fn boom() -> Result<()> {
+        Err("boom, as requested".into())
     }
 
     /// Calls `echo` on whatever is deployed as `inner`, to prove a program can
@@ -241,214 +187,192 @@ mod tools {
     /// "it ran and said no" from "it was never there" is the point of the
     /// second bit on the wire.
     #[public]
-    pub fn nest(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let args = core::str::from_utf8(args).unwrap_or("{}");
-        match berm_lang::call("inner", "echo", args) {
-            Ok(result) => {
-                out.write(b"nested:");
-                out.write(result.as_bytes());
-                Ok(())
-            }
-            Err(error) if error.refused() => {
-                out.write(b"refused: ");
-                out.write(error.message().as_bytes());
-                Err(Failed)
-            }
-            Err(error) => berm_lang::tool::syscall(Err(error), out).map(|_: ()| ()),
+    pub fn nest(query: String, page: Option<u32>) -> Result<Echo> {
+        let args = berm_lang::json::to(&Echo { query, page })?;
+        match berm_lang::call("inner", "echo", &args) {
+            Ok(result) => Ok(berm_lang::json::from(&result)?),
+            Err(error) if error.refused() => Err(format!("refused: {}", error.message()).into()),
+            Err(error) => Err(error.into()),
         }
     }
 
-    /// Counts how many times it has run, arming itself to run again in the
-    /// milliseconds its arguments name until it has run three times. Proves an
-    /// invocation can outlive the one that asked for it, and that what crosses
-    /// the gap is the program's own keys.
-    pub fn tick(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let delay = core::str::from_utf8(args)
-            .unwrap_or("")
-            .trim()
-            .parse()
-            .unwrap_or(0);
-
+    /// Counts how many times it has run, arming itself to run again in `delay`
+    /// milliseconds until it has run three times. Proves an invocation can
+    /// outlive the one that asked for it, and that what crosses the gap is the
+    /// program's own keys.
+    pub fn tick(delay: u64) -> Result<Round> {
         let round = berm_lang::get("ticks")
             .ok()
             .flatten()
             .and_then(|seen| core::str::from_utf8(&seen).ok()?.parse::<u64>().ok())
             .unwrap_or(0)
             + 1;
-
-        let mut buffer = alloc::string::String::new();
-        let _ = core::fmt::Write::write_fmt(&mut buffer, format_args!("{round}"));
-        if berm_lang::set("ticks", buffer.as_bytes()).is_err() {
-            return Err(Failed);
-        }
+        berm_lang::set("ticks", format!("{round}").as_bytes())?;
 
         // The delay rides along, so each round arms the next on the same one.
-        let mut again = alloc::string::String::new();
-        let _ = core::fmt::Write::write_fmt(&mut again, format_args!("{delay}"));
-        if round < 3 && berm_lang::after(delay, "fixture", "tick", &again).is_err() {
-            return Err(Failed);
+        if round < 3 {
+            berm_lang::after(delay, "fixture", "tick", &format!(r#"{{"delay":{delay}}}"#))?;
         }
-
-        let mut said = alloc::string::String::new();
-        let _ = core::fmt::Write::write_fmt(
-            &mut said,
-            format_args!(r#"{{"round":{round},"at":{}}}"#, berm_lang::now()),
-        );
-        out.write(said.as_bytes());
-        Ok(())
+        Ok(Round {
+            round,
+            at: berm_lang::now(),
+        })
     }
 
-    /// Writes its argument under `note`, emits it as a `Noted` event,
-    /// answers what it reads back, and fails when the argument is `fail`.
+    /// Writes `word` under `note`, emits it as a `Noted` event, answers what it
+    /// reads back, and fails when `word` is `fail`.
     #[public]
-    pub fn note(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let word = core::str::from_utf8(args).unwrap_or("").trim();
-        berm_lang::tool::syscall(berm_lang::set("note", word.as_bytes()), out)?;
-        berm_lang::tool::syscall(
-            berm_lang::emit!(Noted {
-                word: word.into(),
-                bytes: word.len() as u64,
-            }),
-            out,
-        )?;
+    pub fn note(word: String) -> Result<String> {
+        berm_lang::set("note", word.as_bytes())?;
+        berm_lang::emit!(Noted {
+            bytes: word.len() as u64,
+            word: word.clone(),
+        })?;
         if word == "fail" {
-            out.write(b"failed, as requested");
-            return Err(Failed);
+            return Err("failed, as requested".into());
         }
-        match berm_lang::get("note") {
-            Ok(Some(seen)) => out.write(&seen),
-            _ => return Err(Failed),
-        }
-        Ok(())
+        let seen = berm_lang::get("note")?.ok_or("note was not kept")?;
+        Ok(String::from_utf8_lossy(&seen).into_owned())
     }
 
-    /// A word `note` wrote.
-    #[event]
-    pub struct Noted {
-        pub word: alloc::string::String,
-        /// Its length in bytes.
-        pub bytes: u64,
-    }
-
-    /// Calls `note` on `inner` with its argument, carries on whether or not
-    /// that failed, emits under the topic `relay`, and answers what this
+    /// Calls `note` on `inner` with `word`, carries on whether or not that
+    /// failed, emits `word` under the topic `relay`, and answers what this
     /// program reads back under `note`.
     #[public]
-    pub fn relay(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let word = core::str::from_utf8(args).unwrap_or("").trim();
-        let _ = berm_lang::call("inner", "note", word);
-        if berm_lang::emit(&["relay"], word).is_err() {
-            return Err(Failed);
-        }
-        match berm_lang::get("note") {
-            Ok(Some(seen)) => out.write(&seen),
-            Ok(None) => out.write(b"unset"),
-            Err(_) => return Err(Failed),
-        }
-        Ok(())
+    pub fn relay(word: String) -> Result<String> {
+        let args = format!(r#"{{"word":{}}}"#, berm_lang::json::to(&word)?);
+        let _ = berm_lang::call("inner", "note", &args);
+        berm_lang::emit(&["relay"], &word)?;
+        Ok(match berm_lang::get("note")? {
+            Some(seen) => String::from_utf8_lossy(&seen).into_owned(),
+            None => String::from("unset"),
+        })
     }
 
     /// Takes the `Noted` events of `fixture` and keeps the last one's `seq`
-    /// and word under `seen`.
+    /// and word under `seen`, answering them.
     #[logs("fixture" = ["Noted"])]
-    pub fn seen(args: &[u8], out: &mut Out) -> Result<(), Failed> {
+    pub fn seen(program: String, logs: Vec<Logged>) -> Result<String> {
         use crate::fixture::events::Event;
 
-        let delivery: berm_lang::Delivery = berm_lang::tool::parse(args, out)?;
-        let Some(last) = delivery.logs.last() else {
-            return Ok(());
+        if program != "fixture" {
+            return Err(format!("logs of {program}, not fixture").into());
+        }
+        let Some(last) = logs.last() else {
+            return Ok(String::new());
         };
         let Some(Ok(Event::Noted(noted))) = Event::read(last) else {
-            return berm_lang::tool::failed("the last log is not a Noted event", out);
+            return Err("the last log is not a Noted event".into());
         };
-        let mut said = alloc::string::String::new();
-        let _ = core::fmt::Write::write_fmt(&mut said, format_args!("{} {}", last.seq, noted.word));
-        berm_lang::tool::syscall(berm_lang::set("seen", said.as_bytes()), out)?;
-        out.write(said.as_bytes());
-        Ok(())
+        let said = format!("{} {}", last.seq, noted.word);
+        berm_lang::set("seen", said.as_bytes())?;
+        Ok(said)
     }
 
     /// Calls `peek` on `fixture`, then `echo` on `fixture` with the note it
-    /// read, and answers what `echo` did.
+    /// read, and answers the query `echo` answered.
     #[public]
-    pub fn ask(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        use crate::fixture::{calls, types::Echo};
+    pub fn ask() -> Result<String> {
+        use crate::fixture::calls;
 
-        let peek = berm_lang::tool::syscall(calls::peek(""), out)?;
-        let echo = Echo {
-            query: peek.note.unwrap_or_default(),
-            page: None,
-        };
-        let echoed = berm_lang::tool::syscall(calls::echo(&echo), out)?;
-        out.write(echoed.as_bytes());
-        Ok(())
+        let peek = calls::peek()?;
+        let echoed = calls::echo(None, peek.note.unwrap_or_default())?;
+        Ok(echoed.query)
     }
 
     /// Reads `note`, then tries to write it, emit under `note`, arm `tick` and
     /// call `note` on `inner`, and answers what it read and what each attempt
     /// was told.
     #[query]
-    #[returns(Peek)]
     #[public]
-    pub fn peek(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let told = |attempt: Result<(), berm_lang::CallError>| match attempt {
-            Ok(()) => alloc::string::String::from("allowed"),
+    pub fn peek() -> Result<Peek> {
+        let told = |attempt: core::result::Result<(), berm_lang::CallError>| match attempt {
+            Ok(()) => String::from("allowed"),
             Err(error) => error.message().into(),
         };
         let note = berm_lang::get("note")
             .ok()
             .flatten()
-            .map(|value| alloc::string::String::from_utf8_lossy(&value).into_owned());
-        let peek = Peek {
+            .map(|value| String::from_utf8_lossy(&value).into_owned());
+        Ok(Peek {
             note,
             attempts: Attempts {
                 set: told(berm_lang::set("note", b"peeked")),
                 emit: told(berm_lang::emit(&["note"], "peeked")),
-                after: told(berm_lang::after(0, "fixture", "tick", "0")),
-                call: told(berm_lang::call("inner", "note", "peeked").map(|_| ())),
+                after: told(berm_lang::after(0, "fixture", "tick", r#"{"delay":0}"#)),
+                call: told(berm_lang::call("inner", "note", r#"{"word":"peeked"}"#).map(|_| ())),
             },
-        };
-        berm_lang::tool::reply(&peek, out)
+        })
     }
 
-    /// What `peek` answers.
-    pub struct Peek {
-        /// What `note` held, if anything.
-        pub note: Option<alloc::string::String>,
-        pub attempts: Attempts,
-    }
-
-    /// What each of `peek`'s attempts was told.
-    pub struct Attempts {
-        pub set: alloc::string::String,
-        pub emit: alloc::string::String,
-        pub after: alloc::string::String,
-        pub call: alloc::string::String,
-    }
-
-    /// Calls itself on `inner`, which is this same program when deployed under
-    /// that name — the runaway a depth limit exists to stop. Reports how many
-    /// levels got through before the host refused.
+    /// Calls itself on `inner` one level deeper, which is this same program
+    /// when deployed under that name — the runaway a depth limit exists to
+    /// stop. Answers how many levels got through before the host refused.
     #[public]
-    pub fn recurse(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let args = core::str::from_utf8(args).unwrap_or("0");
-        let depth: u32 = args.trim().parse().unwrap_or(0);
-
-        let mut buffer = alloc::string::String::new();
-        let _ = core::fmt::Write::write_fmt(&mut buffer, format_args!("{}", depth + 1));
-
-        match berm_lang::call("inner", "recurse", &buffer) {
-            Ok(deeper) => {
-                out.write(deeper.as_bytes());
-                Ok(())
-            }
+    pub fn recurse(depth: u32) -> Result<u32> {
+        let deeper = depth + 1;
+        match berm_lang::call("inner", "recurse", &format!(r#"{{"depth":{deeper}}}"#)) {
+            Ok(reached) => Ok(berm_lang::json::from(&reached)?),
             // The bottom of the chain: the host refused to go further, and the
             // depth reached rides back up as the result.
-            Err(error) if error.refused() => {
-                out.write(buffer.as_bytes());
-                Ok(())
-            }
-            Err(error) => berm_lang::tool::syscall(Err(error), out).map(|_: ()| ()),
+            Err(error) if error.refused() => Ok(deeper),
+            Err(error) => Err(error.into()),
         }
     }
+}
+
+/// What `echo` answers.
+#[derive(Schema)]
+pub struct Echo {
+    pub query: String,
+    pub page: Option<u32>,
+}
+
+/// What `wait` answers.
+#[derive(Schema)]
+pub enum Wait {
+    Set,
+    Unset,
+}
+
+/// What `fetch` answers.
+#[derive(Schema)]
+pub struct Fetched {
+    pub status: u16,
+    /// The body's length.
+    pub bytes: u64,
+}
+
+/// What `tick` answers.
+#[derive(Schema)]
+pub struct Round {
+    /// How many times it has run, this time included.
+    pub round: u64,
+    /// When, in Unix milliseconds.
+    pub at: u64,
+}
+
+/// A word `note` wrote.
+#[event]
+pub struct Noted {
+    pub word: String,
+    /// Its length in bytes.
+    pub bytes: u64,
+}
+
+/// What `peek` answers.
+#[derive(Schema)]
+pub struct Peek {
+    /// What `note` held, if anything.
+    pub note: Option<String>,
+    pub attempts: Attempts,
+}
+
+/// What each of `peek`'s attempts was told.
+#[derive(Schema)]
+pub struct Attempts {
+    pub set: String,
+    pub emit: String,
+    pub after: String,
+    pub call: String,
 }

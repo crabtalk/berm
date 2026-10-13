@@ -4,7 +4,6 @@
 //! One statement per call. The host runs every statement of an invocation in
 //! one transaction, committed when the invocation returns ok; transaction
 //! statements are refused. Under a `query`, a statement that writes is refused.
-#![cfg(feature = "alloc")]
 
 use crate::abi::{self, host, host::CallError, wire};
 use alloc::string::String;

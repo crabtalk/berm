@@ -23,7 +23,7 @@ async fn a_price_is_published_beside_the_budget() -> Result<()> {
     host.set_budget("fixture", "echo", budget).await?;
     let echo = host.terms("fixture")?.tools["echo"];
     assert_eq!((echo.price_micros, echo.budget), (250, budget));
-    assert_eq!(host.terms("fixture")?.tools["typed"].price_micros, 0);
+    assert_eq!(host.terms("fixture")?.tools["carry"].price_micros, 0);
 
     assert!(host.set_price("fixture", "nothing", 1).await.is_err());
     assert!(host.set_price("fixture", "echo", u64::MAX).await.is_err());

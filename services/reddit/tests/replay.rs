@@ -41,7 +41,8 @@ fn arrange(host: &TestHost) -> Result<()> {
 async fn first_tick_logs_posts_and_comments() -> Result<()> {
     let host = TestHost::open(RECORDED).await?;
     arrange(&host)?;
-    host.deploy("reddit", &test::build("reddit", "reddit")?).await?;
+    host.deploy("reddit", &test::build("reddit", "reddit")?)
+        .await?;
 
     let follow = br#"{"sub":"rust","sort":"hot"}"#;
     assert_eq!(
@@ -49,18 +50,18 @@ async fn first_tick_logs_posts_and_comments() -> Result<()> {
             .await?
             .result
             .as_deref(),
-        Ok("followed")
+        Ok(r#""followed""#)
     );
     assert_eq!(
         host.call("reddit", "follow", follow)
             .await?
             .result
             .as_deref(),
-        Ok("following")
+        Ok(r#""following""#)
     );
     assert_eq!(
         host.call("reddit", "start", b"{}").await?.result.as_deref(),
-        Ok("started")
+        Ok(r#""started""#)
     );
 
     let fired = host.fire().await?;
@@ -73,7 +74,7 @@ async fn first_tick_logs_posts_and_comments() -> Result<()> {
     // A tick ran within the last three, so starting again does nothing.
     assert_eq!(
         host.call("reddit", "start", b"{}").await?.result.as_deref(),
-        Ok("running")
+        Ok(r#""running""#)
     );
     Ok(())
 }

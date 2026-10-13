@@ -18,8 +18,9 @@ async fn deployed(services: &[&str]) -> Result<TestHost> {
 #[tokio::test]
 async fn a_held_wake_stays_and_fires_once_released() -> Result<()> {
     let host = deployed(&["acct/fixture", "other/fixture"]).await?;
-    host.call("acct/fixture", "tick", b"0").await?;
-    host.call("other/fixture", "tick", b"0").await?;
+    host.call("acct/fixture", "tick", br#"{"delay":0}"#).await?;
+    host.call("other/fixture", "tick", br#"{"delay":0}"#)
+        .await?;
 
     host.host().hold(vec!["acct".into()]).await?;
     assert_eq!(host.host().held(), vec!["acct".to_owned()]);
@@ -90,7 +91,8 @@ async fn a_held_scope_takes_no_calls_from_services_or_peers() -> Result<()> {
 async fn a_held_delivery_runs_once_released() -> Result<()> {
     let host = deployed(&["acct/fixture"]).await?;
     host.host().hold(vec!["acct".into()]).await?;
-    host.call("acct/fixture", "note", b"kept").await?;
+    host.call("acct/fixture", "note", br#"{"word":"kept"}"#)
+        .await?;
 
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(host.state("acct/fixture", "seen").await?, None);

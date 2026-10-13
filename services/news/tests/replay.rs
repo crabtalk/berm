@@ -50,7 +50,7 @@ async fn ticks_fetch_every_desk_once() -> Result<()> {
     host.deploy("news", &test::build("news", "news")?).await?;
     assert_eq!(
         host.call("news", "start", b"{}").await?.result.as_deref(),
-        Ok("started")
+        Ok(r#""started""#)
     );
 
     // Ten desks a tick, least recently fetched first, each within a call's

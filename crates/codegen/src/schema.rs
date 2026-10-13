@@ -1,202 +1,236 @@
-//! Rust types to JSON Schema, at compile time.
-//!
-//! A tool's arguments and result are structs the author already wrote; the
-//! schema is derived from them rather than repeated by hand in a string literal
-//! that nothing checks. Field doc comments become descriptions, `Option<T>` is
-//! what makes a field optional, and a field may name another struct declared in
-//! the same module, which is inlined.
+//! `#[derive(Schema)]`: a type's JSON Schema, and the serde impls that read
+//! and write it as that schema says.
 
-use crate::docs;
-use syn::{Fields, GenericArgument, Ident, ItemStruct, PathArguments, Type};
+use crate::{docs, escape};
+use proc_macro2::TokenStream;
+use quote::quote;
+use syn::{Data, DeriveInput, Fields, GenericArgument, PathArguments, Type, ext::IdentExt};
 
-/// The schema of the struct `name` declared in the module, and the name of
-/// every struct it inlines, itself included.
-pub fn of(name: &Ident, declared: &[ItemStruct]) -> syn::Result<(String, Vec<String>)> {
-    let Some(item) = declared.iter().find(|item| item.ident == *name) else {
+pub fn derive(input: &DeriveInput) -> syn::Result<TokenStream> {
+    if !input.generics.params.is_empty() {
         return Err(syn::Error::new_spanned(
-            name,
-            format!(
-                "`{name}` is not declared in this module — a tool's argument and result structs \
-                 have to live beside it so the schema can be derived from their fields"
-            ),
+            &input.generics,
+            "a Schema type takes no generics — its schema is one fixed shape",
         ));
-    };
-    let mut walk = Walk {
-        declared,
-        used: Vec::new(),
-        open: Vec::new(),
-    };
-    let schema = walk.object(item)?;
-    Ok((schema, walk.used))
-}
-
-/// Whether a field may be omitted: `Option<T>`.
-pub fn optional(ty: &Type) -> bool {
-    unwrap_option(ty).1
-}
-
-struct Walk<'a> {
-    declared: &'a [ItemStruct],
-    /// Every struct inlined so far.
-    used: Vec<String>,
-    /// The structs being inlined, outermost first. A struct that reaches itself
-    /// has no finite schema.
-    open: Vec<String>,
-}
-
-impl Walk<'_> {
-    fn object(&mut self, item: &ItemStruct) -> syn::Result<String> {
-        let Fields::Named(fields) = &item.fields else {
-            return Err(syn::Error::new_spanned(
-                &item.ident,
-                "a tool's arguments and result must be structs with named fields — the names are \
-                 the JSON object's keys",
-            ));
-        };
-        let name = item.ident.to_string();
-        self.open.push(name.clone());
-        if !self.used.contains(&name) {
-            self.used.push(name);
-        }
-
-        let mut properties = Vec::new();
-        let mut required = Vec::new();
-
-        for field in &fields.named {
-            let name = field
-                .ident
-                .as_ref()
-                .expect("named fields have idents")
-                .to_string();
-            let (ty, optional) = unwrap_option(&field.ty);
-            let description = docs(&field.attrs);
-
-            let mut property = self.type_of(ty)?;
-            if !description.is_empty() {
-                // Exactly one brace: a nested type like `Vec<T>` or a map ends
-                // in two, and trimming both puts the description inside the
-                // inner object and leaves the JSON one brace short.
-                let open = property
-                    .strip_suffix('}')
-                    .ok_or_else(|| unsupported(&field.ty))?;
-                property = format!(
-                    r#"{open},"description":"{}"}}"#,
-                    crate::escape(&description)
-                );
-            }
-
-            properties.push(format!(r#""{}":{}"#, crate::escape(&name), property));
-            if !optional {
-                required.push(format!(r#""{}""#, crate::escape(&name)));
-            }
-        }
-
-        self.open.pop();
-        let properties = properties.join(",");
-        let required = required.join(",");
-        // `title` names the struct, which is what `declare_program!` names the
-        // type it generates after.
-        Ok(format!(
-            r#"{{"type":"object","title":"{}","properties":{{{properties}}},"required":[{required}]}}"#,
-            item.ident
-        ))
     }
+    let ident = &input.ident;
+    let title = ident.to_string();
 
-    /// The JSON Schema fragment for one Rust type.
-    fn type_of(&mut self, ty: &Type) -> syn::Result<String> {
-        if let Type::Reference(reference) = ty {
-            return self.type_of(&reference.elem);
-        }
-
-        let Type::Path(path) = ty else {
-            return Err(unsupported(ty));
-        };
-        let Some(segment) = path.path.segments.last() else {
-            return Err(unsupported(ty));
-        };
-
-        let name = segment.ident.to_string();
-        if name == "Vec" {
-            let PathArguments::AngleBracketed(args) = &segment.arguments else {
-                return Err(unsupported(ty));
+    let (shape, remote) = match &input.data {
+        Data::Struct(data) => {
+            let Fields::Named(fields) = &data.fields else {
+                return Err(syn::Error::new_spanned(
+                    ident,
+                    "a Schema struct has named fields — the names are the JSON object's keys",
+                ));
             };
-            let Some(GenericArgument::Type(inner)) = args.args.first() else {
-                return Err(unsupported(ty));
-            };
-            return Ok(format!(
-                r#"{{"type":"array","items":{}}}"#,
-                self.type_of(inner)?
-            ));
-        }
-
-        // A map is an open object: the keys are the caller's, so only the
-        // values have a schema. Keys are strings because that is what JSON
-        // objects have.
-        if name == "BTreeMap" || name == "HashMap" {
-            let PathArguments::AngleBracketed(args) = &segment.arguments else {
-                return Err(unsupported(ty));
-            };
-            let mut types = args.args.iter().filter_map(|arg| match arg {
-                GenericArgument::Type(ty) => Some(ty),
-                _ => None,
+            let shapes = fields.named.iter().map(|field| {
+                let name = field.ident.as_ref().expect("named").unraw().to_string();
+                let description = escape(&docs(&field.attrs));
+                let ty = &field.ty;
+                quote! {
+                    ::berm_lang::schema::Field {
+                        name: #name,
+                        description: #description,
+                        shape: &<#ty as ::berm_lang::Schema>::SHAPE,
+                    }
+                }
             });
-            let (Some(key), Some(value)) = (types.next(), types.next()) else {
-                return Err(unsupported(ty));
-            };
-            if self.type_of(key)? != r#"{"type":"string"}"# {
-                return Err(syn::Error::new_spanned(
-                    key,
-                    "a map's keys become JSON object keys, so they have to be strings",
-                ));
+            let mirrored = fields.named.iter().map(|field| {
+                let name = &field.ident;
+                let ty = &field.ty;
+                // The schema leaves an optional field out of `required` rather
+                // than allowing `null`, so an absent value is an absent key.
+                let skip = optional(ty).then(|| {
+                    quote!(#[serde(default, skip_serializing_if = "::core::option::Option::is_none")])
+                });
+                quote!(#skip #name: #ty,)
+            });
+            (
+                quote! {
+                    ::berm_lang::schema::Shape::Object {
+                        title: #title,
+                        fields: &[#(#shapes),*],
+                    }
+                },
+                quote!(struct Remote { #(#mirrored)* }),
+            )
+        }
+        Data::Enum(data) => {
+            let mut values = Vec::new();
+            for variant in &data.variants {
+                if !matches!(variant.fields, Fields::Unit) {
+                    return Err(syn::Error::new_spanned(
+                        variant,
+                        "a Schema enum's variants carry nothing — it is a string that is one of them",
+                    ));
+                }
+                values.push(snake(&variant.ident.to_string()));
             }
-            return Ok(format!(
-                r#"{{"type":"object","additionalProperties":{}}}"#,
-                self.type_of(value)?
-            ));
+            let variants = data.variants.iter().map(|variant| &variant.ident);
+            (
+                quote! {
+                    ::berm_lang::schema::Shape::Enum {
+                        title: #title,
+                        values: &[#(#values),*],
+                    }
+                },
+                quote! {
+                    #[serde(rename_all = "snake_case")]
+                    enum Remote { #(#variants),* }
+                },
+            )
+        }
+        Data::Union(_) => {
+            return Err(syn::Error::new_spanned(ident, "a union has no JSON Schema"));
+        }
+    };
+
+    let remote_path = title.as_str();
+
+    Ok(quote! {
+        impl ::berm_lang::Schema for #ident {
+            const SHAPE: ::berm_lang::schema::Shape = #shape;
         }
 
-        let declared = self.declared;
-        if path.path.segments.len() == 1
-            && let Some(item) = declared.iter().find(|item| item.ident == segment.ident)
-        {
-            if self.open.contains(&name) {
-                return Err(syn::Error::new_spanned(
-                    ty,
-                    format!("`{name}` contains itself, which no JSON Schema here can describe"),
-                ));
-            }
-            return self.object(item);
-        }
+        // serde's remote derive, so the type itself carries no serde
+        // attributes and the author writes one derive.
+        const _: () = {
+            #[derive(::berm_lang::serde::Serialize, ::berm_lang::serde::Deserialize)]
+            #[serde(crate = "::berm_lang::serde", remote = #remote_path)]
+            #remote
 
-        Ok(match name.as_str() {
-            "String" | "str" => r#"{"type":"string"}"#,
-            "bool" => r#"{"type":"boolean"}"#,
-            "f32" | "f64" => r#"{"type":"number"}"#,
-            "u8" | "u16" | "u32" | "u64" | "usize" => r#"{"type":"integer","minimum":0}"#,
-            "i8" | "i16" | "i32" | "i64" | "isize" => r#"{"type":"integer"}"#,
-            _ => return Err(unsupported(ty)),
-        }
-        .to_owned())
-    }
+            impl ::berm_lang::serde::Serialize for #ident {
+                fn serialize<S: ::berm_lang::serde::Serializer>(
+                    &self,
+                    serializer: S,
+                ) -> ::core::result::Result<S::Ok, S::Error> {
+                    Remote::serialize(self, serializer)
+                }
+            }
+
+            impl<'de> ::berm_lang::serde::Deserialize<'de> for #ident {
+                fn deserialize<D: ::berm_lang::serde::Deserializer<'de>>(
+                    deserializer: D,
+                ) -> ::core::result::Result<Self, D::Error> {
+                    Remote::deserialize(deserializer)
+                }
+            }
+        };
+    })
 }
 
-/// `Option<T>` means the field may be omitted; everything else is required.
-fn unwrap_option(ty: &Type) -> (&Type, bool) {
+/// `#[event]`: a `Schema` struct emitted as a log under its name, and its
+/// record in the manifest.
+pub fn event(mut item: syn::ItemStruct) -> syn::Result<TokenStream> {
+    let before = item.attrs.len();
+    item.attrs.retain(|a| !a.path().is_ident("deprecated"));
+    let deprecated = match item.attrs.len() != before {
+        true => r#","deprecated":true"#,
+        false => "",
+    };
+    let description = docs(&item.attrs);
+    if description.is_empty() {
+        return Err(syn::Error::new_spanned(
+            &item.ident,
+            "an event needs a doc comment — it is what a reader of the logs is told it means",
+        ));
+    }
+    let ident = &item.ident;
+    let name = ident.to_string();
+    let head = format!(
+        r#"{{"event":{{"name":"{name}","description":"{}","fields":"#,
+        escape(&description)
+    );
+    let tail = format!("{deprecated}}}}}");
+
+    Ok(quote! {
+        #[derive(::berm_lang::Schema)]
+        #item
+
+        impl ::berm_lang::Event for #ident {
+            const NAME: &'static str = #name;
+        }
+
+        // One record of the manifest; the linker joins every record in the
+        // section.
+        const _: () = {
+            const PIECES: &[::berm_lang::schema::Piece] = &[
+                ::berm_lang::schema::Piece::Text(#head),
+                ::berm_lang::schema::Piece::Shape(&<#ident as ::berm_lang::Schema>::SHAPE),
+                ::berm_lang::schema::Piece::Text(#tail),
+            ];
+            #[used]
+            #[cfg_attr(target_arch = "wasm32", unsafe(link_section = ".berm.abi"))]
+            static RECORD: [u8; ::berm_lang::schema::len(PIECES)] =
+                ::berm_lang::schema::render(PIECES);
+        };
+    })
+}
+
+/// `#[error_code]`: an enum of failures, each failing a tool with its
+/// `#[msg("…")]`.
+pub fn error_code(mut item: syn::ItemEnum) -> syn::Result<TokenStream> {
+    let mut arms = Vec::new();
+    for variant in &mut item.variants {
+        if !matches!(variant.fields, Fields::Unit) {
+            return Err(syn::Error::new_spanned(
+                &variant.fields,
+                "an error code carries nothing but its message",
+            ));
+        }
+        let Some(at) = variant.attrs.iter().position(|a| a.path().is_ident("msg")) else {
+            return Err(syn::Error::new_spanned(
+                &variant.ident,
+                "an error code needs #[msg(\"…\")] — it is what the caller reads",
+            ));
+        };
+        let message: syn::LitStr = variant.attrs.remove(at).parse_args()?;
+        let ident = &variant.ident;
+        arms.push(quote!(Self::#ident => #message));
+    }
+    let ident = &item.ident;
+    Ok(quote! {
+        #item
+
+        impl #ident {
+            /// What a tool failing with it says.
+            pub fn message(&self) -> &'static str {
+                match self {
+                    #(#arms,)*
+                }
+            }
+        }
+
+        impl ::core::convert::From<#ident> for ::berm_lang::Error {
+            fn from(error: #ident) -> Self {
+                error.message().into()
+            }
+        }
+    })
+}
+
+/// Whether a type is `Option<T>`, which may be absent.
+pub fn optional(ty: &Type) -> bool {
     if let Type::Path(path) = ty
         && let Some(segment) = path.path.segments.last()
         && segment.ident == "Option"
         && let PathArguments::AngleBracketed(args) = &segment.arguments
-        && let Some(GenericArgument::Type(inner)) = args.args.first()
+        && let Some(GenericArgument::Type(_)) = args.args.first()
     {
-        return (inner, true);
+        return true;
     }
-    (ty, false)
+    false
 }
 
-fn unsupported(ty: &Type) -> syn::Error {
-    syn::Error::new_spanned(
-        ty,
-        "a field must be a string, number, boolean, Vec, string-keyed map, Option of those, or a \
-         struct declared in the program's module — there is no JSON Schema for this type",
-    )
+/// A variant's name as serde's `snake_case` writes it.
+fn snake(name: &str) -> String {
+    let mut snake = String::new();
+    for (at, character) in name.char_indices() {
+        if at > 0 && character.is_uppercase() {
+            snake.push('_');
+        }
+        snake.push(character.to_ascii_lowercase());
+    }
+    snake
 }

@@ -1,11 +1,7 @@
 //! Reddit as a lake source: a feed is a subreddit's listing, keyed
 //! `{sub}/{sort}`.
 
-use crate::{
-    reddit,
-    sort::Sort,
-    tools::{Comment, Comments, Post},
-};
+use crate::{Comment, Comments, Post, reddit, sort::Sort};
 use alloc::{format, string::String, vec::Vec};
 use berm_lang::{CallError, html};
 use lake::{

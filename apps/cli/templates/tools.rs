@@ -3,7 +3,7 @@
 use berm_lang::test;
 
 #[test]
-fn echo_wraps_the_payload() {
+fn echo_answers_its_argument() {
     let out = test::call(__CRATE__::berm_tool_echo, br#"{"query":"hi"}"#).unwrap();
-    assert_eq!(out, br#"{"echo":{"query":"hi"}}"#);
+    assert_eq!(out, br#"{"query":"hi"}"#);
 }

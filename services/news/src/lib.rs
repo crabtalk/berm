@@ -6,6 +6,9 @@
 
 extern crate alloc;
 
+use alloc::{string::String, vec::Vec};
+use berm_lang::{Schema, event};
+
 mod catalog;
 mod page;
 mod source;
@@ -95,19 +98,19 @@ mod web;
 )]
 mod tools {
     use crate::{
+        DeskInfo, Desks, TopicInfo, Topics,
         catalog::{DESKS, Desk, Reader},
         source::News,
         topic,
     };
-    use alloc::{string::String, vec::Vec};
-    use berm_lang::{Failed, Out};
+    use berm_lang::Result;
+    use lake::Start;
 
-    /// Starts fetching every desk, unless it already is. Answers `started` or
-    /// `running`.
+    /// Starts fetching every desk, unless it already is.
     #[public]
     #[callers(accounts)]
-    pub fn start(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        let mut state = berm_lang::tool::syscall(lake::State::load(), out)?;
+    pub fn start() -> Result<Start> {
+        let mut state = lake::State::load()?;
         let before = state.feeds.len();
         state.feeds.retain(|feed| Desk::find(&feed.key).is_some());
         let mut changed = state.feeds.len() != before;
@@ -115,102 +118,104 @@ mod tools {
             changed |= state.follow(desk.key, matches!(desk.reader, Reader::Feed(_)));
         }
         if changed {
-            berm_lang::tool::syscall(state.save(), out)?;
+            state.save()?;
         }
-        lake::start::<News>(out)
+        lake::start::<News>()
     }
 
     /// Fetches the desks due and logs each article new to one, then arms the
     /// next tick.
-    pub fn tick(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        lake::tick::<News>(out)
+    pub fn tick() -> Result<()> {
+        lake::tick::<News>()
     }
 
     /// Lists the desks this service follows.
     #[query]
     #[public]
-    #[returns(Desks)]
-    pub fn desks(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+    pub fn desks() -> Result<Desks> {
         let desks = DESKS
             .iter()
             .map(|desk| DeskInfo {
-                key: desk.key,
-                outlet: desk.outlet,
-                name: desk.name,
-                url: desk.home,
-                description: desk.description,
-                topics: desk.topics.iter().map(|topic| topic.name).collect(),
+                key: desk.key.into(),
+                outlet: desk.outlet.into(),
+                name: desk.name.into(),
+                url: desk.home.into(),
+                description: desk.description.into(),
+                topics: desk.topics.iter().map(|topic| topic.name.into()).collect(),
             })
             .collect();
-        berm_lang::tool::reply(&Desks { desks }, out)
+        Ok(Desks { desks })
     }
 
     /// Lists the topics desks are tagged with.
     #[query]
     #[public]
-    #[returns(Topics)]
-    pub fn topics(_args: &[u8], out: &mut Out) -> Result<(), Failed> {
+    pub fn topics() -> Result<Topics> {
         let topics = topic::ALL
             .iter()
             .map(|topic| TopicInfo {
-                name: topic.name,
-                label: topic.label,
-                description: topic.description,
+                name: topic.name.into(),
+                label: topic.label.into(),
+                description: topic.description.into(),
             })
             .collect();
-        berm_lang::tool::reply(&Topics { topics }, out)
+        Ok(Topics { topics })
     }
+}
 
-    /// What `desks` answers.
-    pub struct Desks {
-        pub desks: Vec<DeskInfo>,
-    }
+/// What `desks` answers.
+#[derive(Schema)]
+pub struct Desks {
+    pub desks: Vec<DeskInfo>,
+}
 
-    /// One desk.
-    pub struct DeskInfo {
-        /// `{outlet}` or `{outlet}/{section}`; what an `Article` names it.
-        pub key: &'static str,
-        pub outlet: &'static str,
-        /// Its name within its outlet.
-        pub name: &'static str,
-        /// The page a person reads it on.
-        pub url: &'static str,
-        /// What a reader following it gets.
-        pub description: &'static str,
-        /// The names of the topics it covers.
-        pub topics: Vec<&'static str>,
-    }
+/// One desk.
+#[derive(Schema)]
+pub struct DeskInfo {
+    /// `{outlet}` or `{outlet}/{section}`; what an `Article` names it.
+    pub key: String,
+    pub outlet: String,
+    /// Its name within its outlet.
+    pub name: String,
+    /// The page a person reads it on.
+    pub url: String,
+    /// What a reader following it gets.
+    pub description: String,
+    /// The names of the topics it covers.
+    pub topics: Vec<String>,
+}
 
-    /// What `topics` answers.
-    pub struct Topics {
-        pub topics: Vec<TopicInfo>,
-    }
+/// What `topics` answers.
+#[derive(Schema)]
+pub struct Topics {
+    pub topics: Vec<TopicInfo>,
+}
 
-    /// One topic.
-    pub struct TopicInfo {
-        /// What `DeskInfo::topics` names it.
-        pub name: &'static str,
-        pub label: &'static str,
-        pub description: &'static str,
-    }
+/// One topic.
+#[derive(Schema)]
+pub struct TopicInfo {
+    /// What `DeskInfo::topics` names it.
+    pub name: String,
+    pub label: String,
+    pub description: String,
+}
 
-    /// An article new to a desk: published after the newest article its feed
-    /// had shown, or newly on its index page. An article on several desks is
-    /// logged once in each.
-    #[event]
-    pub struct Article {
-        /// The desk's key.
-        pub desk: String,
-        pub title: String,
-        pub url: String,
-        /// The feed's summary of it, as plain text.
-        pub summary: Option<String>,
-        /// The feed's full text of it, as plain text.
-        pub content: Option<String>,
-        pub author: Option<String>,
-        /// When it was published, in Unix milliseconds. An index page dates an
-        /// article to midnight UTC of its day.
-        pub posted: u64,
-        pub image: Option<String>,
-    }
+/// An article new to a desk: published after the newest article its feed
+/// had shown, or newly on its index page. An article on several desks is
+/// logged once in each.
+#[event]
+pub struct Article {
+    /// The desk's key.
+    pub desk: String,
+    pub title: String,
+    pub url: String,
+    /// The feed's summary of it, as plain text.
+    pub summary: Option<String>,
+    /// The feed's full text of it, as plain text.
+    pub content: Option<String>,
+    pub author: Option<String>,
+    /// When it was published, in Unix milliseconds. An index page dates an
+    /// article to midnight UTC of its day.
+    pub posted: u64,
+    pub image: Option<String>,
 }

@@ -22,7 +22,8 @@ pub const ABI_VERSION: u32 = 4;
 /// reading what a program claims to be never means running it.
 ///
 /// A wasm custom section, which is what `#[link_section]` emits on
-/// `wasm32`.
+/// `wasm32`. It holds JSON records back to back, in the order the linker
+/// joined them: the program's, and one `{"event": …}` per `#[event]`.
 pub const ABI_SECTION: &str = ".berm.abi";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -196,8 +197,21 @@ impl Manifest {
     }
 
     pub fn parse(json: &str) -> Result<Self> {
-        let manifest: Manifest =
-            serde_json::from_str(json).context("program manifest is not valid JSON")?;
+        let mut program: Option<Manifest> = None;
+        let mut events = Vec::new();
+        for record in serde_json::Deserializer::from_str(json).into_iter::<Record>() {
+            match record.context("program manifest is not valid JSON")? {
+                Record::Event { event } => events.push(event),
+                Record::Program(manifest) => {
+                    if program.replace(*manifest).is_some() {
+                        bail!("program manifest holds two program records");
+                    }
+                }
+            }
+        }
+        let mut manifest = program.context("program manifest holds no program record")?;
+        events.sort_by(|a, b| a.name.cmp(&b.name));
+        manifest.events.extend(events);
         if manifest.abi_version != ABI_VERSION {
             bail!(
                 "program was built against ABI version {}, this host speaks {ABI_VERSION}",
@@ -206,6 +220,14 @@ impl Manifest {
         }
         Ok(manifest)
     }
+}
+
+/// One record of the manifest section.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Record {
+    Event { event: EventSpec },
+    Program(Box<Manifest>),
 }
 
 /// A deployed program, as the control API reports it.

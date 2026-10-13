@@ -1,8 +1,8 @@
 //! What a program invocation costs under concurrent load.
 //!
 //! Every call is split two ways — inside host calls, and the rest
-//! (instantiate, guest code, teardown, and waiting for a thread). `echo` makes
-//! no host call worth timing; `wait` makes one that sleeps [`WAIT`] on the
+//! (instantiate, guest code, teardown, and waiting for a thread). `carry`
+//! makes no host call worth timing; `wait` makes one that sleeps [`WAIT`] on the
 //! runtime's timer, standing in for an HTTP round trip.
 //!
 //! ```sh
@@ -74,9 +74,9 @@ async fn main() -> Result<()> {
     .deploy("fixture", &image)?;
 
     println!("cores: {}", std::thread::available_parallelism()?);
-    header("echo");
+    header("carry");
     for concurrency in [1, 2, 4, 8, 16, 64] {
-        row(&program, "echo", concurrency, 4000).await?;
+        row(&program, "carry", concurrency, 4000).await?;
     }
     header(&format!("wait ({WAIT:?} in one host call)"));
     for concurrency in [1, 64, 512, 1024, 2048, 8192] {

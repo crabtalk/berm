@@ -10,26 +10,32 @@ number or a pointer pair.
 
 extern crate alloc;
 
+use alloc::string::String;
+use berm_lang::Schema;
+
 #[berm_lang::program]
 mod tools {
-    use berm_lang::{Failed, Out};
+    use crate::Echo;
+    use alloc::string::String;
+    use berm_lang::Result;
 
-    /// Echo the argument blob back inside a JSON envelope.
-    #[args(Echo)]
-    pub fn echo(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        out.write(br#"{"echo":"#);
-        out.write(args);
-        out.write(b"}");
-        Ok(())
-    }
-
-    /// Arguments for `echo`.
-    pub struct Echo {
+    /// Answers its arguments back.
+    #[public]
+    pub fn echo(
         /// The text to echo back.
-        pub query: &'static str,
+        query: String,
         /// Page number, zero-indexed.
-        pub page: Option<u32>,
+        page: Option<u32>,
+    ) -> Result<Echo> {
+        Ok(Echo { query, page })
     }
+}
+
+/// What `echo` answers.
+#[derive(Schema)]
+pub struct Echo {
+    pub query: String,
+    pub page: Option<u32>,
 }
 ```
 
@@ -38,34 +44,28 @@ model reads when deciding whether to call it, so write it for that reader.
 
 ## Arguments
 
-The handler always receives the raw blob. Declaring a shape is about the
-*schema* the model is given, not about how the bytes arrive:
+A tool's parameters are the properties of its arguments, a JSON object. A
+parameter's doc comment is its description, and an `Option` parameter may be
+omitted. A tool with no parameters takes any arguments and reads none.
 
-- `#[args(Echo)]` names a struct declared beside the tool. Its fields and their
-  doc comments become the JSON Schema, and `Option<T>` is what makes a field
-  optional rather than required. A field may name another struct declared in
-  the module; its schema is inlined.
-- `#[params("…")]` carries a JSON Schema literal, for a shape no struct
-  describes.
-- Neither: the schema is an open object.
-
-Parsing is the author's choice because not every program wants a JSON parser
-linked into it — a tool taking no arguments should not pay for one.
+Each parameter's type implements `Schema`: strings, numbers, `bool`, `Vec`,
+`Option`, `BTreeMap<String, T>`, and any type with `#[derive(Schema)]`, in any
+module or crate. The derive takes a struct with named fields — an object titled
+by its name, its fields' doc comments their descriptions — or an enum of unit
+variants, a string that is one of them in `snake_case`. A `Schema` type owns
+its data, and the derive gives it serde's `Serialize` and `Deserialize`.
 
 ## Results and failure
 
-`#[returns(Peek)]` names a struct declared beside the tool, read the same way as
-`#[args]`, and its schema goes into the manifest as `returns`. The struct gets a
-`Serialize` derive; `berm_lang::tool::reply(&value, out)` writes it as the
-result. An absent `Option` field is left out rather than written as `null`.
+A tool returns `berm_lang::Result<T>`. `T` is a `Schema` type, written as the
+JSON result and declared in the manifest as `returns`; `()` writes nothing. An
+absent `Option` field is left out rather than written as `null`.
 
-`Out` is a bounded sink over a caller-owned buffer, not an allocation, so a
-program that never needs a heap never pays for one. Writes past the end are
-dropped *and remembered*, which is what keeps a truncated payload from reaching
-the model looking complete.
-
-Returning `Err(Failed)` reports failure through the ABI. It is not a trap: the
-host sees a tool that ran and failed, and hands the message back as a result.
+`Err(berm_lang::Error)` reports failure through the ABI, its `message` the
+caller's to read. It is not a trap: the host sees a tool that ran and failed. A
+syscall's `CallError` and a `String` convert into it, so `?` reports either. An
+enum marked `#[error_code]`, each variant with `#[msg("…")]`, converts into it
+with that message. `berm_lang::deny(message)` fails the call as denied.
 
 ## Building
 
@@ -110,10 +110,15 @@ for the host to commit. A host may serve it over `GET`.
 
 ## Events
 
-An `#[event]` struct in the module is a typed log. `berm_lang::emit!(Noted {
-word })` emits it under the topic `Noted`, its data the struct as JSON. The
-manifest lists each event under `events` with its doc comment and the schema of
-its fields.
+An `#[event]` struct anywhere in the program's crate is a typed log, and a
+`Schema` type. `berm_lang::emit!(Noted { word })` emits it under the topic
+`Noted`, its data the struct as JSON. The manifest lists each event under
+`events` with its doc comment and the schema of its fields.
+
+## Subscriptions
+
+`#[logs("hn" = ["Story"])]` subscribes a tool to a program's logs, and the host
+calls it with them as `program: String` and `logs: Vec<berm_lang::Logged>`.
 
 ## Calling another program
 
@@ -121,10 +126,11 @@ its fields.
 `berm_lang::declare_program!(hn)` reads it from the crate's directory or the
 nearest ancestor with an `idls/`, and generates:
 
-- `hn::types`: every struct in its tools' arguments and results and its events.
-- `hn::calls`: one function per tool, taking the argument struct (`&str` for a
-  tool with none) and returning the result struct (`String` for a tool with
-  none).
+- `hn::types`: every titled object and string enum in its tools' arguments and
+  results and its events.
+- `hn::calls`: one function per tool, taking its arguments in the IDL's key
+  order, an optional one as an `Option`, and returning its result (`()` for a
+  tool with none).
 - `hn::events`: its events, and an `Event` enum whose `read` takes a delivered
   `Logged`.
 - `hn::NAME`, which every call names.

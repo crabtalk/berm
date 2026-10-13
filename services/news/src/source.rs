@@ -1,10 +1,9 @@
 //! News as a lake source: a feed is a desk, keyed by [`Desk::key`].
 
 use crate::{
+    Article,
     catalog::{Desk, Reader},
-    page,
-    tools::Article,
-    web,
+    page, web,
 };
 use alloc::{format, string::String, vec::Vec};
 use berm_lang::{CallError, html};

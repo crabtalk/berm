@@ -1,5 +1,4 @@
 //! What `declare_program!`'s typed calls expand to.
-#![cfg(feature = "args")]
 
 use crate::CallError;
 use alloc::{format, string::String};

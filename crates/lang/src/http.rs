@@ -4,7 +4,6 @@
 //!
 //! A header value may carry `{secret:NAME}` for a secret the manifest
 //! declares. The host substitutes it, and this program never holds the value.
-#![cfg(feature = "alloc")]
 
 use crate::abi::{self, host, host::CallError, wire};
 use alloc::{string::String, vec::Vec};

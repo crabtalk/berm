@@ -1,10 +1,6 @@
 //! Hacker News as a lake source: a feed is a lane, keyed by its name.
 
-use crate::{
-    algolia,
-    lane::Lane,
-    tools::{Comment, Story, Thread},
-};
+use crate::{Comment, Story, Thread, algolia, lane::Lane};
 use alloc::{format, string::String, vec::Vec};
 use berm_lang::{CallError, html};
 use lake::{Feed, Listed, Schedule, Source, Watch};

@@ -19,7 +19,7 @@ pub mod time;
 pub use state::{Feed, State, Watch};
 
 use alloc::{string::String, vec::Vec};
-use berm_lang::{CallError, Failed, Out};
+use berm_lang::{CallError, Result, Schema};
 
 /// Bytes of logs a tick emits before it fetches no more threads. A call holds
 /// at most 16 MiB of writes and logs.
@@ -73,23 +73,29 @@ pub trait Source {
     fn reply(watch: &Watch, thread: Self::Thread) -> Result<usize, CallError>;
 }
 
-/// Arm `S`'s tick now, unless a tick ran within the last three. Answers
-/// `started` or `running`.
-pub fn start<S: Source>(out: &mut Out) -> Result<(), Failed> {
-    let state = berm_lang::tool::syscall(State::load(), out)?;
+/// What [`start`] answers.
+#[derive(Schema)]
+pub enum Start {
+    /// Its tick is armed now.
+    Started,
+    /// A tick ran within the last three.
+    Running,
+}
+
+/// Arm `S`'s tick now, unless a tick ran within the last three.
+pub fn start<S: Source>() -> Result<Start> {
+    let state = State::load()?;
     if berm_lang::now().saturating_sub(state.ticked) < 3 * S::SCHEDULE.tick {
-        out.write(b"running");
-        return Ok(());
+        return Ok(Start::Running);
     }
-    berm_lang::tool::syscall(berm_lang::after(0, S::NAME, "tick", ""), out)?;
-    out.write(b"started");
-    Ok(())
+    berm_lang::after(0, S::NAME, "tick", "")?;
+    Ok(Start::Started)
 }
 
 /// One tick of `S`.
-pub fn tick<S: Source>(out: &mut Out) -> Result<(), Failed> {
+pub fn tick<S: Source>() -> Result<()> {
     let schedule = S::SCHEDULE;
-    let mut state = berm_lang::tool::syscall(State::load(), out)?;
+    let mut state = State::load()?;
     let now = berm_lang::now();
     let mut emitted = 0;
     let State { feeds, watched, .. } = &mut state;
@@ -102,9 +108,7 @@ pub fn tick<S: Source>(out: &mut Out) -> Result<(), Failed> {
     for feed in due {
         feed.fetched = now;
         match S::fetch(feed) {
-            Ok(listed) => {
-                emitted += berm_lang::tool::syscall(posts::<S>(feed, listed, watched), out)?
-            }
+            Ok(listed) => emitted += posts::<S>(feed, listed, watched)?,
             Err(error) => berm_lang::trace(&error),
         }
     }
@@ -124,15 +128,15 @@ pub fn tick<S: Source>(out: &mut Out) -> Result<(), Failed> {
             Ok((count, _)) if count == watch.comments => {}
             Ok((count, thread)) => {
                 watch.comments = count;
-                emitted += berm_lang::tool::syscall(S::reply(watch, thread), out)?;
+                emitted += S::reply(watch, thread)?;
             }
             Err(error) => berm_lang::trace(&error),
         }
     }
 
     state.ticked = now;
-    berm_lang::tool::syscall(state.save(), out)?;
-    berm_lang::tool::syscall(berm_lang::after(schedule.tick, S::NAME, "tick", ""), out)?;
+    state.save()?;
+    berm_lang::after(schedule.tick, S::NAME, "tick", "")?;
     Ok(())
 }
 

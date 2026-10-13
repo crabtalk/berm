@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
         .await?
         .result
         .map_err(anyhow::Error::msg)?;
-    assert!(echoed.contains(&args), "round trip lost the payload");
+    assert_eq!(echoed, args, "round trip lost the payload");
     println!(
         "failure path:          {:?}",
         program
@@ -95,10 +95,11 @@ async fn main() -> Result<()> {
     }
     samples.sort();
 
-    // The same payload, deserialized instead of copied. Composition passes a
-    // tool's arguments from one guest to the next, so the difference is what
-    // JSON costs per nesting level — and whether it tracks the payload says
-    // which half is the parse and which is the allocation behind it.
+    // The same payload, read by `echo` and carried unread by `carry`.
+    // Composition passes a tool's arguments from one guest to the next, so the
+    // difference is what JSON costs per nesting level — and whether it tracks
+    // the payload says which half is the parse and which is the allocation
+    // behind it.
     let p50 = async |tool: &str, args: &[u8]| -> Result<Duration> {
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
@@ -110,12 +111,12 @@ async fn main() -> Result<()> {
         Ok(samples[ROUNDS / 2])
     };
 
-    println!("json parse, over the same payload echoed:");
+    println!("json parse, over the same payload carried:");
     for size in [16usize, 256, 4096] {
         let args = format!(r#"{{"query":"{}"}}"#, "x".repeat(size));
         let (raw, parsed) = (
+            p50("carry", args.as_bytes()).await?,
             p50("echo", args.as_bytes()).await?,
-            p50("typed", args.as_bytes()).await?,
         );
         println!(
             "  {size:>5} B:            {:>10.3?}  ({:.3?} over {:.3?})",
@@ -125,7 +126,7 @@ async fn main() -> Result<()> {
         );
     }
 
-    // `echo` never allocates and `typed` does, so the flat delta above would be
+    // `carry` never allocates and `echo` does, so the flat delta above would be
     // the heap's first use rather than the parse. `probe` allocates without
     // parsing, which tells the two apart — and it costs the same for one byte
     // as for four thousand, so what is priced is the first use, not the bytes.
@@ -133,7 +134,7 @@ async fn main() -> Result<()> {
         "  alloc, no parse:     {:>10.3?}",
         p50("probe", b"")
             .await?
-            .saturating_sub(p50("echo", b"{}").await?)
+            .saturating_sub(p50("carry", b"{}").await?)
     );
 
     println!("invocations:           {ROUNDS}");

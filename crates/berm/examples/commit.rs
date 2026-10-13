@@ -66,9 +66,11 @@ async fn main() -> Result<()> {
     berm.deploy("inner", &image)?;
 
     // Kept: the write is read back inside the chain, and both reach the host.
-    let outcome = berm.call(None, "outer", "note", "one").await?;
+    let outcome = berm
+        .call(None, "outer", "note", r#"{"word":"one"}"#)
+        .await?;
     ensure!(
-        outcome.result.as_deref() == Ok("one"),
+        outcome.result.as_deref() == Ok(r#""one""#),
         "{:?}",
         outcome.result
     );
@@ -85,16 +87,20 @@ async fn main() -> Result<()> {
     println!("kept:     {:?}", said(&outcome.changes));
 
     // Failed: nothing reaches the host.
-    let outcome = berm.call(None, "outer", "note", "fail").await?;
+    let outcome = berm
+        .call(None, "outer", "note", r#"{"word":"fail"}"#)
+        .await?;
     ensure!(outcome.result.is_err(), "{:?}", outcome.result);
     ensure!(said(&outcome.changes).is_empty(), "{:?}", outcome.changes);
     println!("failed:   {:?}", said(&outcome.changes));
 
     // A failed nested call takes its own; the caller's log stays, and its key
     // still reads what was committed.
-    let outcome = berm.call(None, "outer", "relay", "fail").await?;
+    let outcome = berm
+        .call(None, "outer", "relay", r#"{"word":"fail"}"#)
+        .await?;
     ensure!(
-        outcome.result.as_deref() == Ok("one"),
+        outcome.result.as_deref() == Ok(r#""one""#),
         "{:?}",
         outcome.result
     );
@@ -106,7 +112,9 @@ async fn main() -> Result<()> {
     println!("reverted: {:?}", said(&outcome.changes));
 
     // A nested call that returns keeps its own, in the order it emitted them.
-    let outcome = berm.call(None, "outer", "relay", "two").await?;
+    let outcome = berm
+        .call(None, "outer", "relay", r#"{"word":"two"}"#)
+        .await?;
     ensure!(
         said(&outcome.changes)
             == [

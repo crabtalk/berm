@@ -7,33 +7,42 @@ A program is code the daemon schedules: one WebAssembly module, confined to its 
 ```rust
 #![cfg_attr(target_arch = "wasm32", no_std, no_main)]
 
+extern crate alloc;
+
+use alloc::string::String;
+use berm_lang::Schema;
+
 #[berm_lang::program]
 mod tools {
-    use berm_lang::{Failed, Out};
+    use crate::Echo;
+    use alloc::string::String;
+    use berm_lang::Result;
 
     /// Echo the query back.
     #[public]
-    #[args(Echo)]
-    pub fn echo(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        out.write(args);
-        Ok(())
-    }
-
-    /// Arguments for `echo`.
-    pub struct Echo {
+    pub fn echo(
         /// The text to echo back.
-        pub query: String,
+        query: String,
         /// Page number, zero-indexed.
-        pub page: Option<u32>,
+        page: Option<u32>,
+    ) -> Result<Echo> {
+        Ok(Echo { query, page })
     }
+}
+
+/// What `echo` answers.
+#[derive(Schema)]
+pub struct Echo {
+    pub query: String,
+    pub page: Option<u32>,
 }
 ```
 
 Every `pub fn` is a tool and its doc comment is what the model reads when
-deciding to call it. `#[args(Echo)]` derives the JSON Schema from that struct's
-fields — their types, their doc comments, and `Option` for the ones the model
-may omit. Nothing is deserialized for you, so a program that wants no JSON
-parser links none.
+deciding to call it. Its parameters are its arguments — their types, their doc
+comments, and `Option` for the ones the model may omit — and the `Ok` of its
+`Result` is its reply. `#[derive(Schema)]` gives a type its JSON Schema and its
+serde impls, in any module or crate.
 
 **A tool is internal unless marked `#[public]`.** Only the host calls an internal tool, for the program's own subscriptions and wakes. A `#[public]` tool can be called by any account the host authenticates and any program allowed to reach it, with arguments the caller chooses. `berm_lang::caller()` says who called, as the host set it; a tool that limits its callers checks it.
 

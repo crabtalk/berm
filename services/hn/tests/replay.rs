@@ -52,7 +52,7 @@ async fn ticks_log_stories_then_threads() -> Result<()> {
     host.deploy("hn", &test::build("hn", "hn")?).await?;
 
     let started = host.call("hn", "start", b"{}").await?;
-    assert_eq!(started.result.as_deref(), Ok("started"));
+    assert_eq!(started.result.as_deref(), Ok(r#""started""#));
     let wakes = host.wakes().await?;
     assert_eq!(wakes.len(), 1);
     assert_eq!((wakes[0].0.tool.as_str(), wakes[0].1), ("tick", RECORDED));

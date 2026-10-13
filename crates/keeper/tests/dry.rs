@@ -4,13 +4,9 @@
 use anyhow::Result;
 use berm_api::Dry;
 use berm_host::test::{self, TestHost};
-use serde_json::{Value, json};
+use serde_json::json;
 
-/// The one count in what `count` answered.
-fn counted(result: &str) -> Result<Value> {
-    let answer: Value = serde_json::from_str(result)?;
-    Ok(answer["rows"][0][0].clone())
-}
+const WORD: &[u8] = br#"{"word":"hi"}"#;
 
 #[tokio::test]
 async fn a_dry_chain_rolls_back_every_database_it_wrote() -> Result<()> {
@@ -19,8 +15,8 @@ async fn a_dry_chain_rolls_back_every_database_it_wrote() -> Result<()> {
     host.deploy("outer", &image).await?;
     host.deploy("inner", &image).await?;
 
-    let dry = host.dry("outer", "relay", b"hi", Dry::default()).await?;
-    assert_eq!(counted(dry.result.as_deref().unwrap())?, json!(1));
+    let dry = host.dry("outer", "relay", WORD, Dry::default()).await?;
+    assert_eq!(dry.result.as_deref(), Ok("1"));
     let words = host
         .sql("inner", "SELECT COUNT(*) FROM words", json!([]))
         .await?;
@@ -29,8 +25,8 @@ async fn a_dry_chain_rolls_back_every_database_it_wrote() -> Result<()> {
     assert_eq!(host.state("inner", "last").await?, None);
     assert!(host.logs("inner", None).await?.is_empty());
 
-    let real = host.call("outer", "relay", b"hi").await?;
-    assert_eq!(counted(real.result.as_deref().unwrap())?, json!(1));
+    let real = host.call("outer", "relay", WORD).await?;
+    assert_eq!(real.result.as_deref(), Ok("1"));
     assert_eq!(
         host.state("outer", "last").await?.as_deref(),
         Some(&b"hi"[..])

@@ -10,11 +10,13 @@ async fn overage_is_summed_over_invocations_not_taken_off_the_day() -> Result<()
     host.deploy("fixture", &test::build("berm-fixture", "fixture")?)
         .await?;
 
-    let small = host.call("fixture", "spin", b"10").await?;
+    let small = host.call("fixture", "spin", br#"{"rounds":10}"#).await?;
     assert!(small.meter.instructions < INCLUDED_INSTRUCTIONS);
     assert_eq!(small.meter.overage, 0);
 
-    let large = host.call("fixture", "spin", b"1000000").await?;
+    let large = host
+        .call("fixture", "spin", br#"{"rounds":1000000}"#)
+        .await?;
     assert!(large.result.is_ok(), "{:?}", large.result);
     assert!(large.meter.instructions > INCLUDED_INSTRUCTIONS);
     assert_eq!(
@@ -24,7 +26,12 @@ async fn overage_is_summed_over_invocations_not_taken_off_the_day() -> Result<()
 
     // A dry call is metered as the call is.
     let dry = host
-        .dry("fixture", "spin", b"1000000", Default::default())
+        .dry(
+            "fixture",
+            "spin",
+            br#"{"rounds":1000000}"#,
+            Default::default(),
+        )
         .await?;
     assert_eq!(dry.meter, large.meter);
 

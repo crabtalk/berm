@@ -10,7 +10,9 @@ compiled and nothing executed, which is what an embedder assembling a prompt, or
 a service listing a registry, actually needs.
 
 The section is a wasm custom section, which is what `#[link_section]` emits on
-`wasm32`.
+`wasm32`. It holds JSON records back to back, in the order the linker joined
+them: the program's, and one `{"event": …}` per `#[event]`.
+`Manifest::from_image` merges them into one manifest.
 
 ```rust,ignore
 let manifest = Manifest::from_image(&bytes)?;
@@ -23,8 +25,10 @@ A `ToolSpec` carries the tool's name, the description a model reads, a JSON
 Schema for its arguments, and optionally `returns`, a JSON Schema for its
 result, and `"query": true` for a read-only tool. `events` lists the typed logs
 the program emits, each with a name, a description and a JSON Schema of its
-`fields`. The `#[program]` macro writes them at compile time from the module it
-expands. Every object schema carries the struct's name as `title`. A tool or
+`fields`. They are rendered at compile time from the `Schema` impls of the
+types the tools and events name. A tool's arguments are an object without a
+title; every other object schema carries the struct's name as `title`, and a
+string enum its enum's name. A tool or
 event marked `#[deprecated]` carries `"deprecated": true`, and `version` is the
 crate's version when it was built.
 
@@ -33,7 +37,8 @@ crate's version when it was built.
 `Manifest::breaks(next)` lists every way `next` breaks a caller of this
 manifest: a tool or event removed, a tool no longer a query, an argument newly
 required, a result or event field no longer always present, a changed type, an
-unsigned integer becoming signed. Arguments are compared as the new program
+unsigned integer becoming signed, an argument taking fewer strings or a result
+written with more. Arguments are compared as the new program
 reads them, results and events as old callers read them; added fields break
 nothing. bermd refuses a redeploy that breaks a tool or event a caller used in
 the last 30 days, unless the deploy says `force=true`, and reports the rest.
@@ -65,7 +70,7 @@ manifest carries them as
 A tool subscribes to another program's logs with `#[logs("hn" = ["item"])]`,
 listed under `logs` as `{"program": "hn", "topics": ["item"], "tool": "..."}`.
 The host calls that tool with a `Delivery` of the logs it has not had yet,
-oldest first. A log is delivered when it carries any listed topic; no topics
+oldest first: its parameters are `program` and `logs`. A log is delivered when it carries any listed topic; no topics
 takes every log.
 
 `berm.http.fetch` holds a program to them: a host it does not declare, or a

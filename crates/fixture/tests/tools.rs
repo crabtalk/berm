@@ -3,9 +3,9 @@
 use berm_lang::{CallError, test};
 
 #[test]
-fn echo_wraps_the_payload() {
-    let out = test::call(berm_fixture::berm_tool_echo, br#"{"query":"hi"}"#).unwrap();
-    assert_eq!(out, br#"{"echo":{"query":"hi"}}"#);
+fn echo_answers_its_arguments() {
+    let out = test::call(berm_fixture::berm_tool_echo, br#"{"query":"hi","page":2}"#).unwrap();
+    assert_eq!(out, br#"{"query":"hi","page":2}"#);
 }
 
 #[test]
@@ -18,15 +18,15 @@ fn boom_reports_its_message() {
 fn probe_allocates() {
     assert_eq!(
         test::call(berm_fixture::berm_tool_probe, b"").unwrap(),
-        [7, 7]
+        b"[7,7]"
     );
 }
 
 #[test]
 fn nest_forwards_what_the_other_program_answered() {
-    test::answer("inner", "echo", Ok(br#"{"echo":"pong"}"#));
+    test::answer("inner", "echo", Ok(br#"{"query":"pong"}"#));
     let out = test::call(berm_fixture::berm_tool_nest, br#"{"query":"hi"}"#).unwrap();
-    assert_eq!(out, br#"nested:{"echo":"pong"}"#);
+    assert_eq!(out, br#"{"query":"pong"}"#);
     test::forget();
 }
 
@@ -41,7 +41,7 @@ fn nest_tells_a_refusal_from_a_failure() {
             "no program named \"inner\" is deployed".into(),
         )),
     );
-    let error = test::call(berm_fixture::berm_tool_nest, b"{}").unwrap_err();
+    let error = test::call(berm_fixture::berm_tool_nest, br#"{"query":"hi"}"#).unwrap_err();
     assert_eq!(error, "refused: no program named \"inner\" is deployed");
 
     test::answer(
@@ -49,7 +49,7 @@ fn nest_tells_a_refusal_from_a_failure() {
         "echo",
         Err(CallError::Failed("the target said no".into())),
     );
-    let error = test::call(berm_fixture::berm_tool_nest, b"{}").unwrap_err();
+    let error = test::call(berm_fixture::berm_tool_nest, br#"{"query":"hi"}"#).unwrap_err();
     assert_eq!(error, "the target said no");
     test::forget();
 }

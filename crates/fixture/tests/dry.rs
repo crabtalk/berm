@@ -5,6 +5,8 @@ use anyhow::Result;
 use berm_api::{Answer, Dry};
 use berm_host::test::{self, TestHost};
 
+const WORD: &[u8] = br#"{"word":"hi"}"#;
+
 async fn deployed() -> Result<TestHost> {
     let host = TestHost::open(0).await?;
     host.deploy("fixture", &test::build("berm-fixture", "fixture")?)
@@ -16,11 +18,11 @@ async fn deployed() -> Result<TestHost> {
 async fn a_dry_call_keeps_nothing_and_costs_what_the_call_does() -> Result<()> {
     let host = deployed().await?;
 
-    let dry = host.dry("fixture", "note", b"hi", Dry::default()).await?;
+    let dry = host.dry("fixture", "note", WORD, Dry::default()).await?;
     assert_eq!(host.state("fixture", "note").await?, None);
     assert!(host.logs("fixture", None).await?.is_empty());
 
-    let real = host.call("fixture", "note", b"hi").await?;
+    let real = host.call("fixture", "note", WORD).await?;
     assert_eq!(dry.result, real.result);
     assert_eq!(dry.meter, real.meter);
     assert_eq!(
@@ -37,24 +39,25 @@ async fn a_dry_chain_reads_what_its_earlier_links_set() -> Result<()> {
     host.deploy("inner", &test::build("berm-fixture", "fixture")?)
         .await?;
 
-    let dry = host.dry("inner", "relay", b"hi", Dry::default()).await?;
-    assert_eq!(dry.result.as_deref(), Ok("hi"));
+    let dry = host.dry("inner", "relay", WORD, Dry::default()).await?;
+    assert_eq!(dry.result.as_deref(), Ok(r#""hi""#));
     assert_eq!(host.state("inner", "note").await?, None);
 
-    let real = host.call("inner", "relay", b"hi").await?;
-    assert_eq!(real.result.as_deref(), Ok("hi"));
+    let real = host.call("inner", "relay", WORD).await?;
+    assert_eq!(real.result.as_deref(), Ok(r#""hi""#));
     Ok(())
 }
 
 #[tokio::test]
 async fn a_dry_call_arms_no_wake() -> Result<()> {
     let host = deployed().await?;
-    let dry = host.dry("fixture", "tick", b"1000", Dry::default()).await?;
+    let delay = br#"{"delay":1000}"#;
+    let dry = host.dry("fixture", "tick", delay, Dry::default()).await?;
     assert!(dry.result.is_ok(), "{:?}", dry.result);
     assert!(host.wakes().await?.is_empty());
     assert_eq!(host.state("fixture", "ticks").await?, None);
 
-    host.call("fixture", "tick", b"1000").await?;
+    host.call("fixture", "tick", delay).await?;
     assert_eq!(host.wakes().await?.len(), 1);
     Ok(())
 }
@@ -63,6 +66,7 @@ async fn a_dry_call_arms_no_wake() -> Result<()> {
 async fn a_dry_fetch_is_answered_sent_or_refused() -> Result<()> {
     let host = deployed().await?;
     let url = "http://127.0.0.1/feed";
+    let args = format!(r#"{{"url":"{url}"}}"#);
     let answered = Dry {
         answers: vec![Answer {
             method: "GET".into(),
@@ -74,7 +78,7 @@ async fn a_dry_fetch_is_answered_sent_or_refused() -> Result<()> {
         offline: false,
     };
     let ran = host
-        .dry("fixture", "fetch", url.as_bytes(), answered)
+        .dry("fixture", "fetch", args.as_bytes(), answered)
         .await?;
     assert_eq!(ran.result.as_deref(), Ok(r#"{"status":200,"bytes":5}"#));
     assert!(host.fetched().is_empty());
@@ -84,13 +88,13 @@ async fn a_dry_fetch_is_answered_sent_or_refused() -> Result<()> {
         offline: true,
     };
     let ran = host
-        .dry("fixture", "fetch", url.as_bytes(), offline)
+        .dry("fixture", "fetch", args.as_bytes(), offline)
         .await?;
     assert!(ran.result.is_err());
     assert!(host.fetched().is_empty());
 
     // Unanswered and not offline, the request is sent as a call sends it.
-    host.dry("fixture", "fetch", url.as_bytes(), Dry::default())
+    host.dry("fixture", "fetch", args.as_bytes(), Dry::default())
         .await?;
     assert_eq!(host.fetched(), vec![("GET".to_owned(), url.to_owned())]);
     Ok(())
