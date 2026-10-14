@@ -1,12 +1,16 @@
 //! `crab inspect` — what a program claims to be.
 
-use crate::Client;
+use crate::utils;
 use anyhow::Result;
 use berm_api::{Program, Terms};
+use crabtalk_sdk::client::Client;
 use serde_json::Value;
 
 pub fn run(client: &Client, name: &str) -> Result<()> {
-    show(&client.inspect(name)?, &client.terms(name)?);
+    show(
+        &utils::wait(client.inspect(name))?,
+        &utils::wait(client.terms(name))?,
+    );
     Ok(())
 }
 

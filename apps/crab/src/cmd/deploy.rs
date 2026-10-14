@@ -1,13 +1,14 @@
 //! `crab deploy` — hand the context's host an image.
 
 use crate::{
-    Client,
     cmd::{inspect, push},
+    utils,
 };
 use anyhow::{Context, Result, bail};
 use berm_api::Manifest;
 use berm_index::Source;
 use berm_oci::{Access, Reference, Registry};
+use crabtalk_sdk::client::Client;
 use std::{
     fs,
     io::{self, BufRead, IsTerminal, Write},
@@ -31,7 +32,7 @@ pub fn run(
     let manifest = Manifest::from_image(&bytes)?;
     let confirmed = confirm(client, name, &manifest, public)?;
     let program = match &client.owner {
-        None => client.deploy(name, bytes, &confirmed, force)?,
+        None => utils::wait(client.deploy_image(name, bytes, &confirmed, force))?,
         Some(_) => {
             let reference = match Path::new(image).exists() {
                 true => {
@@ -43,13 +44,13 @@ pub fn run(
                 }
                 false => image,
             };
-            Source::new(Some(&client.host))?.publish(reference, client.token.as_deref())?;
-            client.deploy_reference(name, reference, &confirmed, force)?
+            Source::new(Some(&client.base))?.publish(reference, client.token.as_deref())?;
+            utils::wait(client.deploy(name, reference, &confirmed, force))?
         }
     };
     // The host compiled it to answer, so what comes back is what it will
     // serve — worth showing rather than saying "ok".
-    inspect::show(&program, &client.terms(name)?);
+    inspect::show(&program, &utils::wait(client.terms(name))?);
     Ok(())
 }
 
@@ -61,8 +62,7 @@ fn confirm(
     manifest: &Manifest,
     public: &[String],
 ) -> Result<Vec<String>> {
-    let deployed: Vec<String> = client
-        .inspect(name)
+    let deployed: Vec<String> = utils::wait(client.inspect(name))
         .map(|program| {
             program
                 .tools

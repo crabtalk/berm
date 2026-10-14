@@ -566,10 +566,21 @@ dependencies = [
  "berm-oci",
  "chrono",
  "clap",
+ "crabtalk-sdk",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 1.1.4+spec-1.1.0",
+]
+
+[[package]]
+name = "crabtalk-sdk"
+version = "0.1.4"
+dependencies = [
+ "berm-api",
  "reqwest",
  "serde",
  "serde_json",
- "toml 1.1.4+spec-1.1.0",
 ]
 
 [[package]]

@@ -1,8 +1,9 @@
 //! `crab run` — run one of a program's tools.
 
-use crate::Client;
+use crate::utils;
 use anyhow::{Context, Result};
 use berm_api::{Dry, DryRun, Output, host::Caller};
+use crabtalk_sdk::client::Client;
 use std::{
     io::{IsTerminal, Read},
     process::ExitCode,
@@ -32,9 +33,9 @@ pub fn run(
                 true => serde_json::Value::Null,
                 false => args,
             };
-            client.dry(program, tool, &DryRun { args, dry }, caller)?
+            utils::wait(client.dry(program, tool, &DryRun { args, dry }, caller))?
         }
-        None => client.run(program, tool, arguments, caller)?,
+        None => utils::wait(client.run(program, tool, arguments, caller))?,
     };
     if let Some(meter) = meter {
         eprintln!(

@@ -1,15 +1,16 @@
 //! `crab ls` — what is deployed.
 
-use crate::Client;
+use crate::utils;
 use anyhow::Result;
 use berm_api::Program;
+use crabtalk_sdk::client::Client;
 
 /// Enough of a digest to tell two images apart at a glance, which is all a
 /// listing is for. `inspect` prints the whole one.
 const SHORT: usize = 12;
 
 pub fn run(client: &Client) -> Result<()> {
-    let programs = client.list()?;
+    let programs = utils::wait(client.list())?;
     if programs.is_empty() {
         println!("no programs deployed");
         return Ok(());

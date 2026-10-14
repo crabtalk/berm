@@ -21,6 +21,8 @@ berm-index = { path = "crates/index", version = "0.0.8" }
 berm-lang = { path = "crates/lang", version = "0.0.8" }
 berm-oci = { path = "crates/oci", version = "0.0.8" }
 lake = { path = "lib/lake" }
+# Cloud's API types and client, from `crabtalk/cloud`.
+crabtalk-sdk = { git = "https://github.com/crabtalk/cloud", branch = "main", features = ["client"] }
 bermd = { path = "apps/service", version = "0.0.8" }
 
 # crates-io
@@ -97,3 +99,12 @@ debug = 0
 [patch.crates-io]
 rusqlite = { git = "https://github.com/crabtalk/rusqlite", branch = "rows-0.39" }
 libsqlite3-sys = { git = "https://github.com/crabtalk/rusqlite", branch = "rows-0.39" }
+
+# crabtalk-sdk from the local checkout of crabtalk/cloud beside this one.
+[patch."https://github.com/crabtalk/cloud"]
+crabtalk-sdk = { path = "../cloud/crates/api" }
+
+# crabtalk-sdk names berm-api from this repository's git; this workspace's own
+# crate stands in for it, so both sides share one `berm_api`.
+[patch."https://github.com/crabtalk/berm"]
+berm-api = { path = "crates/api" }

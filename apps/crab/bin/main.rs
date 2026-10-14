@@ -3,11 +3,10 @@ use berm_api::{
     Budget, Dry, Price,
     host::{Caller, User},
 };
-use crab_cli::{
-    Client, cmd,
-    context::{Contexts, Owner},
-};
 use clap::{Args as Arguments, Parser, Subcommand};
+use crab_cli::utils;
+use crab_cli::{cmd, context::Contexts};
+use crabtalk_sdk::client::{Client, Owner};
 use std::{path::PathBuf, process::ExitCode};
 
 #[derive(Parser)]
@@ -165,8 +164,11 @@ struct OwnerArgs {
 
 fn main() -> Result<ExitCode> {
     let args = Args::parse();
-    let client =
-        || Ok::<_, anyhow::Error>(Client::new(Contexts::load()?.get(args.context.as_deref())?));
+    let client = || {
+        Ok::<_, anyhow::Error>(Client::from(
+            Contexts::load()?.get(args.context.as_deref())?,
+        ))
+    };
 
     match &args.command {
         Command::Context(ContextCommand::Add {
@@ -215,24 +217,24 @@ fn main() -> Result<ExitCode> {
             instructions,
             rows,
         } => {
-            client()?.budget(
+            utils::wait(client()?.budget(
                 name,
                 tool,
                 Budget {
                     instructions: *instructions,
                     rows: *rows,
                 },
-            )?;
+            ))?;
             println!("{name}.{tool}: at most {instructions} instructions and {rows} rows a call");
         }
         Command::Price { name, tool, micros } => {
-            client()?.price(
+            utils::wait(client()?.price(
                 name,
                 tool,
                 Price {
                     price_micros: *micros,
                 },
-            )?;
+            ))?;
             println!("{name}.{tool}: {micros} USD micros a call that ends done");
         }
         // The one command whose exit code carries a result rather than a

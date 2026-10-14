@@ -1,7 +1,8 @@
 //! `crab context` — name the hosts `crab` talks to, and pick one.
 
-use crate::context::{self, Context, Contexts, Owner};
+use crate::context::{self, Context, Contexts};
 use anyhow::{Result, bail};
+use crabtalk_sdk::client::Owner;
 
 /// Name `host` as `name`: a bermd, or with `owner`, Cloud.
 pub fn add(name: &str, host: &str, token: Option<&str>, owner: Option<Owner>) -> Result<()> {

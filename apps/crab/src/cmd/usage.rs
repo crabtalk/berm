@@ -1,10 +1,11 @@
 //! `crab usage` — what a program used, a day each.
 
-use crate::Client;
+use crate::utils;
 use anyhow::Result;
+use crabtalk_sdk::client::Client;
 
 pub fn run(client: &Client, name: &str) -> Result<()> {
-    let meters = client.meters(name)?;
+    let meters = utils::wait(client.meters(name))?;
     if meters.is_empty() {
         println!("nothing used in the last 30 days");
         return Ok(());

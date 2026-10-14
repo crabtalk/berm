@@ -1,12 +1,13 @@
 //! `crab idl` — a deployed program's IDL, for `declare_program!`.
 
-use crate::Client;
+use crate::utils;
 use anyhow::{Context, Result};
+use crabtalk_sdk::client::Client;
 use std::{fs, path::Path};
 
 /// Write `name`'s IDL to `{dir}/{name}.json`.
 pub fn run(client: &Client, name: &str, dir: &Path) -> Result<()> {
-    let mut program = client.inspect(name)?;
+    let mut program = utils::wait(client.inspect(name))?;
     // What this service lacks is no part of what the program is, and its
     // internal tools are no one else's to call.
     program.unresolved = Default::default();

@@ -2,6 +2,7 @@
 //! the account it deploys under. Kept in `~/.crab/contexts.toml`.
 
 use anyhow::{Context as _, Result, bail};
+use crabtalk_sdk::client::{Client, Owner};
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -26,30 +27,6 @@ pub struct Context {
     /// bermd.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<Owner>,
-}
-
-/// An account on Cloud, by handle or id.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Owner {
-    Org(String),
-    User(String),
-}
-
-impl Owner {
-    pub fn name(&self) -> &str {
-        match self {
-            Owner::Org(name) | Owner::User(name) => name,
-        }
-    }
-
-    /// The path listing its services.
-    pub fn services(&self) -> String {
-        match self {
-            Owner::Org(org) => format!("/orgs/{org}/services"),
-            Owner::User(user) => format!("/users/{user}/services"),
-        }
-    }
 }
 
 /// Every context but [`DEFAULT`], and which one is in use.
@@ -111,4 +88,18 @@ impl Contexts {
 fn path() -> Result<PathBuf> {
     let home = std::env::var("HOME").context("HOME is not set")?;
     Ok(PathBuf::from(home).join(".crab").join(FILE))
+}
+
+impl From<Context> for Client {
+    fn from(context: Context) -> Self {
+        let client = Client::new(context.host);
+        let client = match context.token {
+            Some(token) => client.token(token),
+            None => client,
+        };
+        match context.owner {
+            Some(owner) => client.owner(owner),
+            None => client,
+        }
+    }
 }
