@@ -43,6 +43,7 @@ hex = "0.4"
 rusqlite = { version = "0.39", features = ["bundled", "hooks"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_urlencoded = "0.7"
 # The same crates for guests, which are `no_std` with an allocator. Second
 # entries rather than features on the first because a member cannot turn off
 # default features it inherits.

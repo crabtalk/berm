@@ -28,7 +28,7 @@ use berm::{
 };
 use berm_api::{
     Logged,
-    host::{Caller, Deploy, Link, Reply, Used},
+    host::{Caller, Deploy, Link, Page, Reply, Used},
 };
 use parking_lot::Mutex;
 use std::{
@@ -286,8 +286,17 @@ impl TestHost {
             let after = logs.last().map_or(0, |log| log.seq as i64);
             let page = self
                 .host
-                .logs(service, topic.map(str::to_owned), after, i64::MAX)
-                .await?;
+                .logs(
+                    service,
+                    Page {
+                        topic: topic.map(str::to_owned),
+                        after,
+                        page: 1,
+                        limit: i64::MAX,
+                    },
+                )
+                .await?
+                .0;
             if page.is_empty() {
                 return Ok(logs);
             }

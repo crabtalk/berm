@@ -225,7 +225,9 @@ impl<E: Env> Host<E> {
         from: i64,
     ) -> Result<Vec<Logged>> {
         if self.berm.get(publisher).is_some() {
-            return service::logs(&self.store, scope, program, None, from, BATCH).await;
+            return Ok(service::logs(&self.store, scope, program, None, from, 0, BATCH)
+                .await?
+                .0);
         }
         let Some(peer) = self.routes.peer(publisher) else {
             bail!("no service named {program:?} is deployed");

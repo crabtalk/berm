@@ -127,21 +127,63 @@ pub struct Usage {
     pub public: Option<bool>,
 }
 
-/// `?topic=&after=&limit=` on a service's logs.
+/// `?topic=&after=&page=&limit=` on a service's logs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Page {
     /// Only logs carrying this topic.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topic: Option<String>,
     /// Only logs after this sequence number.
     #[serde(default)]
     pub after: i64,
+    /// Which run of `limit` logs, counting from 1.
+    #[serde(default = "first")]
+    pub page: i64,
     #[serde(default = "limit")]
     pub limit: i64,
 }
 
+fn first() -> i64 {
+    1
+}
+
 fn limit() -> i64 {
     100
+}
+
+impl Page {
+    /// The `Link` header for this page of `total` logs, in GitHub's form:
+    /// `first` and `prev` past the first page, `next` and `last` before the
+    /// last, each a reference relative to the request. `None` for the only
+    /// page.
+    pub fn link(&self, total: i64) -> Option<String> {
+        let last = ((total + self.limit - 1) / self.limit).max(1);
+        let mut rels = Vec::new();
+        if self.page > 1 {
+            rels.push((1, "first"));
+            rels.push(((self.page - 1).min(last), "prev"));
+        }
+        if self.page < last {
+            rels.push((self.page + 1, "next"));
+            rels.push((last, "last"));
+        }
+        if rels.is_empty() {
+            return None;
+        }
+        let link = rels
+            .into_iter()
+            .map(|(page, rel)| {
+                let query = serde_urlencoded::to_string(Page {
+                    page,
+                    ..self.clone()
+                })
+                .unwrap_or_default();
+                format!("<?{query}>; rel=\"{rel}\"")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        Some(link)
+    }
 }
 
 /// One day of a service's meter.

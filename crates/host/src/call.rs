@@ -274,27 +274,28 @@ impl<E: Env> Host<E> {
         Ok(used)
     }
 
-    /// `service`'s logs, oldest first, after the sequence number `after`,
-    /// those carrying `topic` when one is given. At most `limit`, held to
-    /// [`MAX_PAGE`].
+    /// `service`'s logs on `page`, oldest first, and its `Link` header. At
+    /// most `page.limit`, held to [`MAX_PAGE`].
     pub async fn logs(
         &self,
         service: &str,
-        topic: Option<String>,
-        after: i64,
-        limit: i64,
-    ) -> Result<Vec<Logged>, Denied> {
+        mut page: wire::Page,
+    ) -> Result<(Vec<Logged>, Option<String>), Denied> {
         self.deployed(service).await?;
         let (scope, name) = host::split(service);
-        Ok(service::logs(
+        page.limit = page.limit.clamp(1, MAX_PAGE);
+        page.page = page.page.max(1);
+        let (logs, total) = service::logs(
             &self.store,
             scope,
             name,
-            topic,
-            after,
-            limit.clamp(1, MAX_PAGE),
+            page.topic.clone(),
+            page.after,
+            (page.page - 1).saturating_mul(page.limit),
+            page.limit,
         )
-        .await?)
+        .await?;
+        Ok((logs, page.link(total)))
     }
 
     /// A call from a service on a peer, run as `link` and committed here unless

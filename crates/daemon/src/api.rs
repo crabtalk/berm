@@ -9,13 +9,13 @@ use axum::{
     Json, Router,
     body::Bytes,
     extract::{FromRequestParts, Path, Query, State},
-    http::{StatusCode, request::Parts},
-    response::{IntoResponse, Response},
+    http::{StatusCode, header, request::Parts},
+    response::{AppendHeaders, IntoResponse, Response},
     routing::{get, post, put},
 };
 use berm::Program;
 use berm_api::{
-    Budget, DryRun, Logged, Price, Program as Wire, Terms,
+    Budget, DryRun, Price, Program as Wire, Terms,
     host::{self, Caller, Metered, Page},
 };
 use berm_host::{Denied, deny};
@@ -252,18 +252,15 @@ async fn meters(
     Ok(Json(service.host.meters(&name).await?))
 }
 
-/// A program's logs, oldest first, after the sequence number `after`.
+/// A program's logs, oldest first, after the sequence number `after`, a page
+/// at a time, with the other pages in `Link`.
 async fn logs(
     State(service): State<Arc<Service>>,
     Path(name): Path<String>,
     Query(page): Query<Page>,
-) -> Result<Json<Vec<Logged>>, Denied> {
-    Ok(Json(
-        service
-            .host
-            .logs(&name, page.topic, page.after, page.limit)
-            .await?,
-    ))
+) -> Result<impl IntoResponse, Denied> {
+    let (logs, link) = service.host.logs(&name, page).await?;
+    Ok((AppendHeaders(link.map(|link| (header::LINK, link))), Json(logs)))
 }
 
 async fn undeploy(

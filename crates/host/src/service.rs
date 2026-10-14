@@ -197,34 +197,45 @@ pub(crate) fn commit(
     Ok(())
 }
 
-/// `scope/name`'s logs after `after`, oldest first, at most `limit`, those
-/// carrying `topic` when one is given.
+/// `scope/name`'s logs after `after`, oldest first, those carrying `topic`
+/// when one is given: at most `limit` past the first `offset`, and how many
+/// there are in all.
 pub(crate) async fn logs(
     store: &Store,
     scope: &str,
     name: &str,
     topic: Option<String>,
     after: i64,
+    offset: i64,
     limit: i64,
-) -> Result<Vec<Logged>> {
+) -> Result<(Vec<Logged>, i64)> {
     let (scope, name) = (scope.to_owned(), name.to_owned());
     store
         .run(move |conn| {
-            let mut statement = conn.prepare(
-                "SELECT seq, topics, data FROM service_logs
+            const MATCHING: &str = "FROM service_logs
                   WHERE scope = ?1 AND name = ?2 AND seq > ?3
-                    AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(topics) WHERE value = ?4))
-                  ORDER BY seq LIMIT ?5",
+                    AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(topics) WHERE value = ?4))";
+            let total = conn.query_row(
+                &format!("SELECT COUNT(*) {MATCHING}"),
+                params![scope, name, after, topic],
+                |row| row.get(0),
             )?;
-            let rows = statement.query_map(params![scope, name, after, topic, limit], |row| {
-                let topics: String = row.get(1)?;
-                Ok(Logged {
-                    seq: row.get::<_, i64>(0)? as u64,
-                    topics: serde_json::from_str(&topics).unwrap_or_default(),
-                    data: row.get(2)?,
-                })
-            })?;
-            rows.collect()
+            let mut statement = conn.prepare(&format!(
+                "SELECT seq, topics, data {MATCHING} ORDER BY seq LIMIT ?5 OFFSET ?6"
+            ))?;
+            let rows = statement.query_map(
+                params![scope, name, after, topic, limit, offset],
+                |row| {
+                    let topics: String = row.get(1)?;
+                    Ok(Logged {
+                        seq: row.get::<_, i64>(0)? as u64,
+                        topics: serde_json::from_str(&topics).unwrap_or_default(),
+                        data: row.get(2)?,
+                    })
+                },
+            )?;
+            let logs = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok((logs, total))
         })
         .await
 }
