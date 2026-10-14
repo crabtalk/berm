@@ -25,6 +25,11 @@ const OCI_INDEX: &str = "application/vnd.oci.image.index.v1+json";
 /// `gh auth token`. Reading `~/.docker/config.json` is not done here.
 const TOKEN: &str = "GITHUB_TOKEN";
 
+/// Registries reached at another address, as `name=endpoint` pairs separated by
+/// commas, e.g. `localhost:5000=http://registry:5000`. The endpoint carries its
+/// scheme.
+const MIRRORS: &str = "BERM_REGISTRY_MIRRORS";
+
 /// What a token is asked for. A read token is issued anonymously for a public
 /// repository; a write token never is.
 #[derive(Clone, Copy)]
@@ -45,13 +50,16 @@ impl Registry {
     /// Take the token up front, so a blob upload is never sent twice to answer
     /// a challenge it could have answered before the body was built.
     pub fn open(reference: &Reference, access: Access) -> Result<Self> {
-        let scheme = if loopback(&reference.registry) {
-            "http"
-        } else {
-            "https"
-        };
+        let base = mirror(&reference.registry).unwrap_or_else(|| {
+            let scheme = if loopback(&reference.registry) {
+                "http"
+            } else {
+                "https"
+            };
+            format!("{scheme}://{}", reference.registry)
+        });
         let mut registry = Self {
-            base: format!("{scheme}://{}", reference.registry),
+            base,
             repository: reference.repository.clone(),
             http: Client::new(),
             token: None,
@@ -317,6 +325,14 @@ fn annotations() -> Value {
 
 /// Plain HTTP for a loopback registry, which is the only place one runs
 /// without TLS.
+/// The endpoint [`MIRRORS`] names for `registry`.
+fn mirror(registry: &str) -> Option<String> {
+    env::var(MIRRORS).ok()?.split(',').find_map(|pair| {
+        let (name, endpoint) = pair.trim().split_once('=')?;
+        (name == registry).then(|| endpoint.trim_end_matches('/').to_owned())
+    })
+}
+
 fn loopback(registry: &str) -> bool {
     let host = registry.split(':').next().unwrap_or(registry);
     host == "localhost" || host == "127.0.0.1"

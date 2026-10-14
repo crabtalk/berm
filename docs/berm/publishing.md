@@ -87,3 +87,8 @@ steps:
 
 Locally, `GITHUB_TOKEN=$(gh auth token)` does the same. `~/.docker/config.json`
 is not read.
+
+`BERM_REGISTRY_MIRRORS` reaches a registry at another address, as
+`name=endpoint` pairs separated by commas. A host in a container pulls what was
+pushed to `localhost:5001` from `http://registry:5000` with
+`BERM_REGISTRY_MIRRORS=localhost:5001=http://registry:5000`.
