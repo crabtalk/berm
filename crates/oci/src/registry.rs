@@ -81,8 +81,7 @@ impl Registry {
     ///
     /// The config blob is the `.berm.abi` section, so this costs one small GET
     /// and never touches the image — which is the whole reason it is carried
-    /// there rather than left in the module alone. An index is built out of
-    /// exactly these two.
+    /// there rather than left in the module alone.
     pub fn describe(&self, reference: &str) -> Result<(String, Manifest)> {
         let artifact = self.artifact(reference)?;
         let image = layer(&artifact)?

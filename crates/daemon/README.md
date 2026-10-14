@@ -69,8 +69,8 @@ Its arguments, the log, its own stored keys, the clock, a callback timer, HTTP
 to the hosts its manifest declares under `berm.http.fetch` (or `berm.http.proxy`, through `--proxy` when given and direct otherwise), itself, and the programs deployed beside it that its manifest declares in `programs`, by name.
 
 ```sh
-crab deploy inner ./inner.wasm
-crab deploy outer ./outer.wasm
+crab deploy inner
+crab deploy outer
 ```
 
 ```rust

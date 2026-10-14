@@ -17,7 +17,6 @@ berm = { path = "crates/berm", version = "0.0.8" }
 berm-api = { path = "crates/api", version = "0.0.8" }
 berm-codegen = { path = "crates/codegen", version = "0.0.8" }
 berm-host = { path = "crates/host", version = "0.0.8" }
-berm-index = { path = "crates/index", version = "0.0.8" }
 berm-lang = { path = "crates/lang", version = "0.0.8" }
 berm-oci = { path = "crates/oci", version = "0.0.8" }
 bermd = { path = "crates/daemon", version = "0.0.8" }

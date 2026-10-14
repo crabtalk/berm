@@ -276,23 +276,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "berm-index"
-version = "0.0.8"
-dependencies = [
- "anyhow",
- "axum",
- "berm-api",
- "berm-oci",
- "clap",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "berm-keeper"
 version = "0.0.8"
 dependencies = [
@@ -1969,7 +1952,6 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
- "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",

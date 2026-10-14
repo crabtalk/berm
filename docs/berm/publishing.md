@@ -3,15 +3,22 @@ title: Publishing a Program
 description: "A program is one file, so it travels as one OCI layer with no tarball around it."
 ---
 
-```sh
-crab push ghcr.io/org/example:v1 ./target/wasm32-unknown-unknown/release/example.wasm
-crab deploy example ghcr.io/org/example:v1
+```toml
+# berm.toml, beside the program's Cargo.toml
+name = "example"
+image = "ghcr.io/org/example"
+public = []
 ```
 
-`deploy` takes a file or a reference, not two commands: a path that exists is
-read, and anything else is resolved as a reference and pulled. The bytes reach
-the service the same way either way, so `bermd` never talks to a registry, holds
-no credentials, and still restores from `--root` on start without a network.
+```sh
+crab deploy
+```
+
+`crab deploy` builds the program and, against a host that pulls from a
+registry, pushes the image to `image` tagged with the crate's version and
+deploys that reference. Against `bermd` it sends the image itself, so `bermd`
+never talks to a registry, holds no credentials, and still restores from
+`--root` on start without a network.
 
 ## The artifact
 
@@ -27,8 +34,8 @@ no credentials, and still restores from `--root` on start without a network.
 
 The config blob is the [`.berm.abi`](./manifest.md) section carried out of the
 image byte for byte, so what a registry serves cannot disagree with what the image
-holds. It is also what makes a listing cheap: the tools, their schemas and the
-usage are one small blob, and reading them never means pulling the program.
+holds. The tools, their schemas and the usage are one small blob, and reading
+them never means pulling the program.
 
 Nothing about the program is repeated in annotations. Only
 `org.opencontainers.image.source` and `.revision` are set, from
@@ -42,11 +49,11 @@ the image — the same hash `crab ls` reports, carrying the registry's `sha256:`
 prefix:
 
 ```console
-$ crab push 127.0.0.1:5000/berm/fixture:v1 ./fixture
-127.0.0.1:5000/berm/fixture:v1
-  digest  sha256:222890c498ed28f4bf60670a223141489d9879020bd1890111b8c11ac79fa31d
+$ crab ls
+NAME     DIGEST        TOOLS
+fixture  222890c498ed  echo
 
-$ shasum -a256 ./fixture
+$ shasum -a256 target/wasm32-unknown-unknown/release/fixture.wasm
 222890c498ed28f4bf60670a223141489d9879020bd1890111b8c11ac79fa31d
 ```
 
@@ -54,84 +61,29 @@ A pulled image is checked against the digest the registry advertised before it
 goes anywhere, so a registry that serves the wrong bytes is caught by the deploy
 rather than by the model.
 
-## What push refuses
+## What deploy refuses
 
-`crab push` reads the manifest out of the image before it uploads anything, which
-means a broken image is refused by whoever built it rather than at deploy on
-someone else's machine. Reading it never runs the guest.
+`crab deploy` reads the manifest out of the image before it uploads anything,
+which means a broken image is refused by whoever built it rather than at deploy
+on someone else's machine. Reading it never runs the guest.
 
 ## From a workflow
 
-`GITHUB_TOKEN` is the credential, and with `crab push` the step is one line —
-there is no action to install.
+`GITHUB_TOKEN` is the registry credential, and the deploy is two lines — there
+is no action to install.
 
 ```yaml
 permissions:
   packages: write
 
 steps:
-  - run: cargo build --release --target wasm32-unknown-unknown
-  - run: crab push ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
-           target/wasm32-unknown-unknown/release/example.wasm
+  - run: crab context add cloud https://api.crabtalk.ai --token "$KEY" --org acme
+    env:
+      KEY: ${{ secrets.CRABTALK_KEY }}
+  - run: crab deploy --context cloud
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 Locally, `GITHUB_TOKEN=$(gh auth token)` does the same. `~/.docker/config.json`
 is not read.
-
-## Being found
-
-Pushing makes a program fetchable, not findable. Nothing can enumerate the
-programs on a registry — GitHub's Packages API refuses to list even public
-packages without a token — so an index has to be told a program exists.
-
-```sh
-crab publish ghcr.io/org/example:v1
-crab search "read a file"
-```
-
-`--index <url>`, or `BERM_INDEX`, or the default list below.
-
-`publish` records a reference and nothing else. The index pulls the artifact
-itself, anonymously, and fills in the digest, tools and usage from the config
-blob — so a listing describes what a registry will actually serve rather than
-what a publisher claimed, and a program nobody can pull cannot be listed.
-
-Entries are keyed by digest, which is what makes them safe to keep: the bytes at
-a digest never change, so a recorded description of them cannot go stale.
-Re-pushing a tag adds an entry rather than rewriting one.
-
-## The list is a git repository
-
-One JSON Lines file per program, one line per version — so a copy of an index is
-a clone, and searching your copy needs no service, no credential and no network.
-`crab search` keeps that copy for you under `~/.berm/index`, cloning it the
-first time and not touching the network again:
-
-```sh
-crab search "read a file"                     # the default list
-git -C ~/.berm/index/github.com/crabtalk/berm-index pull    # refresh it
-```
-
-The default is `https://github.com/crabtalk/berm-index.git`. `--index` or
-`BERM_INDEX` names another, and takes three shapes: a directory to read as-is, a
-`.git` URL to keep a copy of, or the URL of a service. Publishing needs the
-service, because appending to the list means holding a credential for the
-repository; reading never does.
-
-`BERM_TOKEN` carries a credential when the service in front of you wants one.
-Never a GitHub token: an index has no business holding something that could act
-as you elsewhere.
-
-[The index server example](https://github.com/crabtalk/berm/blob/main/crates/index/examples/server.rs) serves
-those two routes over a directory, so the loop can be run without deploying
-anything. What it writes is what a clone holds, so the same directory reads back
-with no service at all. Start it from the workspace root:
-
-```sh
-cargo run -p berm-index --example server -- --index ./index
-```
-
-`crab push` talks to no index at all — publishing is a separate act, so an
-upload that succeeded is never undone by a listing that failed.

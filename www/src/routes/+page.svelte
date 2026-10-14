@@ -19,20 +19,21 @@
 
 	const digest = '222890c498ed28f4bf60670a223141489d9879020bd1890111b8c11ac79fa31d';
 
-	const console_ = `<span class="c">$</span> crab push 127.0.0.1:5000/berm/fixture:v1 ./fixture.wasm
-127.0.0.1:5000/berm/fixture:v1
-  digest  <span class="mark">sha256:${digest}</span>
+	const console_ = `<span class="c">$</span> crab ls
+NAME     DIGEST        TOOLS
+fixture  <span class="mark">${digest.slice(0, 12)}</span>  echo
 
 <span class="c">$</span> shasum -a256 ./fixture.wasm
 <span class="mark">${digest}</span>  ./fixture.wasm`;
 
 	const running = `<span class="c">$</span> bermd &amp;
-<span class="c">$</span> crab deploy example ./program.wasm
+<span class="c">$</span> crab deploy
 <span class="c">$</span> crab ls`;
 
-	const moving = `<span class="c">$</span> crab push ghcr.io/org/example:v1 ./program.wasm
-<span class="c">$</span> crab publish ghcr.io/org/example:v1
-<span class="c">$</span> crab search <span class="s">"read a file"</span>`;
+	const moving = `<span class="c">$</span> cat berm.toml
+name = <span class="s">"example"</span>
+image = <span class="s">"ghcr.io/org/example"</span>
+<span class="c">$</span> crab deploy --context cloud`;
 
 	// What berm is, in its own terms — the README and the book already argue
 	// these. Reasons to reach for it, not a list of what is in the box.
@@ -142,7 +143,7 @@
 			<span class="light close" aria-hidden="true"></span>
 			<span class="light minimise" aria-hidden="true"></span>
 			<span class="light zoom" aria-hidden="true"></span>
-			<span class="title">crab push</span>
+			<span class="title">crab ls</span>
 		</div>
 		<div class="code-block">
 			<pre><code>{@html console_}</code></pre>
@@ -185,8 +186,8 @@
 	<div class="column">
 		<h2>Moving</h2>
 		<p>
-			Pushing makes a program fetchable, not findable. The list is a git repository, so
-			<code>search</code> reads a clone of it with no service and no credential.
+			A program is one file, so it travels as one OCI layer: <code>deploy</code> pushes it to
+			the <code>image</code> its <code>berm.toml</code> names when the host pulls from a registry.
 		</p>
 		<div class="code-block">
 			<pre><code>{@html moving}</code></pre>

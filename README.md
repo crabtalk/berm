@@ -46,9 +46,12 @@ them on a single MCP endpoint, with tools named `{program}.{tool}`.
 
 ```sh
 bermd &
-crab deploy example ./program.wasm
+crab deploy
 crab ls
 ```
+
+`crab deploy` builds the program in the working directory and deploys it as its
+`berm.toml` names it.
 
 See [`crates/daemon`](crates/daemon) for the control API and what a deployed
 program can reach.
@@ -59,15 +62,8 @@ A program is one file, so it travels as one OCI layer with no tarball around it
 — and because the layer is the image and nothing else, the digest a registry
 addresses it by is the digest `crab ls` prints.
 
-```sh
-crab push ghcr.io/org/example:v1 ./program.wasm
-crab deploy example ghcr.io/org/example:v1
-crab search "read a file"
-```
-
-`deploy` takes a file or a reference. Finding one is a separate question, since
-no registry will tell you who published a program: the list is a git repository,
-so `search` reads a clone of it with no service and no credential. See
+Against a host that pulls from a registry, `crab deploy` pushes the image to the
+`image` its `berm.toml` names first. See
 [Publishing a Program](https://crabtalk.github.io/berm/docs/berm/publishing/).
 
 ## Documentation

@@ -12,7 +12,7 @@ pays only instantiation.
 
 ```sh
 bermd &
-crab deploy example ./program.wasm
+crab deploy
 crab ls
 ```
 
