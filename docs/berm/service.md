@@ -12,8 +12,8 @@ pays only instantiation.
 
 ```sh
 bermd &
-berm deploy example ./program.wasm
-berm ls
+crab deploy example ./program.wasm
+crab ls
 ```
 
 ## Deploying
@@ -90,6 +90,6 @@ That reach stops at the daemon. A program still touches the world outside only
 through syscalls its host registered, and `bermd` registers none — so
 what matters before deploying an image is what the image *is*. `Manifest::from_image`
 reads a program's tools and usage without compiling or running it, which is what
-`berm inspect` shows you.
+`crab inspect` shows you.
 
 The endpoint carries no authorization and binds loopback by default.

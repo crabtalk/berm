@@ -1,4 +1,4 @@
-//! `berm new` — scaffold a program.
+//! `crab new` — scaffold a program.
 
 use anyhow::{Context, Result, bail};
 use std::{fs, path::Path};
@@ -47,7 +47,7 @@ pub fn run(name: &str) -> Result<()> {
     println!("  cd {name}");
     println!("  cargo test");
     println!("  cargo build --release --target {TARGET}");
-    println!("  berm deploy {name} target/{TARGET}/release/{name}.wasm");
+    println!("  crab deploy {name} target/{TARGET}/release/{name}.wasm");
     Ok(())
 }
 

@@ -46,8 +46,8 @@ them on a single MCP endpoint, with tools named `{program}.{tool}`.
 
 ```sh
 bermd &
-berm deploy example ./program.wasm
-berm ls
+crab deploy example ./program.wasm
+crab ls
 ```
 
 See [`apps/service`](apps/service) for the control API and what a deployed
@@ -57,12 +57,12 @@ program can reach.
 
 A program is one file, so it travels as one OCI layer with no tarball around it
 — and because the layer is the image and nothing else, the digest a registry
-addresses it by is the digest `berm ls` prints.
+addresses it by is the digest `crab ls` prints.
 
 ```sh
-berm push ghcr.io/org/example:v1 ./program.wasm
-berm deploy example ghcr.io/org/example:v1
-berm search "read a file"
+crab push ghcr.io/org/example:v1 ./program.wasm
+crab deploy example ghcr.io/org/example:v1
+crab search "read a file"
 ```
 
 `deploy` takes a file or a reference. Finding one is a separate question, since

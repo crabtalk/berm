@@ -1,4 +1,4 @@
-//! `berm idl` — a deployed program's IDL, for `declare_program!`.
+//! `crab idl` — a deployed program's IDL, for `declare_program!`.
 
 use crate::Client;
 use anyhow::{Context, Result};

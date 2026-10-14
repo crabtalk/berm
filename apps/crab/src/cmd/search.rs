@@ -1,4 +1,4 @@
-//! `berm search` — what has been published.
+//! `crab search` — what has been published.
 
 use anyhow::Result;
 use berm_index::Source;

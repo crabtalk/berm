@@ -1,4 +1,4 @@
-//! `berm push` — publish an image to a registry.
+//! `crab push` — publish an image to a registry.
 
 use crate::cmd::inspect;
 use anyhow::{Context, Result};

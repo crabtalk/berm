@@ -1,5 +1,5 @@
-//! Where `berm` sends its calls: a named host, and for Cloud, the token and
-//! the account it deploys under. Kept in `~/.berm/contexts.toml`.
+//! Where `crab` sends its calls: a named host, and for Cloud, the token and
+//! the account it deploys under. Kept in `~/.crab/contexts.toml`.
 
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ pub const DEFAULT: &str = "default";
 /// Where bermd listens by default.
 const LOCAL: &str = "http://127.0.0.1:7777";
 
-/// The file, under `~/.berm`.
+/// The file, under `~/.crab`.
 const FILE: &str = "contexts.toml";
 
 /// One target.
@@ -103,12 +103,12 @@ impl Contexts {
         }
         match self.contexts.get(name) {
             Some(context) => Ok(context.clone()),
-            None => bail!("no context named {name:?}; `berm context ls` lists them"),
+            None => bail!("no context named {name:?}; `crab context ls` lists them"),
         }
     }
 }
 
 fn path() -> Result<PathBuf> {
     let home = std::env::var("HOME").context("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".berm").join(FILE))
+    Ok(PathBuf::from(home).join(".crab").join(FILE))
 }

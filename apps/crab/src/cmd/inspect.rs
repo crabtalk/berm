@@ -1,4 +1,4 @@
-//! `berm inspect` — what a program claims to be.
+//! `crab inspect` — what a program claims to be.
 
 use crate::Client;
 use anyhow::Result;

@@ -1,4 +1,4 @@
-//! `berm deploy` — hand the context's host an image.
+//! `crab deploy` — hand the context's host an image.
 
 use crate::{
     Client,

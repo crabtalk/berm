@@ -1,4 +1,4 @@
-//! `berm publish` — list an already-pushed image in an index.
+//! `crab publish` — list an already-pushed image in an index.
 
 use anyhow::Result;
 use berm_index::Source;

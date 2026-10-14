@@ -49,7 +49,7 @@ pub fn syscalls(input: TokenStream) -> TokenStream {
 /// match hn::events::Event::read(&logged) { … }
 /// ```
 ///
-/// Reads `idls/hn.json`, which `berm idl hn` writes, from the crate's
+/// Reads `idls/hn.json`, which `crab idl hn` writes, from the crate's
 /// directory or the nearest ancestor that has one. A call takes the tool's
 /// arguments in the IDL's key order, an optional one as an `Option`.
 #[proc_macro]

@@ -1,35 +1,35 @@
-# berm
+# crab
 
 The command-line client for [bermd](../service) and CrabTalk Cloud.
 
 ```sh
-berm new example
-berm push ghcr.io/org/example:v1 ./program.wasm
-berm publish ghcr.io/org/example:v1
-berm search "read a file"
-berm deploy example ghcr.io/org/example:v1
-berm ls
-berm inspect example
-berm idl example
-berm logs example
-berm usage example
-berm rm example
+crab new example
+crab push ghcr.io/org/example:v1 ./program.wasm
+crab publish ghcr.io/org/example:v1
+crab search "read a file"
+crab deploy example ghcr.io/org/example:v1
+crab ls
+crab inspect example
+crab idl example
+crab logs example
+crab usage example
+crab rm example
 ```
 
 ## Contexts
 
-`berm` talks to the host its context names, the way `docker context` picks a daemon. `default` is the bermd on `http://127.0.0.1:7777`; `--context` picks another for one command.
+`crab` talks to the host its context names, the way `docker context` picks a daemon. `default` is the bermd on `http://127.0.0.1:7777`; `--context` picks another for one command.
 
 ```sh
-berm context add cloud https://api.crabtalk.ai --token "$KEY" --org acme
-berm context use cloud
-berm context ls
-berm context use default
+crab context add cloud https://api.crabtalk.ai --token "$KEY" --org acme
+crab context use cloud
+crab context ls
+crab context use default
 ```
 
 A context with a token and an `--org` or `--user` is Cloud, and its services are that account's. Against Cloud, `deploy` pushes a file to `--reference`, publishes the reference to Cloud's program index, and deploys it from there; a reference is published and deployed without a push. The key needs `deploy` and `publish` scope. Account operations — orgs, keys, billing — are not here.
 
-Contexts are kept in `~/.berm/contexts.toml`.
+Contexts are kept in `~/.crab/contexts.toml`.
 
 `deploy` takes a file or a registry reference — a path that exists is read,
 anything else is pulled and checked against the digest the registry advertised.

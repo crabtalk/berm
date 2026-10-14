@@ -1,4 +1,4 @@
-//! `berm` — the command-line client for bermd and Cloud.
+//! `crab` — the command-line client for bermd and Cloud.
 
 pub use client::Client;
 

@@ -789,7 +789,7 @@ pub(crate) fn user(user: &host::User) -> User {
     }
 }
 
-/// A service's IDL: the JSON `berm idl` writes, with its public tools only.
+/// A service's IDL: the JSON `crab idl` writes, with its public tools only.
 pub(crate) fn idl(name: &str, program: &Program) -> berm_api::Program {
     let Manifest {
         abi_version: _,

@@ -69,11 +69,11 @@ with that message. `berm_lang::deny(message)` fails the call as denied.
 
 ## Building
 
-`berm new` writes the crate, so none of the ceremony below has to be typed:
+`crab new` writes the crate, so none of the ceremony below has to be typed:
 
 ```sh
 rustup target add wasm32-unknown-unknown
-berm new my-program
+crab new my-program
 cd my-program
 cargo build --release --target wasm32-unknown-unknown
 ```
@@ -122,7 +122,7 @@ calls it with them as `program: String` and `logs: Vec<berm_lang::Logged>`.
 
 ## Calling another program
 
-`berm idl hn` writes the IDL of the program deployed as `hn` to `idls/hn.json`.
+`crab idl hn` writes the IDL of the program deployed as `hn` to `idls/hn.json`.
 `berm_lang::declare_program!(hn)` reads it from the crate's directory or the
 nearest ancestor with an `idls/`, and generates:
 
@@ -143,4 +143,4 @@ A tool's callers were built against its IDL. A change that breaks them — see
 [the manifest](manifest.md#compatibility) — keeps the old tool beside the new
 one, marked `#[deprecated]`, until no caller uses it.
 
-The IDL is a file in the crate; it changes only when `berm idl` is run again.
+The IDL is a file in the crate; it changes only when `crab idl` is run again.

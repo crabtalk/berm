@@ -90,8 +90,8 @@ the program computes at the call is invisible to any scan — a list built that
 way would be quietly short, and the runtime `Refused` would still be needed
 underneath it.
 
-A declared program not deployed refuses nothing: `berm deploy` says so and
-carries on, and `berm inspect` marks it. A syscall the host does not serve
+A declared program not deployed refuses nothing: `crab deploy` says so and
+carries on, and `crab inspect` marks it. A syscall the host does not serve
 refuses the deploy. What a served syscall reaches through it is that syscall's
 to grant.
 Refusing would make deploy order significant, and a restart brings programs

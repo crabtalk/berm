@@ -1,5 +1,5 @@
 [package]
-name = "berm-cli"
+name = "crab-cli"
 description = "Command-line client for bermd"
 edition.workspace = true
 version.workspace = true
@@ -8,11 +8,8 @@ license.workspace = true
 authors.workspace = true
 
 [[bin]]
-name = "berm"
+name = "crab"
 path = "bin/main.rs"
-# The name is the sandbox library's, so documenting both writes one over the
-# other in `target/doc`. A binary has no API to publish.
-doc = false
 
 [dependencies]
 anyhow.workspace = true

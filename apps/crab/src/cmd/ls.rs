@@ -1,4 +1,4 @@
-//! `berm ls` — what is deployed.
+//! `crab ls` — what is deployed.
 
 use crate::Client;
 use anyhow::Result;

@@ -1,4 +1,4 @@
-//! `berm context` — name the hosts `berm` talks to, and pick one.
+//! `crab context` — name the hosts `crab` talks to, and pick one.
 
 use crate::context::{self, Context, Contexts, Owner};
 use anyhow::{Result, bail};

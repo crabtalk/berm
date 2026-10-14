@@ -1,4 +1,4 @@
-//! `berm usage` — what a program used, a day each.
+//! `crab usage` — what a program used, a day each.
 
 use crate::Client;
 use anyhow::Result;

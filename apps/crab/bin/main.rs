@@ -3,7 +3,7 @@ use berm_api::{
     Budget, Dry, Price,
     host::{Caller, User},
 };
-use berm_cli::{
+use crab_cli::{
     Client, cmd,
     context::{Contexts, Owner},
 };
@@ -12,7 +12,7 @@ use std::{path::PathBuf, process::ExitCode};
 
 #[derive(Parser)]
 #[command(
-    name = "berm",
+    name = "crab",
     version,
     about = "Deploy and inspect programs on bermd or Cloud"
 )]
@@ -125,7 +125,7 @@ enum Command {
         tool: String,
         micros: u64,
     },
-    /// Name the hosts `berm` talks to, and pick one.
+    /// Name the hosts `crab` talks to, and pick one.
     #[command(subcommand)]
     Context(ContextCommand),
 }

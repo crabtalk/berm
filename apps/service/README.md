@@ -69,8 +69,8 @@ Its arguments, the log, its own stored keys, the clock, a callback timer, HTTP
 to the hosts its manifest declares under `berm.http.fetch` (or `berm.http.proxy`, through `--proxy` when given and direct otherwise), itself, and the programs deployed beside it that its manifest declares in `programs`, by name.
 
 ```sh
-berm deploy inner ./inner.wasm
-berm deploy outer ./outer.wasm
+crab deploy inner ./inner.wasm
+crab deploy outer ./outer.wasm
 ```
 
 ```rust
@@ -92,7 +92,7 @@ what an image *is*, not which of your programs it can call: read what one
 claims before deploying it.
 
 ```sh
-berm inspect ghcr.io/org/example:v1
+crab inspect ghcr.io/org/example:v1
 ```
 
 A request header may name `{secret:NAME}` for a secret the manifest declares.

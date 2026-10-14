@@ -19,7 +19,7 @@
 
 	const digest = '222890c498ed28f4bf60670a223141489d9879020bd1890111b8c11ac79fa31d';
 
-	const console_ = `<span class="c">$</span> berm push 127.0.0.1:5000/berm/fixture:v1 ./fixture.wasm
+	const console_ = `<span class="c">$</span> crab push 127.0.0.1:5000/berm/fixture:v1 ./fixture.wasm
 127.0.0.1:5000/berm/fixture:v1
   digest  <span class="mark">sha256:${digest}</span>
 
@@ -27,12 +27,12 @@
 <span class="mark">${digest}</span>  ./fixture.wasm`;
 
 	const running = `<span class="c">$</span> bermd &amp;
-<span class="c">$</span> berm deploy example ./program.wasm
-<span class="c">$</span> berm ls`;
+<span class="c">$</span> crab deploy example ./program.wasm
+<span class="c">$</span> crab ls`;
 
-	const moving = `<span class="c">$</span> berm push ghcr.io/org/example:v1 ./program.wasm
-<span class="c">$</span> berm publish ghcr.io/org/example:v1
-<span class="c">$</span> berm search <span class="s">"read a file"</span>`;
+	const moving = `<span class="c">$</span> crab push ghcr.io/org/example:v1 ./program.wasm
+<span class="c">$</span> crab publish ghcr.io/org/example:v1
+<span class="c">$</span> crab search <span class="s">"read a file"</span>`;
 
 	// What berm is, in its own terms — the README and the book already argue
 	// these. Reasons to reach for it, not a list of what is in the box.
@@ -142,7 +142,7 @@
 			<span class="light close" aria-hidden="true"></span>
 			<span class="light minimise" aria-hidden="true"></span>
 			<span class="light zoom" aria-hidden="true"></span>
-			<span class="title">berm push</span>
+			<span class="title">crab push</span>
 		</div>
 		<div class="code-block">
 			<pre><code>{@html console_}</code></pre>

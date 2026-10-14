@@ -2,7 +2,7 @@
 //!
 //! Publishing to a real index means holding a credential for a git repository,
 //! which is a deployment's business and not a laptop's. This serves the same
-//! two routes over a plain directory so `berm publish` and `berm search` can be
+//! two routes over a plain directory so `crab publish` and `crab search` can be
 //! exercised end to end without one.
 //!
 //! It is deliberately not the real thing: no git, no credential, no identity,

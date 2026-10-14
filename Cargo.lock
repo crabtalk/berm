@@ -237,22 +237,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "berm-cli"
-version = "0.0.8"
-dependencies = [
- "anyhow",
- "berm-api",
- "berm-index",
- "berm-oci",
- "chrono",
- "clap",
- "reqwest",
- "serde",
- "serde_json",
- "toml 1.1.4+spec-1.1.0",
-]
-
-[[package]]
 name = "berm-codegen"
 version = "0.0.8"
 dependencies = [
@@ -570,6 +554,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "crab-cli"
+version = "0.0.8"
+dependencies = [
+ "anyhow",
+ "berm-api",
+ "berm-index",
+ "berm-oci",
+ "chrono",
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "toml 1.1.4+spec-1.1.0",
 ]
 
 [[package]]

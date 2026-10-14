@@ -1,4 +1,4 @@
-//! `berm run` — run one of a program's tools.
+//! `crab run` — run one of a program's tools.
 
 use crate::Client;
 use anyhow::{Context, Result};
@@ -62,7 +62,7 @@ pub fn run(
 /// already sees from MCP when a call carries no arguments.
 ///
 /// Trimmed, because a shell's trailing newline is not part of the argument
-/// object: `echo '{}' | berm run` has to reach the program as the same bytes
+/// object: `echo '{}' | crab run` has to reach the program as the same bytes
 /// typing it does, and as the compact object MCP sends.
 fn arguments(inline: Option<&str>) -> Result<Vec<u8>> {
     let raw = match inline {

@@ -1,4 +1,4 @@
-//! `berm logs` — what a program emitted.
+//! `crab logs` — what a program emitted.
 
 use crate::Client;
 use anyhow::Result;

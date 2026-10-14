@@ -29,9 +29,9 @@ cargo run -p berm-index --example server -- --index ./index
 In another terminal, publish an artifact already pushed to a registry and search:
 
 ```sh
-berm publish --index http://127.0.0.1:7788 ghcr.io/me/example:v1
-berm search --index http://127.0.0.1:7788 "read a file"
-berm search --index ./index "read a file"
+crab publish --index http://127.0.0.1:7788 ghcr.io/me/example:v1
+crab search --index http://127.0.0.1:7788 "read a file"
+crab search --index ./index "read a file"
 ```
 
 The server verifies artifacts through anonymous registry access and records

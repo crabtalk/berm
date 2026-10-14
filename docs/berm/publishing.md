@@ -4,8 +4,8 @@ description: "A program is one file, so it travels as one OCI layer with no tarb
 ---
 
 ```sh
-berm push ghcr.io/org/example:v1 ./target/wasm32-unknown-unknown/release/example.wasm
-berm deploy example ghcr.io/org/example:v1
+crab push ghcr.io/org/example:v1 ./target/wasm32-unknown-unknown/release/example.wasm
+crab deploy example ghcr.io/org/example:v1
 ```
 
 `deploy` takes a file or a reference, not two commands: a path that exists is
@@ -38,11 +38,11 @@ GHCR show a package against its repository.
 ## One digest
 
 Because the layer is the image and nothing else, the layer's digest is sha256 of
-the image — the same hash `berm ls` reports, carrying the registry's `sha256:`
+the image — the same hash `crab ls` reports, carrying the registry's `sha256:`
 prefix:
 
 ```console
-$ berm push 127.0.0.1:5000/berm/fixture:v1 ./fixture
+$ crab push 127.0.0.1:5000/berm/fixture:v1 ./fixture
 127.0.0.1:5000/berm/fixture:v1
   digest  sha256:222890c498ed28f4bf60670a223141489d9879020bd1890111b8c11ac79fa31d
 
@@ -56,13 +56,13 @@ rather than by the model.
 
 ## What push refuses
 
-`berm push` reads the manifest out of the image before it uploads anything, which
+`crab push` reads the manifest out of the image before it uploads anything, which
 means a broken image is refused by whoever built it rather than at deploy on
 someone else's machine. Reading it never runs the guest.
 
 ## From a workflow
 
-`GITHUB_TOKEN` is the credential, and with `berm push` the step is one line —
+`GITHUB_TOKEN` is the credential, and with `crab push` the step is one line —
 there is no action to install.
 
 ```yaml
@@ -71,7 +71,7 @@ permissions:
 
 steps:
   - run: cargo build --release --target wasm32-unknown-unknown
-  - run: berm push ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
+  - run: crab push ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
            target/wasm32-unknown-unknown/release/example.wasm
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -87,8 +87,8 @@ programs on a registry — GitHub's Packages API refuses to list even public
 packages without a token — so an index has to be told a program exists.
 
 ```sh
-berm publish ghcr.io/org/example:v1
-berm search "read a file"
+crab publish ghcr.io/org/example:v1
+crab search "read a file"
 ```
 
 `--index <url>`, or `BERM_INDEX`, or the default list below.
@@ -106,11 +106,11 @@ Re-pushing a tag adds an entry rather than rewriting one.
 
 One JSON Lines file per program, one line per version — so a copy of an index is
 a clone, and searching your copy needs no service, no credential and no network.
-`berm search` keeps that copy for you under `~/.berm/index`, cloning it the
+`crab search` keeps that copy for you under `~/.berm/index`, cloning it the
 first time and not touching the network again:
 
 ```sh
-berm search "read a file"                     # the default list
+crab search "read a file"                     # the default list
 git -C ~/.berm/index/github.com/crabtalk/berm-index pull    # refresh it
 ```
 
@@ -133,5 +133,5 @@ with no service at all. Start it from the workspace root:
 cargo run -p berm-index --example server -- --index ./index
 ```
 
-`berm push` talks to no index at all — publishing is a separate act, so an
+`crab push` talks to no index at all — publishing is a separate act, so an
 upload that succeeded is never undone by a listing that failed.
