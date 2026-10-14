@@ -2,8 +2,6 @@
 .DS_Store
 .wrangler
 
-# Recorded responses the replay tests read; data stays out of git.
-/services/*/tests/recorded
 
 # mdbook output
 /docs/book

@@ -557,33 +557,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crab-cli"
-version = "0.0.8"
-dependencies = [
- "anyhow",
- "berm-api",
- "berm-index",
- "berm-oci",
- "chrono",
- "clap",
- "crabtalk-sdk",
- "serde",
- "serde_json",
- "tokio",
- "toml 1.1.4+spec-1.1.0",
-]
-
-[[package]]
-name = "crabtalk-sdk"
-version = "0.1.4"
-dependencies = [
- "berm-api",
- "reqwest",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cranelift-assembler-x64"
 version = "0.135.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1116,17 +1089,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
-name = "hn"
-version = "0.0.8"
-dependencies = [
- "anyhow",
- "berm-host",
- "berm-lang",
- "lake",
- "tokio",
-]
-
-[[package]]
 name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1483,14 +1445,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lake"
-version = "0.0.8"
-dependencies = [
- "berm-lang",
- "xmlparser",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1636,17 +1590,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "news"
-version = "0.0.8"
-dependencies = [
- "anyhow",
- "berm-host",
- "berm-lang",
- "lake",
- "tokio",
 ]
 
 [[package]]
@@ -1925,17 +1868,6 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
-]
-
-[[package]]
-name = "reddit"
-version = "0.0.8"
-dependencies = [
- "anyhow",
- "berm-host",
- "berm-lang",
- "lake",
- "tokio",
 ]
 
 [[package]]
@@ -3645,12 +3577,6 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
-
-[[package]]
-name = "xmlparser"
-version = "0.13.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "yoke"

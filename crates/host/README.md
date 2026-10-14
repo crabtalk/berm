@@ -19,7 +19,7 @@ wakes the service armed.
 
 `Config` controls instance capacity, instruction and database-row budgets,
 call depth, the compiled-code cache, and the database directory. See
-[`bermd`](../../apps/service) for a daemon using this host.
+[`bermd`](../daemon) for a daemon using this host.
 
 ## License
 

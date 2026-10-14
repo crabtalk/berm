@@ -1,4 +1,0 @@
-# crabtalk-sdk comes from the private crabtalk/cloud: fetch it with git and its
-# credentials rather than with Cargo's own client.
-[net]
-git-fetch-with-cli = true

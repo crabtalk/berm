@@ -93,14 +93,11 @@ rather than reading a plausible zero.
 image instead: the real engine and host, with fetches answered from what the
 test arranged, a clock the test sets, and wakes the test fires. A call's result
 and meter, the logs and state it committed, and the wakes it armed are read back
-from it. `services/*/tests/replay.rs` run `hn`, `reddit` and `news` against
-recorded feeds this way, behind each service's `replay` feature; the recordings
-in `tests/recorded` are not in git.
+from it. The services in [crabtalk/crab](https://github.com/crabtalk/crab) run
+against recorded feeds this way.
 
 `berm-fixture` in this repository is the worked example — the smallest real
-program, and what berm's own tests run against. `services/` holds deployed
-programs: `hn`, `reddit` and `news` follow feeds on `lib/lake`, the runtime for a
-program that fetches feeds on its own wake and emits what is new as logs.
+program, and what berm's own tests run against.
 
 ## Queries
 

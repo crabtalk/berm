@@ -50,7 +50,7 @@ crab deploy example ./program.wasm
 crab ls
 ```
 
-See [`apps/service`](apps/service) for the control API and what a deployed
+See [`crates/daemon`](crates/daemon) for the control API and what a deployed
 program can reach.
 
 ## Moving programs
