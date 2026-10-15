@@ -32,16 +32,14 @@ pub struct Manifest {
     /// The crate's version when it was built.
     #[serde(default)]
     pub version: String,
-    /// The crate's `description`, `homepage`, `repository` and `license`
-    /// from its `Cargo.toml`.
+    /// The crate's `description`, `homepage` and `repository` from its
+    /// `Cargo.toml`.
     #[serde(default)]
     pub description: String,
     #[serde(default)]
     pub homepage: String,
     #[serde(default)]
     pub repository: String,
-    #[serde(default)]
-    pub license: String,
     /// The Markdown file `readme` names on `#[program]`.
     #[serde(default)]
     pub readme: String,
@@ -207,16 +205,14 @@ pub struct Program {
     /// The crate's version when it was built.
     #[serde(default)]
     pub version: String,
-    /// The crate's `description`, `homepage`, `repository` and `license`
-    /// from its `Cargo.toml`.
+    /// The crate's `description`, `homepage` and `repository` from its
+    /// `Cargo.toml`.
     #[serde(default)]
     pub description: String,
     #[serde(default)]
     pub homepage: String,
     #[serde(default)]
     pub repository: String,
-    #[serde(default)]
-    pub license: String,
     /// The Markdown file `readme` names on `#[program]`.
     #[serde(default)]
     pub readme: String,

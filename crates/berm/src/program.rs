@@ -177,7 +177,6 @@ impl Program {
             description,
             homepage,
             repository,
-            license,
             readme,
             tools,
         } = self.manifest.clone();
@@ -187,7 +186,6 @@ impl Program {
             description,
             homepage,
             repository,
-            license,
             readme,
             digest: self.digest.clone(),
             tools: tools.into_iter().filter(|tool| tool.public).collect(),

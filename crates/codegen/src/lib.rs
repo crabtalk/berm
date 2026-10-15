@@ -676,12 +676,11 @@ fn manifest(config: &Config, tools: &[Tool]) -> Vec<proc_macro2::TokenStream> {
     };
     let package = |key: &str| escape(&std::env::var(key).unwrap_or_default());
     out.text(&format!(
-        r#"{{"abi_version":4,"version":"{}","description":"{}","homepage":"{}","repository":"{}","license":"{}","tools":["#,
+        r#"{{"abi_version":4,"version":"{}","description":"{}","homepage":"{}","repository":"{}","tools":["#,
         package("CARGO_PKG_VERSION"),
         package("CARGO_PKG_DESCRIPTION"),
         package("CARGO_PKG_HOMEPAGE"),
         package("CARGO_PKG_REPOSITORY"),
-        package("CARGO_PKG_LICENSE"),
     ));
     for (at, tool) in tools.iter().enumerate() {
         if at > 0 {

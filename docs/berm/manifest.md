@@ -45,7 +45,7 @@ the last 30 days, unless the deploy says `force=true`, and reports the rest.
 
 ## Package
 
-`description`, `homepage`, `repository` and `license` are the crate's, from its
+`description`, `homepage` and `repository` are the crate's, from its
 `Cargo.toml`, as `version` is. `readme` is the Markdown file
 `#[program(readme = "README.md")]` names, read at compile time. Each is empty
 when the crate sets none.
