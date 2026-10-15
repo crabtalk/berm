@@ -169,6 +169,7 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX idx_service_logs_call ON service_logs (scope, name, call);
     CREATE INDEX idx_service_logs_at ON service_logs (at);
     DROP TABLE service_positions;",
+    "ALTER TABLE service_meters ADD COLUMN logged INTEGER NOT NULL DEFAULT 0;",
 ];
 
 /// One connection, shared. Every statement runs off the async workers.

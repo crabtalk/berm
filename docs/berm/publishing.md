@@ -34,8 +34,8 @@ never talks to a registry, holds no credentials, and still restores from
 
 The config blob is the [`.berm.abi`](./manifest.md) section carried out of the
 image byte for byte, so what a registry serves cannot disagree with what the image
-holds. The tools, their schemas and the usage are one small blob, and reading
-them never means pulling the program.
+holds. The tools, their schemas and the README are one blob, and reading them
+never means pulling the program.
 
 Nothing about the program is repeated in annotations. Only
 `org.opencontainers.image.source` and `.revision` are set, from

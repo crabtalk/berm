@@ -1,5 +1,4 @@
-//! `declare_program!` — typed calls, types and events from another program's
-//! IDL.
+//! `declare_program!` — typed calls and types from another program's IDL.
 //!
 //! The IDL is the JSON `crab idl` writes: a deployed program as the control API
 //! reports it. It is read from `idls/{name}.json` in the crate's directory or
@@ -22,7 +21,6 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
 
     let program = idl["name"].as_str().ok_or_else(|| fail("no `name`"))?;
     let tools = idl["tools"].as_array().ok_or_else(|| fail("no `tools`"))?;
-    let events = idl["events"].as_array().cloned().unwrap_or_default();
 
     // Every titled object anywhere in the IDL is one struct, by its title.
     let mut structs = BTreeMap::new();
@@ -30,16 +28,9 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
         collect(&tool["parameters"], &mut structs);
         collect(&tool["returns"], &mut structs);
     }
-    for event in &events {
-        collect(&event["fields"], &mut structs);
-    }
 
     let types = structs.iter().map(|(title, schema)| {
         let ident = format_ident!("{title}");
-        let deprecated = events
-            .iter()
-            .find(|event| event["name"].as_str() == Some(title))
-            .map(deprecation);
         let doc = schema["description"]
             .as_str()
             .map(|text| quote!(#[doc = #text]));
@@ -106,35 +97,12 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
                 ::berm_lang::serde::Deserialize,
             )]
             #[serde(crate = "::berm_lang::serde")]
-            #deprecated
             pub struct #ident {
                 #(#fields)*
             }
         }
     });
 
-    let names: Vec<Ident> = events
-        .iter()
-        .filter_map(|event| event["name"].as_str())
-        .map(|name| format_ident!("{name}"))
-        .collect();
-    let events = match names.is_empty() {
-        true => quote!(),
-        false => quote! {
-            /// The events it emits, each a log under its name.
-            #[allow(deprecated)]
-            pub mod events {
-                pub use super::types::{#(#names),*};
-
-                #(
-                    impl ::berm_lang::Event for #names {
-                        const NAME: &'static str = stringify!(#names);
-                    }
-                )*
-
-            }
-        },
-    };
 
     let calls = tools.iter().map(|tool| {
         let tool_name = tool["name"].as_str().unwrap_or_default();
@@ -226,13 +194,11 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
             /// What the program is deployed as, which every call names.
             pub const NAME: &str = #program;
 
-            /// Its argument, result and event structs.
+            /// Its argument and result structs.
             #[allow(deprecated)]
             pub mod types {
                 #(#types)*
             }
-
-            #events
 
             /// Its tools, each a `berm_lang::call` with typed arguments and
             /// result.
@@ -243,7 +209,7 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
     })
 }
 
-/// `#[deprecated]` for a tool or event the IDL marks deprecated.
+/// `#[deprecated]` for a tool the IDL marks deprecated.
 fn deprecation(spec: &Value) -> TokenStream {
     match spec["deprecated"].as_bool() == Some(true) {
         true => quote!(#[deprecated]),

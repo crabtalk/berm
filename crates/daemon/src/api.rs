@@ -13,9 +13,8 @@ use axum::{
     response::{AppendHeaders, IntoResponse, Response},
     routing::{get, post, put},
 };
-use berm::Program;
 use berm_api::{
-    Budget, DryRun, Price, Program as Wire, Terms,
+    Budget, Deployed, DryRun, Price, Program as Wire, Runtime, Terms,
     host::{self, CallPage, Caller, Metered, Page},
 };
 use berm_host::{Denied, deny};
@@ -44,6 +43,7 @@ pub fn router(service: Arc<Service>) -> Router {
             "/programs/{name}",
             get(inspect).put(deploy).delete(undeploy),
         )
+        .route("/programs/{name}/runtime", get(runtime))
         .route("/programs/{name}/tools/{tool}", post(call).get(query))
         .route("/programs/{name}/tools/{tool}/dry", post(dry))
         .route("/programs/{name}/logs", get(logs))
@@ -57,31 +57,12 @@ pub fn router(service: Arc<Service>) -> Router {
         .with_state(service)
 }
 
-impl Service {
-    /// What berm read out of the image, on the wire, and what of it this
-    /// service has nothing to answer with.
-    fn describe(&self, deployed: &Program) -> Wire {
-        let manifest = deployed.manifest();
-        Wire {
-            name: deployed.name.to_string(),
-            version: manifest.version.clone(),
-            digest: deployed.digest.clone(),
-            usage: manifest.usage.clone(),
-            tools: manifest.tools.clone(),
-            deps: manifest.deps.clone(),
-            events: manifest.events.clone(),
-            unresolved: self.unresolved(deployed),
-            breaks: Vec::new(),
-        }
-    }
-}
-
 async fn list(State(service): State<Arc<Service>>) -> Json<Vec<Wire>> {
     Json(
         service
             .list()
             .iter()
-            .map(|one| service.describe(one))
+            .map(|one| one.idl(&one.name))
             .collect(),
     )
 }
@@ -91,9 +72,21 @@ async fn inspect(
     Path(name): Path<String>,
 ) -> Result<Json<Wire>, Denied> {
     match service.get(&name) {
-        Some(deployed) => Ok(Json(service.describe(&deployed))),
+        Some(deployed) => Ok(Json(deployed.idl(&name))),
         None => Err(missing(&name)),
     }
+}
+
+/// How a program runs, and what of what it reaches nothing here answers to.
+async fn runtime(
+    State(service): State<Arc<Service>>,
+    Path(name): Path<String>,
+) -> Result<Json<Runtime>, Denied> {
+    let deployed = service.get(&name).ok_or_else(|| missing(&name))?;
+    Ok(Json(Runtime {
+        unresolved: service.unresolved(&deployed),
+        ..deployed.runtime()
+    }))
 }
 
 /// What a call of each public tool is held to.
@@ -142,7 +135,7 @@ async fn deploy(
     Path(name): Path<String>,
     Query(confirmed): Query<Confirmed>,
     image: Bytes,
-) -> Result<Json<Wire>, Denied> {
+) -> Result<Json<Deployed>, Denied> {
     let public: Vec<String> = confirmed
         .public
         .split(',')
@@ -152,9 +145,10 @@ async fn deploy(
     let (deployed, breaks) = service
         .deploy(&name, image.to_vec(), &public, confirmed.force)
         .await?;
-    let mut wire = service.describe(&deployed);
-    wire.breaks = breaks.iter().map(ToString::to_string).collect();
-    Ok(Json(wire))
+    Ok(Json(Deployed {
+        program: deployed.idl(&name),
+        breaks: breaks.iter().map(ToString::to_string).collect(),
+    }))
 }
 
 /// The caller a tool call is made as, from [`host::CALLER`], unverified.

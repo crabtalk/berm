@@ -104,6 +104,26 @@ pub struct Used {
     pub last: i64,
 }
 
+/// The calls of a service's tools from outside its scope that ended `done`:
+/// from an account, an app, or anonymously.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Served {
+    /// Each of the last 30 days with any, oldest first.
+    pub days: Vec<ServedDay>,
+    /// Since the service was first deployed.
+    pub total: u64,
+}
+
+/// One day of [`Served`].
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServedDay {
+    /// Days since the Unix epoch.
+    pub day: i32,
+    pub calls: u64,
+}
+
 /// One caller of one of a service's tools or events over the last 30 days.
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -308,7 +328,10 @@ pub struct Metered {
     pub written: u64,
     /// Bytes sent and received through `berm.http.proxy`.
     pub proxied: u64,
-    /// Bytes the service stored when the day was sampled: its database file,
-    /// state and logs.
+    /// Bytes of the logs those invocations emitted.
+    #[serde(default)]
+    pub logged: u64,
+    /// Bytes the service stored when the day was sampled: its database file
+    /// and state.
     pub stored: u64,
 }

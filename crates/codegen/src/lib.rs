@@ -92,7 +92,7 @@ const DISPATCH_PREFIX: &str = "__berm_";
 
 struct Config {
     buffer: usize,
-    usage: String,
+    readme: String,
     /// Programs this one calls by name, as the author declares them.
     programs: Vec<String>,
     /// Syscalls it makes beyond the ABI's own, each beside what it reaches
@@ -102,17 +102,26 @@ struct Config {
     secrets: Vec<String>,
     /// Kept only to re-emit as an `include_str!`, so editing the file
     /// rebuilds the program.
-    usage_file: Option<syn::LitStr>,
+    readme_file: Option<syn::LitStr>,
     /// The database's migrations directory, relative to the crate, and each
     /// `*.sql` file in it by name.
     database: Option<(syn::LitStr, Vec<(String, String)>)>,
 }
 
+/// The file at `path`, relative to the crate, for argument `key`.
+fn read(key: &syn::Ident, path: &syn::LitStr) -> syn::Result<String> {
+    let root = std::env::var("CARGO_MANIFEST_DIR")
+        .map_err(|_| syn::Error::new(key.span(), format!("{key} needs CARGO_MANIFEST_DIR")))?;
+    let full = std::path::Path::new(&root).join(path.value());
+    std::fs::read_to_string(&full)
+        .map_err(|e| syn::Error::new(path.span(), format!("{}: {e}", full.display())))
+}
+
 impl Parse for Config {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let mut buffer = DEFAULT_BUFFER;
-        let mut usage = String::new();
-        let mut usage_file = None;
+        let mut readme = String::new();
+        let mut readme_file = None;
         let mut programs = Vec::new();
         let mut syscalls = Vec::new();
         let mut secrets = Vec::new();
@@ -127,28 +136,21 @@ impl Parse for Config {
                     let size: syn::LitInt = input.parse()?;
                     buffer = size.base10_parse()?;
                 }
-                // A path rather than the text, because usage runs to
-                // paragraphs and `include_str!` cannot help here: a proc
-                // macro sees the unexpanded call, never the file. So the
-                // macro reads it, and the expansion carries an
-                // `include_str!` of its own purely so cargo rebuilds when
-                // the file changes.
-                "usage_file" => {
+                // A path rather than the text, because a README runs to
+                // pages and `include_str!` cannot help here: a proc macro
+                // sees the unexpanded call, never the file. So the macro
+                // reads it, and the expansion carries an `include_str!` of
+                // its own purely so cargo rebuilds when the file changes.
+                "readme" => {
                     let path: syn::LitStr = input.parse()?;
-                    let root = std::env::var("CARGO_MANIFEST_DIR").map_err(|_| {
-                        syn::Error::new(key.span(), "usage_file needs CARGO_MANIFEST_DIR")
-                    })?;
-                    let full = std::path::Path::new(&root).join(path.value());
-                    usage = std::fs::read_to_string(&full).map_err(|e| {
-                        syn::Error::new(path.span(), format!("{}: {e}", full.display()))
-                    })?;
-                    usage_file = Some(path);
+                    readme = read(&key, &path)?;
+                    readme_file = Some(path);
                 }
                 // Declared, never inferred: a target the program computes at
                 // the call is invisible to anything reading the image, so a
                 // scan of this crate would report a list that is quietly short.
                 // A directory of `*.sql` migrations, applied in name order.
-                // Read here for the same reason `usage_file` is.
+                // Read here for the same reason `readme` is.
                 "database" => {
                     let path: syn::LitStr = input.parse()?;
                     let root = std::env::var("CARGO_MANIFEST_DIR").map_err(|_| {
@@ -209,7 +211,7 @@ impl Parse for Config {
                     return Err(syn::Error::new(
                         key.span(),
                         format!(
-                            "unknown argument: {other} (expected `buffer`, `usage_file`, `database`, `programs`, `syscalls` or `secrets`)"
+                            "unknown argument: {other} (expected `buffer`, `readme`, `database`, `programs`, `syscalls` or `secrets`)"
                         ),
                     ));
                 }
@@ -228,8 +230,8 @@ impl Parse for Config {
 
         Ok(Config {
             buffer,
-            usage,
-            usage_file,
+            readme,
+            readme_file,
             database,
             programs,
             syscalls,
@@ -365,11 +367,11 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
-    // The macro read the usage file itself, which cargo cannot see. This
-    // makes the dependency visible so editing it rebuilds the program.
-    let usage_rebuild = config.usage_file.as_ref().map(|path| {
+    // The macro read the README itself, which cargo cannot see. This makes
+    // the dependency visible so editing it rebuilds the program.
+    let readme_rebuild = config.readme_file.as_ref().map(|path| {
         quote! {
-            const _CRABTALK_USAGE: &str =
+            const _CRABTALK_README: &str =
                 include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", #path));
         }
     });
@@ -387,7 +389,7 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         #module
 
-        #usage_rebuild
+        #readme_rebuild
 
         #(#database_rebuild)*
 
@@ -647,9 +649,14 @@ fn manifest(config: &Config, tools: &[Tool]) -> Vec<proc_macro2::TokenStream> {
         pieces: Vec::new(),
         text: String::new(),
     };
+    let package = |key: &str| escape(&std::env::var(key).unwrap_or_default());
     out.text(&format!(
-        r#"{{"abi_version":4,"version":"{}","tools":["#,
-        escape(&std::env::var("CARGO_PKG_VERSION").unwrap_or_default()),
+        r#"{{"abi_version":4,"version":"{}","description":"{}","homepage":"{}","repository":"{}","license":"{}","tools":["#,
+        package("CARGO_PKG_VERSION"),
+        package("CARGO_PKG_DESCRIPTION"),
+        package("CARGO_PKG_HOMEPAGE"),
+        package("CARGO_PKG_REPOSITORY"),
+        package("CARGO_PKG_LICENSE"),
     ));
     for (at, tool) in tools.iter().enumerate() {
         if at > 0 {
@@ -730,8 +737,8 @@ fn manifest(config: &Config, tools: &[Tool]) -> Vec<proc_macro2::TokenStream> {
         None => String::new(),
     };
     out.text(&format!(
-        r#"],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}]}}{database}}}"#,
-        escape(&config.usage),
+        r#"],"readme":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}]}}{database}}}"#,
+        escape(&config.readme),
     ));
     out.flush();
     out.pieces

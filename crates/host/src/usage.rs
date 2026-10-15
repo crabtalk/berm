@@ -5,7 +5,7 @@
 use crate::{host, store::Store};
 use anyhow::Result;
 use berm::{Called, Now};
-use berm_api::host::{Usage, Used};
+use berm_api::host::{Served, ServedDay, Usage, Used};
 use parking_lot::Mutex;
 use rusqlite::{OptionalExtension, params};
 use std::{collections::HashMap, mem};
@@ -244,6 +244,38 @@ pub(crate) async fn read(
                     })
                 })?;
             rows.collect()
+        })
+        .await
+}
+
+/// `scope/name`'s [`Served`]: per day over the last [`WINDOW`] days, and in
+/// total.
+pub(crate) async fn served(store: &Store, scope: &str, name: &str, now: i64) -> Result<Served> {
+    let (scope, name) = (scope.to_owned(), name.to_owned());
+    let since = (now / 86_400) as i32 - WINDOW;
+    store
+        .run(move |conn| {
+            let mut statement = conn.prepare(
+                "SELECT day, SUM(calls)
+                   FROM service_usage
+                  WHERE scope = ?1 AND name = ?2 AND kind = 'tool' AND outcome = 'done'
+                    AND source <> 'service'
+                  GROUP BY day
+                  ORDER BY day",
+            )?;
+            let mut served = Served::default();
+            let mut rows = statement.query(params![scope, name])?;
+            while let Some(row) = rows.next()? {
+                let (day, calls): (i32, i64) = (row.get(0)?, row.get(1)?);
+                served.total += calls as u64;
+                if day > since {
+                    served.days.push(ServedDay {
+                        day,
+                        calls: calls as u64,
+                    });
+                }
+            }
+            Ok(served)
         })
         .await
 }

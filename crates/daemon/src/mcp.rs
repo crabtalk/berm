@@ -15,16 +15,14 @@ use rmcp::{
 use serde::Deserialize;
 use std::sync::Arc;
 
-/// Kept to a sentence deliberately. Every program carries its own usage, and a
-/// server has one `instructions`; concatenating them would put a manual in
-/// front of the model on every turn, which is what the usage field refuses to
-/// be. They are published as resources instead.
-const INSTRUCTIONS: &str = "Tools are named `{program}.{tool}`. Each program publishes a \
-    `berm://{program}/usage` resource describing when to reach for its tools and how they go \
-    together; read that before choosing among one program's tools.";
+/// A server has one `instructions`, paid on every turn; each program's README
+/// is a resource the model reads when it needs it.
+const INSTRUCTIONS: &str = "Tools are named `{program}.{tool}`. Each program with a README \
+    publishes it as a `berm://{program}/readme` resource; read it before choosing among one \
+    program's tools.";
 
-const USAGE_SCHEME: &str = "berm://";
-const USAGE_PATH: &str = "/usage";
+const README_SCHEME: &str = "berm://";
+const README_PATH: &str = "/readme";
 /// The `_meta` key a listed tool carries its terms under.
 const TERMS: &str = "terms";
 /// The tool that runs any listed tool dry.
@@ -186,16 +184,14 @@ impl ServerHandler for Mcp {
             .service
             .list()
             .iter()
-            .filter(|deployed| !deployed.manifest().usage.is_empty())
+            .filter(|deployed| !deployed.manifest().readme.is_empty())
             .map(|deployed| {
                 Resource::new(
-                    format!("{USAGE_SCHEME}{}{USAGE_PATH}", deployed.name),
-                    format!("{} usage", deployed.name),
+                    format!("{README_SCHEME}{}{README_PATH}", deployed.name),
+                    format!("{} README", deployed.name),
                 )
-                .with_description(format!(
-                    "When to reach for {}'s tools, and how they go together.",
-                    deployed.name
-                ))
+                .with_description(format!("{}'s README.", deployed.name))
+                .with_mime_type("text/markdown")
             })
             .collect();
         Ok(ListResourcesResult::with_all_items(resources))
@@ -208,8 +204,8 @@ impl ServerHandler for Mcp {
     ) -> Result<ReadResourceResult, McpError> {
         let name = request
             .uri
-            .strip_prefix(USAGE_SCHEME)
-            .and_then(|rest| rest.strip_suffix(USAGE_PATH))
+            .strip_prefix(README_SCHEME)
+            .and_then(|rest| rest.strip_suffix(README_PATH))
             .ok_or_else(|| McpError::resource_not_found(request.uri.clone(), None))?;
 
         let deployed = self
@@ -218,7 +214,7 @@ impl ServerHandler for Mcp {
             .ok_or_else(|| McpError::resource_not_found(request.uri.clone(), None))?;
 
         Ok(ReadResourceResult::new(vec![ResourceContents::text(
-            deployed.manifest().usage.clone(),
+            deployed.manifest().readme.clone(),
             request.uri,
         )]))
     }
@@ -303,7 +299,7 @@ fn dry_run() -> Tool {
     });
     Tool::new(
         DRY_RUN,
-        "Runs a listed tool and keeps nothing it changes: no state, logs or database writes, no scheduled calls, in any program it reaches. Its requests to other sites are sent unless `answers` answers them or `offline` is set. Answers what the tool answered and what the call used: instructions, rows read and written, memory, bytes proxied.",
+        "Runs a listed tool and keeps nothing it changes: no state, logs or database writes, no scheduled calls, in any program it reaches. Its requests to other sites are sent unless `answers` answers them or `offline` is set. Answers what the tool answered and what the call used: instructions, rows read and written, memory, bytes proxied, bytes logged.",
         Arc::new(schema.as_object().cloned().unwrap_or_default()),
     )
 }

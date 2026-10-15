@@ -1,6 +1,6 @@
 ---
 title: The Manifest
-description: "What a program says it is: its ABI version, its tools, when to reach for them, and what it reaches for itself."
+description: "What a program says it is: its ABI version, its tools, its README, and what it reaches for itself."
 ---
 
 The manifest is JSON, carried in a `.berm.abi` section of the image rather than
@@ -43,13 +43,12 @@ reads them, results and events as old callers read them; added fields break
 nothing. bermd refuses a redeploy that breaks a tool or event a caller used in
 the last 30 days, unless the deploy says `force=true`, and reports the rest.
 
-## Usage
+## Package
 
-`Manifest::usage` is the question no single tool's description answers: when to
-reach for this program at all, and how its tools go together. An embedder puts
-it in front of a model *before* it chooses between them, so it is paid on every
-turn — a few lines, not a manual. `#[program(usage_file = "…")]` reads it from a
-file at compile time when it outgrows an attribute.
+`description`, `homepage`, `repository` and `license` are the crate's, from its
+`Cargo.toml`, as `version` is. `readme` is the Markdown file
+`#[program(readme = "README.md")]` names, read at compile time. Each is empty
+when the crate sets none.
 
 ## Dependencies
 

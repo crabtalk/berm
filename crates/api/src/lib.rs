@@ -32,14 +32,20 @@ pub struct Manifest {
     /// The crate's version when it was built.
     #[serde(default)]
     pub version: String,
-    pub tools: Vec<ToolSpec>,
-    /// When to reach for these tools, and how they go together — the
-    /// question no single tool's `description` answers, because it is about
-    /// choosing between them. An embedder puts this in front of a model
-    /// before it decides, so it is paid on every turn: a few lines, not a
-    /// manual.
+    /// The crate's `description`, `homepage`, `repository` and `license`
+    /// from its `Cargo.toml`.
     #[serde(default)]
-    pub usage: String,
+    pub description: String,
+    #[serde(default)]
+    pub homepage: String,
+    #[serde(default)]
+    pub repository: String,
+    #[serde(default)]
+    pub license: String,
+    /// The Markdown file `readme` names on `#[program]`.
+    #[serde(default)]
+    pub readme: String,
+    pub tools: Vec<ToolSpec>,
     /// What this program reaches for once it runs.
     ///
     /// Runtime, and resolved wherever the image lands — nothing here is
@@ -141,7 +147,7 @@ impl Manifest {
     /// Read what an image claims to be, without compiling or running it.
     ///
     /// This is what the section is *for* (RFC 0205): learning a program's tools,
-    /// deps, and usage must not mean instantiating it. An embedder assembling a
+    /// deps, and readme must not mean instantiating it. An embedder assembling a
     /// prompt or listing a registry needs exactly this and nothing else.
     pub fn from_image(image: &[u8]) -> Result<Self> {
         let json =
@@ -194,27 +200,50 @@ enum Record {
     Program(Box<Manifest>),
 }
 
-/// A deployed program, as the control API reports it.
+/// A deployed program as its callers see it: the IDL.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Program {
     pub name: String,
     /// The crate's version when it was built.
     #[serde(default)]
     pub version: String,
+    /// The crate's `description`, `homepage`, `repository` and `license`
+    /// from its `Cargo.toml`.
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub homepage: String,
+    #[serde(default)]
+    pub repository: String,
+    #[serde(default)]
+    pub license: String,
+    /// The Markdown file `readme` names on `#[program]`.
+    #[serde(default)]
+    pub readme: String,
     /// sha256 of the image.
     pub digest: String,
-    /// When to reach for this program's tools, and how they go together.
-    pub usage: String,
+    /// Its public tools.
     pub tools: Vec<ToolSpec>,
-    #[serde(default)]
+}
+
+/// How a deployed program runs, for its owners: what [`Program`] leaves out.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Runtime {
+    /// Its tools that are not public.
+    pub tools: Vec<ToolSpec>,
     pub deps: Deps,
-    #[serde(default)]
     pub events: Vec<EventSpec>,
-    /// The part of `deps` this service answers to nothing for.
+    /// The part of `deps` this host answers to nothing for.
     #[serde(default, skip_serializing_if = "Deps::is_empty")]
     pub unresolved: Deps,
-    /// How this deploy broke callers of the program it replaced, as
-    /// [`Manifest::breaks`] words it. Set only in a deploy's answer.
+}
+
+/// A deploy's answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Deployed {
+    pub program: Program,
+    /// How it broke callers of the program it replaced, as
+    /// [`Manifest::breaks`] words it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub breaks: Vec<String>,
 }
@@ -384,9 +413,13 @@ impl From<Output> for Result<String, String> {
 /// [`Meter::overage`].
 pub const INCLUDED_INSTRUCTIONS: u64 = 1_000_000;
 
+/// The most bytes one log may hold, its data and topics together.
+pub const MAX_LOG: usize = 4096;
+
 /// What a call used of one program: its invocations, the wasm instructions
 /// they executed, the largest linear memory one reached, in bytes, the rows
-/// they read and wrote, and the bytes sent and received through the proxy.
+/// they read and wrote, the bytes sent and received through the proxy, and
+/// the bytes of the logs they emitted.
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Meter {
@@ -400,6 +433,8 @@ pub struct Meter {
     pub read: u64,
     pub written: u64,
     pub proxied: u64,
+    #[serde(default)]
+    pub logged: u64,
 }
 
 impl std::ops::AddAssign for Meter {
@@ -412,6 +447,7 @@ impl std::ops::AddAssign for Meter {
         self.read += other.read;
         self.written += other.written;
         self.proxied += other.proxied;
+        self.logged += other.logged;
     }
 }
 

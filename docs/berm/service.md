@@ -22,6 +22,12 @@ The control API is resource-shaped — `GET`, `PUT` and `DELETE` on
 `/programs/{name}` — for the reason dockerd's is: the clients are a UI, a CLI,
 and `curl`, and a program is a resource.
 
+`GET /programs/{name}` answers its IDL: name, version, digest, package fields
+and public tools, what a caller needs. `GET /programs/{name}/runtime` answers
+how it runs: its other tools, `deps`, `events`, and what of `deps` nothing here
+answers to. A deploy answers the IDL beside how it broke callers of the program
+it replaced.
+
 A deploy is recorded only once its image has compiled, so a rejected one is
 never restored. What is recorded is restored on the next start, and one
 unloadable image is reported and skipped rather than taking the service down
@@ -50,16 +56,12 @@ Deploying and undeploying emit `notifications/tools/list_changed`. The tool set
 moves under clients that are already holding a list, which per-program endpoints
 would have made someone else's problem.
 
-## Usage, and why it is a resource
+## READMEs as resources
 
-MCP gives a server one `instructions` string. A manifest carries one `usage` per
-program. Folding every program's usage into `instructions` would put a manual in
-front of the model on every turn — which is the one thing
-[usage](./manifest.md#usage) is defined not to be.
-
-So `instructions` stays a sentence, and each program publishes its usage as a
-`berm://{program}/usage` resource. A model reads it when choosing among one
-program's tools, and pays nothing for the programs it is not considering.
+MCP gives a server one `instructions` string, sent on every turn. Each program
+with a [README](./manifest.md#package) publishes it as a
+`berm://{program}/readme` resource, which a model reads when choosing among one
+program's tools.
 
 ## What a deployed program can reach
 
@@ -89,7 +91,7 @@ guest address space.
 That reach stops at the daemon. A program still touches the world outside only
 through syscalls its host registered, and `bermd` registers none — so
 what matters before deploying an image is what the image *is*. `Manifest::from_image`
-reads a program's tools and usage without compiling or running it, which is what
+reads a program's tools and README without compiling or running it, which is what
 `crab inspect` shows you.
 
 The endpoint carries no authorization and binds loopback by default.

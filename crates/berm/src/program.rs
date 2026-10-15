@@ -12,7 +12,7 @@ use crate::{
     },
 };
 use anyhow::{Context, Result, bail};
-use berm_api::{Callers, Manifest};
+use berm_api::{Callers, Manifest, Runtime};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -158,9 +158,53 @@ impl Program {
             .any(|spec| spec.name == tool && spec.callers != Some(Callers::Services))
     }
 
-    /// What the program says it is: ABI version, tools, and usage.
+    /// What the program says it is: ABI version, tools, and README.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
+    }
+
+    /// Its IDL, deployed as `name`: the JSON `crab idl` writes.
+    pub fn idl(&self, name: &str) -> berm_api::Program {
+        let Manifest {
+            abi_version: _,
+            database: _,
+            deps: _,
+            events: _,
+            version,
+            description,
+            homepage,
+            repository,
+            license,
+            readme,
+            tools,
+        } = self.manifest.clone();
+        berm_api::Program {
+            name: name.to_owned(),
+            version,
+            description,
+            homepage,
+            repository,
+            license,
+            readme,
+            digest: self.digest.clone(),
+            tools: tools.into_iter().filter(|tool| tool.public).collect(),
+        }
+    }
+
+    /// How it runs, for its owners; `unresolved` is the host's to fill.
+    pub fn runtime(&self) -> Runtime {
+        Runtime {
+            tools: self
+                .manifest
+                .tools
+                .iter()
+                .filter(|tool| !tool.public)
+                .cloned()
+                .collect(),
+            deps: self.manifest.deps.clone(),
+            events: self.manifest.events.clone(),
+            unresolved: Default::default(),
+        }
     }
 
     /// Run one tool by name, as the first link of a chain.

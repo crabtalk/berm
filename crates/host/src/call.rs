@@ -12,7 +12,7 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use berm::{Budget, Dry, Meters, Program, Refused};
 use berm_api::{
     Logged, Output, Terms, ToolTerms,
-    host::{self as wire, Caller, Link, Metered, Reply, Route, Usage, Used},
+    host::{self as wire, Caller, Link, Metered, Reply, Route, Served, Usage, Used},
 };
 use std::{
     sync::Arc,
@@ -26,15 +26,20 @@ impl<E: Env> Host<E> {
     /// `service`'s IDL.
     pub async fn idl(&self, service: &str) -> Result<berm_api::Program, Denied> {
         let (program, _) = self.deployed(service).await?;
-        Ok(host::idl(host::split(service).1, &program))
+        Ok(program.idl(host::split(service).1))
     }
 
-    /// The IDL of every service in `scope` this host runs, with every tool,
-    /// each marked by `public`.
-    pub fn described(&self, scope: &str) -> Vec<berm_api::Program> {
+    /// `service`'s runtime, for its owners.
+    pub async fn runtime(&self, service: &str) -> Result<berm_api::Runtime, Denied> {
+        let (program, _) = self.deployed(service).await?;
+        Ok(program.runtime())
+    }
+
+    /// The IDL of every service in `scope` this host runs.
+    pub fn idls(&self, scope: &str) -> Vec<berm_api::Program> {
         self.list(scope)
             .into_iter()
-            .map(|(name, program)| host::described(&name, &program))
+            .map(|(name, program)| program.idl(&name))
             .collect()
     }
 
@@ -285,6 +290,14 @@ impl<E: Env> Host<E> {
             ));
         }
         Ok(())
+    }
+
+    /// What `service` served callers from outside its scope.
+    pub async fn served(&self, service: &str) -> Result<Served, Denied> {
+        self.deployed(service).await?;
+        self.flush().await?;
+        let (scope, name) = host::split(service);
+        Ok(usage::served(&self.store, scope, name, usage::seconds(&self.now)).await?)
     }
 
     /// Who uses `service`.

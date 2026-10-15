@@ -2,7 +2,6 @@
   "name": "fixture",
   "version": "0.0.8",
   "digest": "ed8cfe27c73111d8be9e3c3f292f46cbce5a4f7bfc49fe59292d708e62079392",
-  "usage": "",
   "tools": [
     {
       "name": "echo",
@@ -250,42 +249,6 @@
       "public": true
     },
     {
-      "name": "tick",
-      "description": "Counts how many times it has run, arming itself to run again in `delay` milliseconds until it has run three times. Proves an invocation can outlive the one that asked for it, and that what crosses the gap is the program's own keys.",
-      "parameters": {
-        "properties": {
-          "delay": {
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "delay"
-        ],
-        "type": "object"
-      },
-      "returns": {
-        "properties": {
-          "at": {
-            "description": "When, in Unix milliseconds.",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "round": {
-            "description": "How many times it has run, this time included.",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "round",
-          "at"
-        ],
-        "title": "Round",
-        "type": "object"
-      }
-    },
-    {
       "name": "note",
       "description": "Writes `word` under `note`, emits it as a `Noted` event, answers what it reads back, and fails when `word` is `fail`.",
       "parameters": {
@@ -322,53 +285,6 @@
         "type": "string"
       },
       "public": true
-    },
-    {
-      "name": "seen",
-      "description": "Takes the `Noted` events of `fixture` and keeps the last one's `seq` and word under `seen`, answering them.",
-      "parameters": {
-        "properties": {
-          "logs": {
-            "items": {
-              "properties": {
-                "data": {
-                  "type": "string"
-                },
-                "seq": {
-                  "description": "Its position in the program's logs, counting from 1.",
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                "topics": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                }
-              },
-              "required": [
-                "seq",
-                "topics",
-                "data"
-              ],
-              "title": "Logged",
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "program": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "program",
-          "logs"
-        ],
-        "type": "object"
-      },
-      "returns": {
-        "type": "string"
-      }
     },
     {
       "name": "ask",
@@ -447,55 +363,6 @@
         "type": "integer"
       },
       "public": true
-    }
-  ],
-  "deps": {
-    "programs": [
-      "inner"
-    ],
-    "syscalls": {
-      "berm.call.after": [],
-      "berm.get": [],
-      "berm.http.fetch": [
-        "127.0.0.1"
-      ],
-      "berm.set": []
-    },
-    "secrets": [
-      "fixture"
-    ],
-    "logs": [
-      {
-        "program": "fixture",
-        "topics": [
-          "Noted"
-        ],
-        "tool": "seen"
-      }
-    ]
-  },
-  "events": [
-    {
-      "name": "Noted",
-      "description": "A word `note` wrote.",
-      "fields": {
-        "properties": {
-          "bytes": {
-            "description": "Its length in bytes.",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "word": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "word",
-          "bytes"
-        ],
-        "title": "Noted",
-        "type": "object"
-      }
     }
   ]
 }

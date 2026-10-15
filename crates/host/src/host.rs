@@ -32,7 +32,7 @@ use berm::{
     },
 };
 use berm_api::{
-    Budget, Deps, Manifest, Surface,
+    Budget, Manifest, Surface,
     host::{self, Deploy, Reply, Used},
 };
 use parking_lot::Mutex;
@@ -769,37 +769,6 @@ pub(crate) fn user(user: &host::User) -> User {
     User {
         issuer: user.issuer.as_str().into(),
         subject: user.subject.as_str().into(),
-    }
-}
-
-/// A service's IDL: the JSON `crab idl` writes, with its public tools only.
-pub(crate) fn idl(name: &str, program: &Program) -> berm_api::Program {
-    let mut idl = described(name, program);
-    idl.tools.retain(|tool| tool.public);
-    idl
-}
-
-/// A service's IDL with every tool, each marked by `public`.
-pub(crate) fn described(name: &str, program: &Program) -> berm_api::Program {
-    let Manifest {
-        abi_version: _,
-        database: _,
-        version,
-        tools,
-        usage,
-        deps,
-        events,
-    } = program.manifest().clone();
-    berm_api::Program {
-        name: name.to_owned(),
-        version,
-        digest: program.digest.clone(),
-        usage,
-        tools,
-        deps,
-        events,
-        unresolved: Deps::default(),
-        breaks: Vec::new(),
     }
 }
 
