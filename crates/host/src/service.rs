@@ -4,6 +4,7 @@ use crate::{calls, host, store::Store};
 use anyhow::Result;
 use berm_api::{Logged, host::Scheduled};
 use rusqlite::{OptionalExtension, Transaction, params};
+use std::collections::BTreeMap;
 
 /// One service, as a row.
 pub(crate) struct Row {
@@ -83,8 +84,11 @@ pub(crate) async fn install(
     digest: &str,
     version: &str,
     deprecated: Vec<String>,
+    scheduled: Vec<String>,
+    schedule: Option<BTreeMap<String, u64>>,
     now: i64,
 ) -> Result<()> {
+    // `now` is in milliseconds; a deprecation's `since` is in seconds.
     let row = [scope, name, reference, digest, version].map(str::to_owned);
     store
         .run(move |conn| {
@@ -109,8 +113,45 @@ pub(crate) async fn install(
                 tx.execute(
                     "INSERT INTO service_deprecations (scope, name, tool, since)
                      VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
-                    params![scope, name, tool, now],
+                    params![scope, name, tool, now / 1000],
                 )?;
+            }
+            tx.execute(
+                "DELETE FROM service_wakes
+                  WHERE scope = ?1 AND name = ?2 AND slot <> ''
+                    AND slot NOT IN (SELECT value FROM json_each(?3))",
+                params![
+                    scope,
+                    name,
+                    serde_json::to_string(&scheduled).unwrap_or_default()
+                ],
+            )?;
+            for tool in &scheduled {
+                match &schedule {
+                    // A period that changes is due now; one that stays keeps
+                    // its due.
+                    Some(schedule) => {
+                        let every = schedule.get(tool).map(|every| *every as i64);
+                        tx.execute(
+                            "INSERT INTO service_wakes
+                                    (scope, name, slot, program, tool, args, due, every, declared)
+                             VALUES (?1, ?2, ?3, ?2, ?3, '', IIF(?4 IS NULL, NULL, ?5), ?4, ?4)
+                             ON CONFLICT (scope, name, slot) DO UPDATE
+                                SET due = IIF(service_wakes.every IS excluded.every,
+                                              service_wakes.due, excluded.due),
+                                    every = excluded.every, declared = excluded.declared",
+                            params![scope, name, tool, every, now],
+                        )?;
+                    }
+                    None => {
+                        tx.execute(
+                            "INSERT INTO service_wakes (scope, name, slot, program, tool, args)
+                             VALUES (?1, ?2, ?3, ?2, ?3, '')
+                             ON CONFLICT (scope, name, slot) DO NOTHING",
+                            params![scope, name, tool],
+                        )?;
+                    }
+                }
             }
             tx.commit()
         })
@@ -230,6 +271,55 @@ pub(crate) struct Wake {
     pub tool: String,
     pub args: String,
     pub armed: i64,
+    /// For a scheduled tool, its name.
+    pub slot: String,
+}
+
+/// Each scheduled tool of `scope/name` whose period its owner set since the
+/// last deploy's config did: the tool, its period, and the declared one.
+pub(crate) async fn edited(
+    store: &Store,
+    scope: &str,
+    name: &str,
+) -> Result<Vec<(String, Option<i64>, Option<i64>)>> {
+    let (scope, name) = (scope.to_owned(), name.to_owned());
+    store
+        .run(move |conn| {
+            let mut statement = conn.prepare(
+                "SELECT slot, every, declared FROM service_wakes
+                  WHERE scope = ?1 AND name = ?2 AND slot <> '' AND every IS NOT declared",
+            )?;
+            let rows = statement.query_map(params![scope, name], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+            rows.collect()
+        })
+        .await
+}
+
+/// Set scheduled tool `tool`'s period to `every`, due now when it changes;
+/// `None` stops it. `false` when `scope/name` schedules no such tool.
+pub(crate) async fn set_every(
+    store: &Store,
+    scope: &str,
+    name: &str,
+    tool: &str,
+    every: Option<i64>,
+    now: i64,
+) -> Result<bool> {
+    let row = [scope, name, tool].map(str::to_owned);
+    store
+        .run(move |conn| {
+            let [scope, name, tool] = row;
+            let set = conn.execute(
+                "UPDATE service_wakes
+                    SET due = IIF(?4 IS NULL, NULL, IIF(every IS ?4, due, ?5)), every = ?4
+                  WHERE scope = ?1 AND name = ?2 AND slot = ?3",
+                params![scope, name, tool, every, now],
+            )?;
+            Ok(set == 1)
+        })
+        .await
 }
 
 /// Hold a wake for `scope/name`, replacing whatever it had pending.
@@ -249,7 +339,7 @@ pub(crate) async fn arm(
             conn.execute(
                 "INSERT INTO service_wakes (scope, name, program, tool, args, due)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT (scope, name) DO UPDATE
+                 ON CONFLICT (scope, name, slot) DO UPDATE
                     SET program = excluded.program, tool = excluded.tool,
                         args = excluded.args, due = excluded.due,
                         armed = service_wakes.armed + 1, failures = 0",
@@ -271,7 +361,7 @@ pub(crate) async fn claim(store: &Store, now: i64, lease: i64, limit: i64) -> Re
                                    WHERE due <= ?1
                                      AND scope NOT IN (SELECT scope FROM held_scopes)
                                    ORDER BY due LIMIT ?3)
-                  RETURNING scope, name, program, tool, args, armed",
+                  RETURNING scope, name, program, tool, args, armed, slot",
             )?;
             let rows = statement.query_map(params![now, lease, limit], |row| {
                 Ok(Wake {
@@ -281,6 +371,7 @@ pub(crate) async fn claim(store: &Store, now: i64, lease: i64, limit: i64) -> Re
                     tool: row.get(3)?,
                     args: row.get(4)?,
                     armed: row.get(5)?,
+                    slot: row.get(6)?,
                 })
             })?;
             rows.collect()
@@ -288,23 +379,44 @@ pub(crate) async fn claim(store: &Store, now: i64, lease: i64, limit: i64) -> Re
         .await
 }
 
-/// Settle a fired wake: drop it, or with `retry` set run it again then. Left as
+/// Settle a fired wake, at `now`. A scheduled tool's is due again a period on;
+/// a service's is dropped, or run again at `retry` when `failed`, and left as
 /// it is when it was armed again while it ran.
-pub(crate) async fn settle(store: &Store, wake: &Wake, retry: Option<i64>) -> Result<()> {
-    let (scope, name, armed) = (wake.scope.clone(), wake.name.clone(), wake.armed);
+pub(crate) async fn settle(
+    store: &Store,
+    wake: &Wake,
+    failed: bool,
+    now: i64,
+    retry: i64,
+) -> Result<()> {
+    let (scope, name, slot, armed) = (
+        wake.scope.clone(),
+        wake.name.clone(),
+        wake.slot.clone(),
+        wake.armed,
+    );
     store
         .run(move |conn| {
-            match retry {
-                None => conn.execute(
-                    "DELETE FROM service_wakes WHERE scope = ?1 AND name = ?2 AND armed = ?3",
-                    params![scope, name, armed],
-                )?,
-                Some(due) => conn.execute(
+            if !slot.is_empty() {
+                conn.execute(
+                    "UPDATE service_wakes
+                        SET due = ?4 + every, failures = IIF(?5, failures + 1, 0)
+                      WHERE scope = ?1 AND name = ?2 AND slot = ?3",
+                    params![scope, name, slot, now, failed],
+                )?;
+            } else if failed {
+                conn.execute(
                     "UPDATE service_wakes SET due = ?4, failures = failures + 1
-                      WHERE scope = ?1 AND name = ?2 AND armed = ?3",
-                    params![scope, name, armed, due],
-                )?,
-            };
+                      WHERE scope = ?1 AND name = ?2 AND slot = '' AND armed = ?3",
+                    params![scope, name, armed, retry],
+                )?;
+            } else {
+                conn.execute(
+                    "DELETE FROM service_wakes
+                      WHERE scope = ?1 AND name = ?2 AND slot = '' AND armed = ?3",
+                    params![scope, name, armed],
+                )?;
+            }
             Ok(())
         })
         .await
@@ -317,7 +429,7 @@ pub(crate) async fn scheduled(store: &Store, scope: &str, program: &str) -> Resu
     store
         .run(move |conn| {
             let mut statement = conn.prepare(
-                "SELECT tool, args, due, name, failures FROM service_wakes
+                "SELECT tool, args, due, name, failures, every, slot <> '' FROM service_wakes
                   WHERE scope = ?1 AND program = ?2
                   ORDER BY due",
             )?;
@@ -325,8 +437,10 @@ pub(crate) async fn scheduled(store: &Store, scope: &str, program: &str) -> Resu
                 Ok(Scheduled {
                     tool: row.get(0)?,
                     args: row.get(1)?,
-                    due: row.get::<_, i64>(2)? as u64,
+                    due: row.get::<_, Option<i64>>(2)?.map(|due| due as u64),
+                    scheduled: row.get(6)?,
                     by: row.get(3)?,
+                    every: row.get::<_, Option<i64>>(5)?.map(|every| every as u64),
                     failures: row.get::<_, i64>(4)? as u64,
                     last: None,
                 })
@@ -347,7 +461,9 @@ pub(crate) async fn wakes(store: &Store) -> Result<Vec<(Wake, i64)>> {
     store
         .run(|conn| {
             let mut statement = conn.prepare(
-                "SELECT scope, name, program, tool, args, armed, due FROM service_wakes
+                "SELECT scope, name, program, tool, args, armed, slot, due
+                   FROM service_wakes
+                  WHERE due IS NOT NULL
                   ORDER BY due",
             )?;
             let rows = statement.query_map([], |row| {
@@ -359,8 +475,9 @@ pub(crate) async fn wakes(store: &Store) -> Result<Vec<(Wake, i64)>> {
                         tool: row.get(3)?,
                         args: row.get(4)?,
                         armed: row.get(5)?,
+                        slot: row.get(6)?,
                     },
-                    row.get(6)?,
+                    row.get(7)?,
                 ))
             })?;
             rows.collect()

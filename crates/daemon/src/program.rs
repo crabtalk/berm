@@ -5,19 +5,21 @@ use axum::http::StatusCode;
 use berm::Program;
 use berm_api::{Break, host::Deploy};
 use berm_host::{Denied, deny};
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 impl Service {
     /// Make the tools of `image` reachable under `name`, answering with how it
     /// breaks callers of the program it replaced. Refused as the host refuses
     /// a deploy: a tool made public that `public` does not confirm, or, unless
-    /// `force`, a break of what a caller used.
+    /// `force`, a break of what a caller used or a period its owner set that
+    /// `schedule` undoes.
     pub async fn deploy(
         &self,
         name: &str,
         image: Vec<u8>,
         public: &[String],
         force: bool,
+        schedule: Option<BTreeMap<String, u64>>,
     ) -> Result<(Arc<Program>, Vec<Break>), Denied> {
         validate(name)?;
         let replaced = self.get(name);
@@ -31,6 +33,7 @@ impl Service {
                     digest,
                     public: public.to_vec(),
                     force,
+                    schedule,
                 },
             )
             .await?;

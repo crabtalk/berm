@@ -14,7 +14,7 @@ use axum::{
     routing::{get, post, put},
 };
 use berm_api::{
-    Budget, Deployed, DryRun, Price, Program as Wire, Runtime, Terms,
+    Budget, Deployed, DryRun, Listing, Period, Price, Program as Wire, Runtime, Terms,
     host::{self, CallPage, Caller, Metered, Page},
 };
 use berm_host::{Denied, deny};
@@ -41,8 +41,9 @@ pub fn router(service: Arc<Service>) -> Router {
         .route("/programs", get(list))
         .route(
             "/programs/{name}",
-            get(inspect).put(deploy).delete(undeploy),
+            get(listing).put(deploy).delete(undeploy),
         )
+        .route("/programs/{name}/idl", get(inspect))
         .route("/programs/{name}/runtime", get(runtime))
         .route("/programs/{name}/tools/{tool}", post(call).get(query))
         .route("/programs/{name}/tools/{tool}/dry", post(dry))
@@ -53,6 +54,7 @@ pub fn router(service: Arc<Service>) -> Router {
         .route("/programs/{name}/terms", get(terms))
         .route("/programs/{name}/tools/{tool}/budget", put(budget))
         .route("/programs/{name}/tools/{tool}/price", put(price))
+        .route("/programs/{name}/tools/{tool}/schedule", put(every))
         .route_service("/mcp", mcp)
         .with_state(service)
 }
@@ -65,6 +67,14 @@ async fn list(State(service): State<Arc<Service>>) -> Json<Vec<Wire>> {
             .map(|one| one.idl(&one.name))
             .collect(),
     )
+}
+
+/// A program as anyone it is visible to sees it.
+async fn listing(
+    State(service): State<Arc<Service>>,
+    Path(name): Path<String>,
+) -> Result<Json<Listing>, Denied> {
+    Ok(Json(service.host.listing(&name).await?))
 }
 
 async fn inspect(
@@ -118,14 +128,26 @@ async fn price(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// `?public=a,b&force=true` on a deploy: the tools it may make public, and
-/// whether to deploy over the breaks callers would see.
+/// Set a scheduled tool's period, until a deploy's config sets another.
+async fn every(
+    State(service): State<Arc<Service>>,
+    Path((name, tool)): Path<(String, String)>,
+    Json(Period { every }): Json<Period>,
+) -> Result<StatusCode, Denied> {
+    service.host.set_every(&name, &tool, every).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `?public=a,b&force=true&schedule=tick:300000` on a deploy: the tools it may
+/// make public, whether to deploy over what it would break or undo, and each
+/// scheduled tool's period in milliseconds, when the deploy sets them.
 #[derive(Deserialize)]
 struct Confirmed {
     #[serde(default)]
     public: String,
     #[serde(default)]
     force: bool,
+    schedule: Option<String>,
 }
 
 /// Deploy the image in the body under `name`. `PUT` because the name is the
@@ -142,8 +164,28 @@ async fn deploy(
         .filter(|tool| !tool.is_empty())
         .map(str::to_owned)
         .collect();
+    let schedule = match &confirmed.schedule {
+        Some(schedule) => Some(
+            schedule
+                .split(',')
+                .filter(|entry| !entry.is_empty())
+                .map(|entry| {
+                    entry
+                        .split_once(':')
+                        .and_then(|(tool, every)| Some((tool.to_owned(), every.parse().ok()?)))
+                        .ok_or_else(|| {
+                            deny(
+                                StatusCode::BAD_REQUEST,
+                                format!("{entry:?} is not `tool:milliseconds`"),
+                            )
+                        })
+                })
+                .collect::<Result<_, _>>()?,
+        ),
+        None => None,
+    };
     let (deployed, breaks) = service
-        .deploy(&name, image.to_vec(), &public, confirmed.force)
+        .deploy(&name, image.to_vec(), &public, confirmed.force, schedule)
         .await?;
     Ok(Json(Deployed {
         program: deployed.idl(&name),

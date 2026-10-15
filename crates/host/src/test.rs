@@ -175,7 +175,8 @@ impl TestHost {
         self.clock.0.fetch_add(by, Ordering::Relaxed);
     }
 
-    /// Run `image` as `service`, every public tool confirmed.
+    /// Run `image` as `service`, every public tool confirmed and each scheduled
+    /// tool without a period.
     pub async fn deploy(&self, service: &str, image: &[u8]) -> Result<Arc<Program>> {
         let manifest = Manifest::from_image(image)?;
         let digest = format!("sha256:{}", berm::digest(image));
@@ -198,6 +199,7 @@ impl TestHost {
                         .map(|tool| tool.name.clone())
                         .collect(),
                     force: true,
+                    schedule: None,
                 },
             )
             .await?)

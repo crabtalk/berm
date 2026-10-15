@@ -11,8 +11,8 @@ use crate::{
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use berm::{Budget, Dry, Meters, Program, Refused};
 use berm_api::{
-    Logged, Output, Terms, ToolTerms,
-    host::{self as wire, Caller, Link, Metered, Reply, Route, Served, Usage, Used},
+    Listing, Logged, MIN_EVERY, Output, Terms, ToolTerms,
+    host::{self as wire, Caller, Link, Metered, Reply, Route, Usage, Used},
 };
 use std::{
     sync::Arc,
@@ -27,6 +27,15 @@ impl<E: Env> Host<E> {
     pub async fn idl(&self, service: &str) -> Result<berm_api::Program, Denied> {
         let (program, _) = self.deployed(service).await?;
         Ok(program.idl(host::split(service).1))
+    }
+
+    /// `service` as anyone it is visible to sees it.
+    pub async fn listing(&self, service: &str) -> Result<Listing, Denied> {
+        let program = self.idl(service).await?;
+        self.flush().await?;
+        let (scope, name) = host::split(service);
+        let served = usage::served(&self.store, scope, name, usage::seconds(&self.now)).await?;
+        Ok(Listing { program, served })
     }
 
     /// `service`'s runtime, for its owners.
@@ -110,6 +119,35 @@ impl<E: Env> Host<E> {
             .terms
             .set_price(&self.store, service, tool, micros)
             .await?)
+    }
+
+    /// Call scheduled tool `tool` of `service` every `every` milliseconds,
+    /// from now when it changes; `None` stops it. Kept until a deploy's config
+    /// sets another.
+    pub async fn set_every(
+        &self,
+        service: &str,
+        tool: &str,
+        every: Option<u64>,
+    ) -> Result<(), Denied> {
+        self.deployed(service).await?;
+        if every.is_some_and(|every| every < MIN_EVERY) {
+            return Err(deny(
+                StatusCode::BAD_REQUEST,
+                format!("a tool is scheduled every {MIN_EVERY} ms at most often"),
+            ));
+        }
+        let (scope, name) = host::split(service);
+        let now = (self.now)() as i64;
+        let every = every.map(|every| every as i64);
+        if !service::set_every(&self.store, scope, name, tool, every, now).await? {
+            return Err(deny(
+                StatusCode::NOT_FOUND,
+                format!("the service has no scheduled tool named {tool:?}"),
+            ));
+        }
+        self.waking.notify_one();
+        Ok(())
     }
 
     /// Refused unless `service` is deployed and exports `tool`.
@@ -290,14 +328,6 @@ impl<E: Env> Host<E> {
             ));
         }
         Ok(())
-    }
-
-    /// What `service` served callers from outside its scope.
-    pub async fn served(&self, service: &str) -> Result<Served, Denied> {
-        self.deployed(service).await?;
-        self.flush().await?;
-        let (scope, name) = host::split(service);
-        Ok(usage::served(&self.store, scope, name, usage::seconds(&self.now)).await?)
     }
 
     /// Who uses `service`.

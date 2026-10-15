@@ -32,7 +32,7 @@ use berm::{
     },
 };
 use berm_api::{
-    Budget, Manifest, Surface,
+    Budget, MIN_EVERY, Manifest, Surface,
     host::{self, Deploy, Reply, Used},
 };
 use parking_lot::Mutex;
@@ -493,6 +493,7 @@ impl<E: Env> Host<E> {
             digest,
             public,
             force,
+            schedule,
         } = deploy;
         let image = self
             .images
@@ -557,6 +558,63 @@ impl<E: Env> Host<E> {
                     unconfirmed.join(", ")
                 ),
             ));
+        }
+        let scheduled: Vec<String> = manifest
+            .tools
+            .iter()
+            .filter(|spec| spec.scheduled)
+            .map(|spec| spec.name.clone())
+            .collect();
+        if let Some(schedule) = &schedule {
+            for (tool, every) in schedule {
+                if !scheduled.contains(tool) {
+                    return Err(deny(
+                        StatusCode::BAD_REQUEST,
+                        format!(
+                            "`schedule` names {tool:?}, which is not a scheduled tool of this image"
+                        ),
+                    ));
+                }
+                if *every < MIN_EVERY {
+                    return Err(deny(
+                        StatusCode::BAD_REQUEST,
+                        format!(
+                            "{tool:?} is scheduled every {}; a host schedules a tool every {} at most often",
+                            berm_api::format_period(*every),
+                            berm_api::format_period(MIN_EVERY)
+                        ),
+                    ));
+                }
+            }
+            if !force {
+                let undone: Vec<String> = service::edited(&self.store, scope, name)
+                    .await?
+                    .into_iter()
+                    .filter(|(tool, every, _)| {
+                        scheduled.contains(tool)
+                            && schedule.get(tool).map(|every| *every as i64) != *every
+                    })
+                    .map(|(tool, every, _)| {
+                        let period = |every: Option<u64>| {
+                            every.map_or_else(|| "none".to_owned(), berm_api::format_period)
+                        };
+                        format!(
+                            "{tool}: the deploy sets {}, its owner set {}",
+                            period(schedule.get(&tool).copied()),
+                            period(every.map(|every| every as u64))
+                        )
+                    })
+                    .collect();
+                if !undone.is_empty() {
+                    return Err(deny(
+                        StatusCode::CONFLICT,
+                        format!(
+                            "this deploy undoes the schedule its owner set since the last deploy: {}. Take the owner's periods into the deploy's config, or deploy with `force` to override",
+                            undone.join(" / ")
+                        ),
+                    ));
+                }
+            }
         }
         if let Some(current) = current
             && !force
@@ -629,9 +687,12 @@ impl<E: Env> Host<E> {
             &digest,
             &manifest.version,
             deprecated,
-            usage::seconds(&self.now),
+            scheduled,
+            schedule,
+            (self.now)() as i64,
         )
         .await?;
+        self.waking.notify_one();
         Ok(program)
     }
 

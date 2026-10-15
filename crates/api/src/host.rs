@@ -44,9 +44,15 @@ pub struct Deploy {
     /// not.
     #[serde(default)]
     pub public: Vec<String>,
-    /// Deploy even when it breaks what callers used.
+    /// Deploy even when it breaks what callers used, or undoes a period its
+    /// owner set.
     #[serde(default)]
     pub force: bool,
+    /// Milliseconds between the calls of each scheduled tool, as the deploy's
+    /// config sets them; a scheduled tool it leaves out has no period. `None`
+    /// leaves each period as its owner set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<BTreeMap<String, u64>>,
 }
 
 /// Where a service this host does not run lives: the peer it runs on.
@@ -269,10 +275,19 @@ pub struct Scheduled {
     pub tool: String,
     /// The arguments it calls the tool with, as JSON text.
     pub args: String,
-    /// When it fires, in epoch milliseconds.
-    pub due: u64,
-    /// The service that armed it, by its name.
+    /// When it fires, in epoch milliseconds; `None` for a scheduled tool
+    /// with no period.
+    pub due: Option<u64>,
+    /// A tool its manifest marks `#[scheduled]`, rather than a wake a service
+    /// armed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub scheduled: bool,
+    /// The service that armed it, by its name. A scheduled tool's is the
+    /// service itself.
     pub by: String,
+    /// For a scheduled tool, milliseconds between its calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every: Option<u64>,
     /// Times it failed in a row since it was last armed.
     pub failures: u64,
     /// The last time a wake armed by the same service ran this tool, in the

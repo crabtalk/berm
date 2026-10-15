@@ -105,6 +105,14 @@ program, and what berm's own tests run against.
 `berm.set`, `berm.emit` and `berm.call.after` are refused, so it leaves nothing
 for the host to commit. A host may serve it over `GET`.
 
+## Schedules
+
+`#[scheduled]` marks a tool its host calls every period, whatever the last call
+ended as, and not while its owner is held. A scheduled tool takes no parameters
+and is not `#[public]`. Its period is set by the deploy, from `[schedule]` in
+`berm.toml`, or by its owner while it runs; until one is set it is not called,
+and a host refuses one under a minute.
+
 ## Events
 
 An `#[event]` struct anywhere in the program's crate is a typed log, and a

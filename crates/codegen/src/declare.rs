@@ -103,7 +103,6 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
         }
     });
 
-
     let calls = tools.iter().map(|tool| {
         let tool_name = tool["name"].as_str().unwrap_or_default();
         let ident = field_ident(tool_name);

@@ -170,6 +170,29 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX idx_service_logs_at ON service_logs (at);
     DROP TABLE service_positions;",
     "ALTER TABLE service_meters ADD COLUMN logged INTEGER NOT NULL DEFAULT 0;",
+    // `slot` is '' for the wake a service arms, and a scheduled tool's name
+    // for that tool's: `every` is its period, `declared` the one the last
+    // deploy's config set, and `due` is null while it has none.
+    "CREATE TABLE service_wakes_new (
+        scope TEXT NOT NULL,
+        name TEXT NOT NULL,
+        slot TEXT NOT NULL DEFAULT '',
+        program TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        args TEXT NOT NULL,
+        due INTEGER,
+        armed INTEGER NOT NULL DEFAULT 1,
+        failures INTEGER NOT NULL DEFAULT 0,
+        every INTEGER,
+        declared INTEGER,
+        PRIMARY KEY (scope, name, slot),
+        FOREIGN KEY (scope, name) REFERENCES services (scope, name) ON DELETE CASCADE
+    );
+    INSERT INTO service_wakes_new (scope, name, program, tool, args, due, armed, failures)
+        SELECT scope, name, program, tool, args, due, armed, failures FROM service_wakes;
+    DROP TABLE service_wakes;
+    ALTER TABLE service_wakes_new RENAME TO service_wakes;
+    CREATE INDEX idx_service_wakes_due ON service_wakes (due);",
 ];
 
 /// One connection, shared. Every statement runs off the async workers.

@@ -1,5 +1,6 @@
-//! Time as a source of calls: `berm.call.after` holds one wake per service in
-//! `service_wakes`, and the timer calls each when it is due.
+//! Time as a source of calls: `service_wakes` holds the one wake each service
+//! arms through `berm.call.after` and one for each tool its manifest
+//! schedules, and the timer calls each when it is due.
 
 use crate::{
     env::{Env, Peers},
@@ -206,18 +207,19 @@ impl<E: Env> Host<E> {
             }
             Result::<()>::Ok(())
         };
-        let retry = match fired.await {
-            Ok(()) => None,
+        let failed = match fired.await {
+            Ok(()) => false,
             Err(e) => {
                 tracing::warn!(
                     service = wake.name,
                     program = wake.program,
                     "wake failed: {e:#}"
                 );
-                Some((self.now)() as i64 + RETRY)
+                true
             }
         };
-        if let Err(e) = service::settle(&self.store, &wake, retry).await {
+        let now = (self.now)() as i64;
+        if let Err(e) = service::settle(&self.store, &wake, failed, now, now + RETRY).await {
             tracing::error!(service = wake.name, "settling a wake failed: {e:#}");
         }
         ran

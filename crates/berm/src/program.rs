@@ -112,6 +112,9 @@ impl Program {
                     tool.name
                 );
             }
+            if tool.scheduled && tool.public {
+                bail!("tool {:?} is scheduled, and cannot be public", tool.name);
+            }
         }
 
         Ok(Self {

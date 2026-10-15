@@ -248,6 +248,14 @@ pub struct Deployed {
     pub breaks: Vec<String>,
 }
 
+/// A deployed program as anyone it is visible to sees it: its IDL and what it
+/// served.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Listing {
+    pub program: Program,
+    pub served: host::Served,
+}
+
 /// What a service's owner set for calling it, as the host answering holds it.
 /// Changes live, from the next call.
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -328,6 +336,14 @@ impl DryRun {
     }
 }
 
+/// A scheduled tool's period, as its owner sets it.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Period {
+    /// Milliseconds between its calls; `None` stops them.
+    pub every: Option<u64>,
+}
+
 /// A tool's price, as its owner sets it.
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -361,12 +377,16 @@ pub struct ToolSpec {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deprecated: bool,
     /// Callable by accounts and other programs. A tool that is not is only
-    /// called by its host, for the program's own wakes.
+    /// called by its host, for the program's own wakes and schedules.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub public: bool,
     /// Which callers a public tool takes. `None` takes both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callers: Option<Callers>,
+    /// Called by its host on a schedule, every period its deploy or its owner
+    /// sets. A scheduled tool is not public.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub scheduled: bool,
 }
 
 /// One kind of caller.
@@ -412,6 +432,38 @@ impl From<Output> for Result<String, String> {
 /// Instructions an invocation executes before those past them count as
 /// [`Meter::overage`].
 pub const INCLUDED_INSTRUCTIONS: u64 = 1_000_000;
+
+/// The shortest period a host schedules a tool at, in milliseconds.
+pub const MIN_EVERY: u64 = 60_000;
+
+/// A period such as `"5m"` in milliseconds: a whole number of `s`, `m`, `h` or
+/// `d`.
+pub fn parse_period(text: &str) -> Result<u64> {
+    let unit = match text.chars().last() {
+        Some('s') => 1_000,
+        Some('m') => 60_000,
+        Some('h') => 3_600_000,
+        Some('d') => 86_400_000,
+        _ => bail!("{text:?} is not a period such as \"30s\", \"5m\", \"1h\" or \"1d\""),
+    };
+    let count: u64 = text[..text.len() - 1]
+        .parse()
+        .with_context(|| format!("{text:?} is not a whole number of its unit"))?;
+    count
+        .checked_mul(unit)
+        .with_context(|| format!("{text:?} is too long a period"))
+}
+
+/// `ms` as the largest whole unit it is: `5m`, `90s`, `1500ms`.
+pub fn format_period(ms: u64) -> String {
+    match ms {
+        ms if ms % 86_400_000 == 0 => format!("{}d", ms / 86_400_000),
+        ms if ms % 3_600_000 == 0 => format!("{}h", ms / 3_600_000),
+        ms if ms % 60_000 == 0 => format!("{}m", ms / 60_000),
+        ms if ms % 1000 == 0 => format!("{}s", ms / 1000),
+        ms => format!("{ms}ms"),
+    }
+}
 
 /// The most bytes one log may hold, its data and topics together.
 pub const MAX_LOG: usize = 4096;

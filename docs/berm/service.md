@@ -22,8 +22,11 @@ The control API is resource-shaped — `GET`, `PUT` and `DELETE` on
 `/programs/{name}` — for the reason dockerd's is: the clients are a UI, a CLI,
 and `curl`, and a program is a resource.
 
-`GET /programs/{name}` answers its IDL: name, version, digest, package fields
-and public tools, what a caller needs. `GET /programs/{name}/runtime` answers
+`GET /programs/{name}` answers the program as anyone it is visible to sees it:
+its IDL under `program`, and under `served` the calls of its tools from outside
+that ended done, per day over the last 30 days and in total.
+`GET /programs/{name}/idl` answers the IDL alone: name, version, digest, package
+fields and public tools, what a caller needs. `GET /programs/{name}/runtime` answers
 how it runs: its other tools, `deps`, `events`, and what of `deps` nothing here
 answers to. A deploy answers the IDL beside how it broke callers of the program
 it replaced.
