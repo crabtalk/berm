@@ -105,13 +105,14 @@ program, and what berm's own tests run against.
 `berm.set`, `berm.emit` and `berm.call.after` are refused, so it leaves nothing
 for the host to commit. A host may serve it over `GET`.
 
-## Schedules
+## Crons
 
-`#[scheduled]` marks a tool its host calls every period, whatever the last call
-ended as, and not while its owner is held. A scheduled tool takes no parameters
-and is not `#[public]`. Its period is set by the deploy, from `[schedule]` in
-`berm.toml`, or by its owner while it runs; until one is set it is not called,
-and a host refuses one under a minute.
+`#[cron]` marks a tool its host calls each time its cron expression fires,
+whatever the last call ended as, and not while its owner is held. A cron tool
+takes no parameters and is not `#[public]`. Its expression is five fields,
+minute to day of week, read in UTC: `*/5 * * * *`. The deploy sets it, from
+`[crons]` in `berm.toml`, or its owner does while it runs; until one is set it
+is not called.
 
 ## Events
 

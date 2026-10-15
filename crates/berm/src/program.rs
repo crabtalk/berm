@@ -112,8 +112,8 @@ impl Program {
                     tool.name
                 );
             }
-            if tool.scheduled && tool.public {
-                bail!("tool {:?} is scheduled, and cannot be public", tool.name);
+            if tool.cron && tool.public {
+                bail!("tool {:?} is a cron tool, and cannot be public", tool.name);
             }
         }
 

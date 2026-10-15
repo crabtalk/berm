@@ -2,7 +2,7 @@
 //! and reading and setting what each service is.
 
 use crate::{
-    Denied, calls, deny,
+    Denied, calls, cron, deny,
     env::{Admit, Env},
     host::{self, Host},
     meter, service,
@@ -11,7 +11,7 @@ use crate::{
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use berm::{Budget, Dry, Meters, Program, Refused};
 use berm_api::{
-    Listing, Logged, MIN_EVERY, Output, Terms, ToolTerms,
+    Listing, Logged, Output, Terms, ToolTerms,
     host::{self as wire, Caller, Link, Metered, Reply, Route, Usage, Used},
 };
 use std::{
@@ -121,29 +121,27 @@ impl<E: Env> Host<E> {
             .await?)
     }
 
-    /// Call scheduled tool `tool` of `service` every `every` milliseconds,
-    /// from now when it changes; `None` stops it. Kept until a deploy's config
+    /// Call cron tool `tool` of `service` when `cron` fires, from its next
+    /// firing when it changes; `None` stops it. Kept until a deploy's config
     /// sets another.
-    pub async fn set_every(
+    pub async fn set_cron(
         &self,
         service: &str,
         tool: &str,
-        every: Option<u64>,
+        cron: Option<String>,
     ) -> Result<(), Denied> {
         self.deployed(service).await?;
-        if every.is_some_and(|every| every < MIN_EVERY) {
-            return Err(deny(
-                StatusCode::BAD_REQUEST,
-                format!("a tool is scheduled every {MIN_EVERY} ms at most often"),
-            ));
-        }
-        let (scope, name) = host::split(service);
         let now = (self.now)() as i64;
-        let every = every.map(|every| every as i64);
-        if !service::set_every(&self.store, scope, name, tool, every, now).await? {
+        let due = cron
+            .as_deref()
+            .map(|cron| cron::next(cron, now))
+            .transpose()
+            .map_err(|e| deny(StatusCode::BAD_REQUEST, format!("{e:#}")))?;
+        let (scope, name) = host::split(service);
+        if !service::set_cron(&self.store, scope, name, tool, cron, due).await? {
             return Err(deny(
                 StatusCode::NOT_FOUND,
-                format!("the service has no scheduled tool named {tool:?}"),
+                format!("the service has no cron tool named {tool:?}"),
             ));
         }
         self.waking.notify_one();
@@ -370,13 +368,24 @@ impl<E: Env> Host<E> {
         Ok((logs, page.link(total)))
     }
 
-    /// What `service` is scheduled to run.
-    pub async fn schedule(&self, service: &str) -> Result<wire::Schedule, Denied> {
+    /// `service`'s cron tools.
+    pub async fn crons(&self, service: &str) -> Result<wire::Crons, Denied> {
         self.deployed(service).await?;
         self.flush().await?;
         let (scope, name) = host::split(service);
-        Ok(wire::Schedule {
-            wakes: service::scheduled(&self.store, scope, name).await?,
+        Ok(wire::Crons {
+            crons: service::crons(&self.store, scope, name).await?,
+            held: self.holds.holds(scope),
+        })
+    }
+
+    /// The wakes armed to call `service`'s tools that have not run.
+    pub async fn armed(&self, service: &str) -> Result<wire::Wakes, Denied> {
+        self.deployed(service).await?;
+        self.flush().await?;
+        let (scope, name) = host::split(service);
+        Ok(wire::Wakes {
+            wakes: service::armed(&self.store, scope, name).await?,
             held: self.holds.holds(scope),
         })
     }

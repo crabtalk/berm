@@ -1,6 +1,6 @@
 //! Time as a source of calls: `service_wakes` holds the one wake each service
-//! arms through `berm.call.after` and one for each tool its manifest
-//! schedules, and the timer calls each when it is due.
+//! arms through `berm.call.after` and one for each cron tool of its manifest,
+//! and the timer calls each when it is due.
 
 use crate::{
     env::{Env, Peers},

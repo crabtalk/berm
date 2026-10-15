@@ -267,8 +267,8 @@ struct Tool {
     public: bool,
     /// From `#[callers(services)]` or `#[callers(accounts)]`.
     callers: Option<String>,
-    /// From `#[scheduled]`.
-    scheduled: bool,
+    /// From `#[cron]`.
+    cron: bool,
 }
 
 /// One parameter: a property of the tool's arguments.
@@ -303,7 +303,7 @@ struct Param {
 /// JSON, and `()` replies nothing.
 ///
 /// **A tool is internal unless marked `#[public]`.** An internal tool is only
-/// called by the host, for the program's own wakes and schedules. A
+/// called by the host, for the program's own wakes and crons. A
 /// `#[public]` tool can be called by any account the host authenticates and
 /// any program allowed to reach this one, with arguments the caller chooses.
 /// `berm_lang::caller()` says who called. `#[callers(services)]` limits a
@@ -311,8 +311,8 @@ struct Param {
 /// `#[query]` marks it read-only: the host refuses its writes, logs and wakes.
 /// `#[deprecated]` on a tool marks it so in the manifest.
 ///
-/// `#[scheduled]` marks a tool its host calls on a schedule, every period its
-/// deploy or its owner sets. A scheduled tool takes no parameters and is not
+/// `#[cron]` marks a tool its host calls when the cron expression its deploy
+/// or its owner sets fires. A cron tool takes no parameters and is not
 /// `#[public]`.
 #[proc_macro_attribute]
 pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
@@ -479,7 +479,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     let mut query = false;
     let mut public = false;
     let mut callers = None;
-    let mut scheduled = false;
+    let mut cron = false;
     let deprecated = function
         .attrs
         .iter()
@@ -504,16 +504,16 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
             }
             callers = Some(kind.to_string());
         }
-        if attribute.path().is_ident("scheduled") {
+        if attribute.path().is_ident("cron") {
             attribute.meta.require_path_only()?;
-            scheduled = true;
+            cron = true;
         }
     }
 
     // These exist for this macro to read; leaving them would reach the
     // compiler as unknown attributes.
     function.attrs.retain(|a| {
-        !["query", "public", "callers", "deprecated", "scheduled"]
+        !["query", "public", "callers", "deprecated", "cron"]
             .iter()
             .any(|name| a.path().is_ident(name))
     });
@@ -545,16 +545,16 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         });
     }
 
-    if scheduled && public {
+    if cron && public {
         return Err(syn::Error::new_spanned(
             &function.sig.ident,
-            "a scheduled tool is called by its host, and cannot be `#[public]`",
+            "a cron tool is called by its host, and cannot be `#[public]`",
         ));
     }
-    if scheduled && !params.is_empty() {
+    if cron && !params.is_empty() {
         return Err(syn::Error::new_spanned(
             &function.sig.inputs,
-            "a scheduled tool is called with no arguments",
+            "a cron tool is called with no arguments",
         ));
     }
 
@@ -568,7 +568,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         deprecated,
         public,
         callers,
-        scheduled,
+        cron,
     })
 }
 
@@ -727,8 +727,8 @@ fn manifest(config: &Config, tools: &[Tool]) -> Vec<proc_macro2::TokenStream> {
         if let Some(kind) = &tool.callers {
             out.text(&format!(r#","callers":"{kind}""#));
         }
-        if tool.scheduled {
-            out.text(r#","scheduled":true"#);
+        if tool.cron {
+            out.text(r#","cron":true"#);
         }
         out.text("}");
     }

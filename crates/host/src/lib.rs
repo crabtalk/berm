@@ -19,6 +19,7 @@ mod call;
 mod calls;
 mod commit;
 mod config;
+mod cron;
 mod env;
 mod fetch;
 mod hold;

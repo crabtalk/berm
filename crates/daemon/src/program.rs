@@ -11,15 +11,15 @@ impl Service {
     /// Make the tools of `image` reachable under `name`, answering with how it
     /// breaks callers of the program it replaced. Refused as the host refuses
     /// a deploy: a tool made public that `public` does not confirm, or, unless
-    /// `force`, a break of what a caller used or a period its owner set that
-    /// `schedule` undoes.
+    /// `force`, a break of what a caller used or a cron its owner set that
+    /// `crons` undoes.
     pub async fn deploy(
         &self,
         name: &str,
         image: Vec<u8>,
         public: &[String],
         force: bool,
-        schedule: Option<BTreeMap<String, u64>>,
+        crons: Option<BTreeMap<String, String>>,
     ) -> Result<(Arc<Program>, Vec<Break>), Denied> {
         validate(name)?;
         let replaced = self.get(name);
@@ -33,7 +33,7 @@ impl Service {
                     digest,
                     public: public.to_vec(),
                     force,
-                    schedule,
+                    crons,
                 },
             )
             .await?;

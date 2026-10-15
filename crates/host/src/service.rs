@@ -1,8 +1,11 @@
 //! The `services` table and what a service's calls commit beside it.
 
-use crate::{calls, host, store::Store};
+use crate::{calls, cron, host, store::Store};
 use anyhow::Result;
-use berm_api::{Logged, host::Scheduled};
+use berm_api::{
+    Logged,
+    host::{self as wire, CronJob},
+};
 use rusqlite::{OptionalExtension, Transaction, params};
 use std::collections::BTreeMap;
 
@@ -84,12 +87,26 @@ pub(crate) async fn install(
     digest: &str,
     version: &str,
     deprecated: Vec<String>,
-    scheduled: Vec<String>,
-    schedule: Option<BTreeMap<String, u64>>,
+    cron_tools: Vec<String>,
+    crons: Option<BTreeMap<String, String>>,
     now: i64,
 ) -> Result<()> {
     // `now` is in milliseconds; a deprecation's `since` is in seconds.
     let row = [scope, name, reference, digest, version].map(str::to_owned);
+    // Each cron tool with the expression the deploy sets and its next firing,
+    // or `None` when the deploy leaves them as its owners set them.
+    let declared = crons
+        .map(|crons| {
+            cron_tools
+                .iter()
+                .map(|tool| {
+                    let cron = crons.get(tool).cloned();
+                    let due = cron.as_deref().map(|cron| cron::next(cron, now)).transpose()?;
+                    Ok((tool.clone(), cron, due))
+                })
+                .collect::<Result<Vec<_>>>()
+        })
+        .transpose()?;
     store
         .run(move |conn| {
             let [scope, name, reference, digest, version] = row;
@@ -123,27 +140,28 @@ pub(crate) async fn install(
                 params![
                     scope,
                     name,
-                    serde_json::to_string(&scheduled).unwrap_or_default()
+                    serde_json::to_string(&cron_tools).unwrap_or_default()
                 ],
             )?;
-            for tool in &scheduled {
-                match &schedule {
-                    // A period that changes is due now; one that stays keeps
-                    // its due.
-                    Some(schedule) => {
-                        let every = schedule.get(tool).map(|every| *every as i64);
+            match &declared {
+                // An expression that changes is due at its next firing; one
+                // that stays keeps its due.
+                Some(declared) => {
+                    for (tool, cron, due) in declared {
                         tx.execute(
                             "INSERT INTO service_wakes
-                                    (scope, name, slot, program, tool, args, due, every, declared)
-                             VALUES (?1, ?2, ?3, ?2, ?3, '', IIF(?4 IS NULL, NULL, ?5), ?4, ?4)
+                                    (scope, name, slot, program, tool, args, due, cron, declared)
+                             VALUES (?1, ?2, ?3, ?2, ?3, '', ?5, ?4, ?4)
                              ON CONFLICT (scope, name, slot) DO UPDATE
-                                SET due = IIF(service_wakes.every IS excluded.every,
+                                SET due = IIF(service_wakes.cron IS excluded.cron,
                                               service_wakes.due, excluded.due),
-                                    every = excluded.every, declared = excluded.declared",
-                            params![scope, name, tool, every, now],
+                                    cron = excluded.cron, declared = excluded.declared",
+                            params![scope, name, tool, cron, due],
                         )?;
                     }
-                    None => {
+                }
+                None => {
+                    for tool in &cron_tools {
                         tx.execute(
                             "INSERT INTO service_wakes (scope, name, slot, program, tool, args)
                              VALUES (?1, ?2, ?3, ?2, ?3, '')
@@ -271,23 +289,23 @@ pub(crate) struct Wake {
     pub tool: String,
     pub args: String,
     pub armed: i64,
-    /// For a scheduled tool, its name.
+    /// For a cron tool, its name.
     pub slot: String,
 }
 
-/// Each scheduled tool of `scope/name` whose period its owner set since the
-/// last deploy's config did: the tool, its period, and the declared one.
+/// Each cron tool of `scope/name` whose expression its owner set since the
+/// last deploy's config did: the tool, its expression, and the declared one.
 pub(crate) async fn edited(
     store: &Store,
     scope: &str,
     name: &str,
-) -> Result<Vec<(String, Option<i64>, Option<i64>)>> {
+) -> Result<Vec<(String, Option<String>, Option<String>)>> {
     let (scope, name) = (scope.to_owned(), name.to_owned());
     store
         .run(move |conn| {
             let mut statement = conn.prepare(
-                "SELECT slot, every, declared FROM service_wakes
-                  WHERE scope = ?1 AND name = ?2 AND slot <> '' AND every IS NOT declared",
+                "SELECT slot, cron, declared FROM service_wakes
+                  WHERE scope = ?1 AND name = ?2 AND slot <> '' AND cron IS NOT declared",
             )?;
             let rows = statement.query_map(params![scope, name], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -297,15 +315,16 @@ pub(crate) async fn edited(
         .await
 }
 
-/// Set scheduled tool `tool`'s period to `every`, due now when it changes;
-/// `None` stops it. `false` when `scope/name` schedules no such tool.
-pub(crate) async fn set_every(
+/// Set cron tool `tool`'s expression to `cron`, due at `due`, its next
+/// firing, when it changes; `None` stops it. `false` when `scope/name` has no
+/// such cron tool.
+pub(crate) async fn set_cron(
     store: &Store,
     scope: &str,
     name: &str,
     tool: &str,
-    every: Option<i64>,
-    now: i64,
+    cron: Option<String>,
+    due: Option<i64>,
 ) -> Result<bool> {
     let row = [scope, name, tool].map(str::to_owned);
     store
@@ -313,9 +332,9 @@ pub(crate) async fn set_every(
             let [scope, name, tool] = row;
             let set = conn.execute(
                 "UPDATE service_wakes
-                    SET due = IIF(?4 IS NULL, NULL, IIF(every IS ?4, due, ?5)), every = ?4
+                    SET due = IIF(cron IS ?4, due, ?5), cron = ?4
                   WHERE scope = ?1 AND name = ?2 AND slot = ?3",
-                params![scope, name, tool, every, now],
+                params![scope, name, tool, cron, due],
             )?;
             Ok(set == 1)
         })
@@ -379,9 +398,9 @@ pub(crate) async fn claim(store: &Store, now: i64, lease: i64, limit: i64) -> Re
         .await
 }
 
-/// Settle a fired wake, at `now`. A scheduled tool's is due again a period on;
-/// a service's is dropped, or run again at `retry` when `failed`, and left as
-/// it is when it was armed again while it ran.
+/// Settle a fired wake, at `now`. A cron tool's is due at its expression's
+/// next firing; a service's is dropped, or run again at `retry` when `failed`,
+/// and left as it is when it was armed again while it ran.
 pub(crate) async fn settle(
     store: &Store,
     wake: &Wake,
@@ -398,11 +417,20 @@ pub(crate) async fn settle(
     store
         .run(move |conn| {
             if !slot.is_empty() {
+                let expression: Option<String> = conn
+                    .query_row(
+                        "SELECT cron FROM service_wakes WHERE scope = ?1 AND name = ?2 AND slot = ?3",
+                        params![scope, name, slot],
+                        |row| row.get(0),
+                    )
+                    .optional()?
+                    .flatten();
+                let due = expression.and_then(|expression| cron::next(&expression, now).ok());
                 conn.execute(
                     "UPDATE service_wakes
-                        SET due = ?4 + every, failures = IIF(?5, failures + 1, 0)
+                        SET due = ?4, failures = IIF(?5, failures + 1, 0)
                       WHERE scope = ?1 AND name = ?2 AND slot = ?3",
-                    params![scope, name, slot, now, failed],
+                    params![scope, name, slot, due, failed],
                 )?;
             } else if failed {
                 conn.execute(
@@ -422,25 +450,52 @@ pub(crate) async fn settle(
         .await
 }
 
-/// The pending wakes that call a tool of `scope/program`, soonest first. A
-/// wake that is running is due when its lease ends.
-pub(crate) async fn scheduled(store: &Store, scope: &str, program: &str) -> Result<Vec<Scheduled>> {
+/// The cron tools of `scope/name`, by name.
+pub(crate) async fn crons(store: &Store, scope: &str, name: &str) -> Result<Vec<CronJob>> {
+    let (scope, name) = (scope.to_owned(), name.to_owned());
+    store
+        .run(move |conn| {
+            let mut statement = conn.prepare(
+                "SELECT slot, cron, due, failures FROM service_wakes
+                  WHERE scope = ?1 AND name = ?2 AND slot <> ''
+                  ORDER BY slot",
+            )?;
+            let rows = statement.query_map(params![scope, name], |row| {
+                Ok(CronJob {
+                    tool: row.get(0)?,
+                    cron: row.get(1)?,
+                    due: row.get::<_, Option<i64>>(2)?.map(|due| due as u64),
+                    failures: row.get::<_, i64>(3)? as u64,
+                    last: None,
+                })
+            })?;
+            let mut crons = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+            let caller = host::join(&scope, &name);
+            for job in &mut crons {
+                job.last = calls::last(conn, &scope, &name, &job.tool, &caller)?;
+            }
+            Ok(crons)
+        })
+        .await
+}
+
+/// The wakes armed to call a tool of `scope/program` that have not run,
+/// soonest first. A wake that is running is due when its lease ends.
+pub(crate) async fn armed(store: &Store, scope: &str, program: &str) -> Result<Vec<wire::Wake>> {
     let (scope, program) = (scope.to_owned(), program.to_owned());
     store
         .run(move |conn| {
             let mut statement = conn.prepare(
-                "SELECT tool, args, due, name, failures, every, slot <> '' FROM service_wakes
-                  WHERE scope = ?1 AND program = ?2
+                "SELECT tool, args, due, name, failures FROM service_wakes
+                  WHERE scope = ?1 AND program = ?2 AND slot = '' AND due IS NOT NULL
                   ORDER BY due",
             )?;
             let rows = statement.query_map(params![scope, program], |row| {
-                Ok(Scheduled {
+                Ok(wire::Wake {
                     tool: row.get(0)?,
                     args: row.get(1)?,
-                    due: row.get::<_, Option<i64>>(2)?.map(|due| due as u64),
-                    scheduled: row.get(6)?,
+                    due: row.get::<_, i64>(2)? as u64,
                     by: row.get(3)?,
-                    every: row.get::<_, Option<i64>>(5)?.map(|every| every as u64),
                     failures: row.get::<_, i64>(4)? as u64,
                     last: None,
                 })

@@ -6,7 +6,7 @@ use crate::{
     Denied, calls,
     commit::{self, Commits},
     config::Config,
-    deny,
+    cron, deny,
     env::{Clock, Edges, Env, Images, Peers},
     fetch,
     hold::Holds,
@@ -32,7 +32,7 @@ use berm::{
     },
 };
 use berm_api::{
-    Budget, MIN_EVERY, Manifest, Surface,
+    Budget, Manifest, Surface,
     host::{self, Deploy, Reply, Used},
 };
 use parking_lot::Mutex;
@@ -493,7 +493,7 @@ impl<E: Env> Host<E> {
             digest,
             public,
             force,
-            schedule,
+            crons,
         } = deploy;
         let image = self
             .images
@@ -559,49 +559,33 @@ impl<E: Env> Host<E> {
                 ),
             ));
         }
-        let scheduled: Vec<String> = manifest
+        let cron_tools: Vec<String> = manifest
             .tools
             .iter()
-            .filter(|spec| spec.scheduled)
+            .filter(|spec| spec.cron)
             .map(|spec| spec.name.clone())
             .collect();
-        if let Some(schedule) = &schedule {
-            for (tool, every) in schedule {
-                if !scheduled.contains(tool) {
+        if let Some(crons) = &crons {
+            for (tool, expression) in crons {
+                if !cron_tools.contains(tool) {
                     return Err(deny(
                         StatusCode::BAD_REQUEST,
-                        format!(
-                            "`schedule` names {tool:?}, which is not a scheduled tool of this image"
-                        ),
+                        format!("`crons` names {tool:?}, which is not a cron tool of this image"),
                     ));
                 }
-                if *every < MIN_EVERY {
-                    return Err(deny(
-                        StatusCode::BAD_REQUEST,
-                        format!(
-                            "{tool:?} is scheduled every {}; a host schedules a tool every {} at most often",
-                            berm_api::format_period(*every),
-                            berm_api::format_period(MIN_EVERY)
-                        ),
-                    ));
-                }
+                cron::parse(expression)
+                    .map_err(|e| deny(StatusCode::BAD_REQUEST, format!("{tool}: {e:#}")))?;
             }
             if !force {
                 let undone: Vec<String> = service::edited(&self.store, scope, name)
                     .await?
                     .into_iter()
-                    .filter(|(tool, every, _)| {
-                        scheduled.contains(tool)
-                            && schedule.get(tool).map(|every| *every as i64) != *every
-                    })
-                    .map(|(tool, every, _)| {
-                        let period = |every: Option<u64>| {
-                            every.map_or_else(|| "none".to_owned(), berm_api::format_period)
-                        };
+                    .filter(|(tool, cron, _)| cron_tools.contains(tool) && crons.get(tool) != cron.as_ref())
+                    .map(|(tool, cron, _)| {
                         format!(
                             "{tool}: the deploy sets {}, its owner set {}",
-                            period(schedule.get(&tool).copied()),
-                            period(every.map(|every| every as u64))
+                            crons.get(&tool).map_or("none", String::as_str),
+                            cron.as_deref().unwrap_or("none")
                         )
                     })
                     .collect();
@@ -609,7 +593,7 @@ impl<E: Env> Host<E> {
                     return Err(deny(
                         StatusCode::CONFLICT,
                         format!(
-                            "this deploy undoes the schedule its owner set since the last deploy: {}. Take the owner's periods into the deploy's config, or deploy with `force` to override",
+                            "this deploy undoes the crons its owner set since the last deploy: {}. Take the owner's crons into the deploy's config, or deploy with `force` to override",
                             undone.join(" / ")
                         ),
                     ));
@@ -687,8 +671,8 @@ impl<E: Env> Host<E> {
             &digest,
             &manifest.version,
             deprecated,
-            scheduled,
-            schedule,
+            cron_tools,
+            crons,
             (self.now)() as i64,
         )
         .await?;

@@ -26,6 +26,7 @@ anyhow = "1.0"
 axum = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
+croner = "4"
 linked_list_allocator = "0.10"
 object = { version = "0.40", features = ["wasm"] }
 parking_lot = "0.12"

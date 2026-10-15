@@ -3,7 +3,7 @@
 The shared host for Berm daemons, built on the Wasmtime-backed
 [`berm`](../berm) runtime.
 
-`Host<E>` manages deployed services, persistent state, logs, scheduled calls,
+`Host<E>` manages deployed services, persistent state, logs, crons and wakes,
 per-service databases, a log of each call, and usage accounting. The daemon
 authenticates callers and serves its own routes.
 

@@ -14,7 +14,7 @@ use axum::{
     routing::{get, post, put},
 };
 use berm_api::{
-    Budget, Deployed, DryRun, Listing, Period, Price, Program as Wire, Runtime, Terms,
+    Budget, Cron, Deployed, DryRun, Listing, Price, Program as Wire, Runtime, Terms,
     host::{self, CallPage, Caller, Metered, Page},
 };
 use berm_host::{Denied, deny};
@@ -49,12 +49,13 @@ pub fn router(service: Arc<Service>) -> Router {
         .route("/programs/{name}/tools/{tool}/dry", post(dry))
         .route("/programs/{name}/logs", get(logs))
         .route("/programs/{name}/calls", get(calls))
-        .route("/programs/{name}/schedule", get(schedule))
+        .route("/programs/{name}/crons", get(crons))
+        .route("/programs/{name}/wakes", get(wakes))
         .route("/programs/{name}/meters", get(meters))
         .route("/programs/{name}/terms", get(terms))
         .route("/programs/{name}/tools/{tool}/budget", put(budget))
         .route("/programs/{name}/tools/{tool}/price", put(price))
-        .route("/programs/{name}/tools/{tool}/schedule", put(every))
+        .route("/programs/{name}/tools/{tool}/cron", put(cron))
         .route_service("/mcp", mcp)
         .with_state(service)
 }
@@ -128,26 +129,27 @@ async fn price(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Set a scheduled tool's period, until a deploy's config sets another.
-async fn every(
+/// Set a cron tool's expression, until a deploy's config sets another.
+async fn cron(
     State(service): State<Arc<Service>>,
     Path((name, tool)): Path<(String, String)>,
-    Json(Period { every }): Json<Period>,
+    Json(Cron { cron }): Json<Cron>,
 ) -> Result<StatusCode, Denied> {
-    service.host.set_every(&name, &tool, every).await?;
+    service.host.set_cron(&name, &tool, cron).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// `?public=a,b&force=true&schedule=tick:300000` on a deploy: the tools it may
-/// make public, whether to deploy over what it would break or undo, and each
-/// scheduled tool's period in milliseconds, when the deploy sets them.
+/// `?public=a,b&force=true&crons={"tick":"*/5 * * * *"}` on a deploy: the
+/// tools it may make public, whether to deploy over what it would break or
+/// undo, and each cron tool's expression, as a JSON object, when the deploy
+/// sets them.
 #[derive(Deserialize)]
 struct Confirmed {
     #[serde(default)]
     public: String,
     #[serde(default)]
     force: bool,
-    schedule: Option<String>,
+    crons: Option<String>,
 }
 
 /// Deploy the image in the body under `name`. `PUT` because the name is the
@@ -164,28 +166,19 @@ async fn deploy(
         .filter(|tool| !tool.is_empty())
         .map(str::to_owned)
         .collect();
-    let schedule = match &confirmed.schedule {
-        Some(schedule) => Some(
-            schedule
-                .split(',')
-                .filter(|entry| !entry.is_empty())
-                .map(|entry| {
-                    entry
-                        .split_once(':')
-                        .and_then(|(tool, every)| Some((tool.to_owned(), every.parse().ok()?)))
-                        .ok_or_else(|| {
-                            deny(
-                                StatusCode::BAD_REQUEST,
-                                format!("{entry:?} is not `tool:milliseconds`"),
-                            )
-                        })
-                })
-                .collect::<Result<_, _>>()?,
-        ),
-        None => None,
-    };
+    let crons = confirmed
+        .crons
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|e| {
+            deny(
+                StatusCode::BAD_REQUEST,
+                format!("`crons` is not a JSON object of tool to cron expression: {e}"),
+            )
+        })?;
     let (deployed, breaks) = service
-        .deploy(&name, image.to_vec(), &public, confirmed.force, schedule)
+        .deploy(&name, image.to_vec(), &public, confirmed.force, crons)
         .await?;
     Ok(Json(Deployed {
         program: deployed.idl(&name),
@@ -319,12 +312,20 @@ async fn calls(
     ))
 }
 
-/// What a program is scheduled to run.
-async fn schedule(
+/// A program's cron tools.
+async fn crons(
     State(service): State<Arc<Service>>,
     Path(name): Path<String>,
-) -> Result<Json<host::Schedule>, Denied> {
-    Ok(Json(service.host.schedule(&name).await?))
+) -> Result<Json<host::Crons>, Denied> {
+    Ok(Json(service.host.crons(&name).await?))
+}
+
+/// The wakes armed to call a program's tools that have not run.
+async fn wakes(
+    State(service): State<Arc<Service>>,
+    Path(name): Path<String>,
+) -> Result<Json<host::Wakes>, Denied> {
+    Ok(Json(service.host.armed(&name).await?))
 }
 
 async fn undeploy(
