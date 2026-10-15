@@ -10,7 +10,7 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    DeriveInput, Expr, ExprLit, FnArg, GenericArgument, Item, ItemFn, ItemMod, Lit, LitStr, Pat,
+    DeriveInput, Expr, ExprLit, FnArg, GenericArgument, Item, ItemFn, ItemMod, Lit, Pat,
     PathArguments, ReturnType, Token, Type, ext::IdentExt, parse::Parse, parse_macro_input,
 };
 
@@ -265,8 +265,6 @@ struct Tool {
     public: bool,
     /// From `#[callers(services)]` or `#[callers(accounts)]`.
     callers: Option<String>,
-    /// Programs whose logs this tool takes, each beside the topics it takes.
-    logs: Vec<(String, Vec<String>)>,
 }
 
 /// One parameter: a property of the tool's arguments.
@@ -301,16 +299,13 @@ struct Param {
 /// JSON, and `()` replies nothing.
 ///
 /// **A tool is internal unless marked `#[public]`.** An internal tool is only
-/// called by the host, for the program's own subscriptions and wakes. A
+/// called by the host, for the program's own wakes. A
 /// `#[public]` tool can be called by any account the host authenticates and
 /// any program allowed to reach this one, with arguments the caller chooses.
 /// `berm_lang::caller()` says who called. `#[callers(services)]` limits a
 /// public tool to programs, `#[callers(accounts)]` to callers from outside.
 /// `#[query]` marks it read-only: the host refuses its writes, logs and wakes.
 /// `#[deprecated]` on a tool marks it so in the manifest.
-/// `#[logs("hn" = ["item"])]` subscribes it to a program's logs, delivered as
-/// its parameters `program: String` and `logs: Vec<berm_lang::Logged>`;
-/// without `= [...]` it takes every topic.
 #[proc_macro_attribute]
 pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
     let config = parse_macro_input!(args as Config);
@@ -480,7 +475,6 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         .attrs
         .iter()
         .any(|a| a.path().is_ident("deprecated"));
-    let mut logs: Vec<(String, Vec<String>)> = Vec::new();
 
     for attribute in &function.attrs {
         if attribute.path().is_ident("query") {
@@ -501,33 +495,12 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
             }
             callers = Some(kind.to_string());
         }
-        if attribute.path().is_ident("logs") {
-            let (program, topics) =
-                attribute.parse_args_with(|input: syn::parse::ParseStream| {
-                    let program: LitStr = input.parse()?;
-                    let topics = match input.peek(Token![=]) {
-                        true => {
-                            input.parse::<Token![=]>()?;
-                            strings(input)?
-                        }
-                        false => Vec::new(),
-                    };
-                    Ok((program, topics))
-                })?;
-            if logs.iter().any(|(seen, _)| *seen == program.value()) {
-                return Err(syn::Error::new(
-                    program.span(),
-                    "program subscribed twice; list every topic in one #[logs]",
-                ));
-            }
-            logs.push((program.value(), topics));
-        }
     }
 
     // These exist for this macro to read; leaving them would reach the
     // compiler as unknown attributes.
     function.attrs.retain(|a| {
-        !["query", "public", "callers", "logs", "deprecated"]
+        !["query", "public", "callers", "deprecated"]
             .iter()
             .any(|name| a.path().is_ident(name))
     });
@@ -569,7 +542,6 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         deprecated,
         public,
         callers,
-        logs,
     })
 }
 
@@ -742,20 +714,6 @@ fn manifest(config: &Config, tools: &[Tool]) -> Vec<proc_macro2::TokenStream> {
         .map(|(name, reached)| format!(r#""{}":[{}]"#, escape(name), list(reached)))
         .collect::<Vec<_>>()
         .join(",");
-    let logs = tools
-        .iter()
-        .flat_map(|tool| {
-            tool.logs.iter().map(|(program, topics)| {
-                format!(
-                    r#"{{"program":"{}","topics":[{}],"tool":"{}"}}"#,
-                    escape(program),
-                    list(topics),
-                    escape(&tool.name)
-                )
-            })
-        })
-        .collect::<Vec<_>>()
-        .join(",");
     let database = match &config.database {
         Some((_, migrations)) => format!(
             r#","database":{{"migrations":[{}]}}"#,
@@ -772,7 +730,7 @@ fn manifest(config: &Config, tools: &[Tool]) -> Vec<proc_macro2::TokenStream> {
         None => String::new(),
     };
     out.text(&format!(
-        r#"],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}],"logs":[{logs}]}}{database}}}"#,
+        r#"],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}]}}{database}}}"#,
         escape(&config.usage),
     ));
     out.flush();

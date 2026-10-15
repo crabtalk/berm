@@ -43,7 +43,7 @@ pub(crate) enum Source {
 }
 
 impl Source {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Source::Service => "service",
             Source::Account => "account",
@@ -65,7 +65,7 @@ pub(crate) enum Outcome {
 }
 
 impl Outcome {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Outcome::Done => "done",
             Outcome::Failed => "failed",

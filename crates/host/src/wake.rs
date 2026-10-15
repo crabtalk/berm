@@ -169,14 +169,15 @@ impl<E: Env> Host<E> {
                 return Ok(());
             };
             let _slot = self.gate.acquire().await?;
+            let started = self.calls.start();
             let invoked = self
                 .invoke(
                     &target,
+                    started.id,
                     None,
                     None,
                     &wake.tool,
                     wake.args.clone().into_bytes(),
-                    None,
                     None,
                 )
                 .await?;
@@ -187,6 +188,16 @@ impl<E: Env> Host<E> {
                 Source::Service,
                 &from,
                 invoked.outcome(),
+            );
+            self.calls.record(
+                &target.name,
+                started,
+                &wake.tool,
+                Source::Service,
+                &from,
+                invoked.outcome(),
+                Some(invoked.meter),
+                0,
             );
             let failed = invoked.result.clone().err();
             ran = Some(invoked);

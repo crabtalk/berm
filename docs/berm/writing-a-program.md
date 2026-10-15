@@ -112,10 +112,7 @@ An `#[event]` struct anywhere in the program's crate is a typed log, and a
 `Noted`, its data the struct as JSON. The manifest lists each event under
 `events` with its doc comment and the schema of its fields.
 
-## Subscriptions
-
-`#[logs("hn" = ["Story"])]` subscribes a tool to a program's logs, and the host
-calls it with them as `program: String` and `logs: Vec<berm_lang::Logged>`.
+Logs are what a program's developer reads to debug it: the host keeps each one beside the call it was emitted in, whatever that call ended as, for 30 days. A program's data goes in its database, read by other programs through its query tools.
 
 ## Calling another program
 
@@ -128,8 +125,7 @@ nearest ancestor with an `idls/`, and generates:
 - `hn::calls`: one function per tool, taking its arguments in the IDL's key
   order, an optional one as an `Option`, and returning its result (`()` for a
   tool with none).
-- `hn::events`: its events, and an `Event` enum whose `read` takes a delivered
-  `Logged`.
+- `hn::events`: its events.
 - `hn::NAME`, which every call names.
 
 A tool or event the IDL marks `deprecated` is generated with `#[deprecated]`.

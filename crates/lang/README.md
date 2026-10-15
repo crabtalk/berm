@@ -44,7 +44,7 @@ comments, and `Option` for the ones the model may omit — and the `Ok` of its
 `Result` is its reply. `#[derive(Schema)]` gives a type its JSON Schema and its
 serde impls, in any module or crate.
 
-**A tool is internal unless marked `#[public]`.** Only the host calls an internal tool, for the program's own subscriptions and wakes. A `#[public]` tool can be called by any account the host authenticates and any program allowed to reach it, with arguments the caller chooses. `berm_lang::caller()` says who called, as the host set it; a tool that limits its callers checks it.
+**A tool is internal unless marked `#[public]`.** Only the host calls an internal tool, for the program's own wakes. A `#[public]` tool can be called by any account the host authenticates and any program allowed to reach it, with arguments the caller chooses. `berm_lang::caller()` says who called, as the host set it; a tool that limits its callers checks it.
 
 Off the guest's target this is an ordinary binary, which is why the `cfg_attr`
 above is worth copying: tools then run under `cargo test` with no wasm

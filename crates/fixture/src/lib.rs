@@ -50,7 +50,7 @@ berm_lang::declare_program!(fixture);
 mod tools {
     use crate::{Attempts, Echo, Fetched, Noted, Peek, Round, Wait};
     use alloc::{format, string::String, vec::Vec};
-    use berm_lang::{Caller, Logged, Result};
+    use berm_lang::{Caller, Result};
 
     /// Answers its arguments back.
     #[public]
@@ -247,26 +247,6 @@ mod tools {
             Some(seen) => String::from_utf8_lossy(&seen).into_owned(),
             None => String::from("unset"),
         })
-    }
-
-    /// Takes the `Noted` events of `fixture` and keeps the last one's `seq`
-    /// and word under `seen`, answering them.
-    #[logs("fixture" = ["Noted"])]
-    pub fn seen(program: String, logs: Vec<Logged>) -> Result<String> {
-        use crate::fixture::events::Event;
-
-        if program != "fixture" {
-            return Err(format!("logs of {program}, not fixture").into());
-        }
-        let Some(last) = logs.last() else {
-            return Ok(String::new());
-        };
-        let Some(Ok(Event::Noted(noted))) = Event::read(last) else {
-            return Err("the last log is not a Noted event".into());
-        };
-        let said = format!("{} {}", last.seq, noted.word);
-        berm_lang::set("seen", said.as_bytes())?;
-        Ok(said)
     }
 
     /// Calls `peek` on `fixture`, then `echo` on `fixture` with the note it

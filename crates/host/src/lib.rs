@@ -16,13 +16,14 @@ pub use env::{Admit, Clock, Edges, Env, Images, Peers, Secrets, System};
 pub use host::Host;
 
 mod call;
+mod calls;
 mod commit;
 mod config;
-mod deliver;
 mod env;
 mod fetch;
 mod hold;
 mod host;
+mod logs;
 mod meter;
 mod routes;
 mod service;

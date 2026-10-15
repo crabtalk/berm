@@ -97,57 +97,30 @@ pub struct Deps {
     /// the guest never holds.
     #[serde(default)]
     pub secrets: Vec<String>,
-    /// Programs whose logs it reads, and the tool each is delivered to.
-    #[serde(default)]
-    pub logs: Vec<Subscription>,
 }
 
 impl Deps {
     pub fn is_empty(&self) -> bool {
-        self.programs.is_empty()
-            && self.syscalls.is_empty()
-            && self.secrets.is_empty()
-            && self.logs.is_empty()
+        self.programs.is_empty() && self.syscalls.is_empty() && self.secrets.is_empty()
     }
 }
 
-/// One program's logs, delivered to one tool as a [`Delivery`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Subscription {
-    pub program: String,
-    /// A log is delivered when it carries any of these. Empty takes every log.
-    #[serde(default)]
-    pub topics: Vec<String>,
-    pub tool: String,
-}
-
-impl Subscription {
-    /// Whether a log carrying `topics` is delivered.
-    pub fn matches(&self, topics: &[String]) -> bool {
-        self.topics.is_empty() || topics.iter().any(|topic| self.topics.contains(topic))
-    }
-}
-
-/// What a subscribed tool is called with: logs of one program, oldest first.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Delivery {
-    pub program: String,
-    pub logs: Vec<Logged>,
-}
-
-/// One log as delivered.
+/// One log a program emitted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Logged {
-    /// Its position in the program's logs, counting from 1. The host assigns
-    /// it at commit.
+    /// Its position in the program's logs, counting from 1.
     pub seq: u64,
+    /// The call it was emitted in, as the host's call log numbers it. `None`
+    /// for a log emitted in a call into the program from another host.
+    pub call: Option<u64>,
+    /// When it was emitted, in epoch milliseconds.
+    pub at: u64,
     pub topics: Vec<String>,
     pub data: String,
 }
 
-/// `inner, berm.http.fetch (example.com), secret openai, logs hn (item) to
-/// ingest` — every program, every syscall with what it reaches, every secret,
-/// then every subscription.
+/// `inner, berm.http.fetch (example.com), secret openai` — every program,
+/// every syscall with what it reaches, then every secret.
 impl std::fmt::Display for Deps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut items = self.programs.clone();
@@ -160,15 +133,6 @@ impl std::fmt::Display for Deps {
                 }),
         );
         items.extend(self.secrets.iter().map(|name| format!("secret {name}")));
-        items.extend(self.logs.iter().map(|logs| match logs.topics.is_empty() {
-            true => format!("logs {} to {}", logs.program, logs.tool),
-            false => format!(
-                "logs {} ({}) to {}",
-                logs.program,
-                logs.topics.join(", "),
-                logs.tool
-            ),
-        }));
         f.write_str(&items.join(", "))
     }
 }
@@ -275,8 +239,8 @@ pub struct ToolTerms {
 }
 
 /// How a call is made dry. A dry chain keeps nothing berm holds: no state,
-/// logs or database writes are committed, no wake is armed and no log is
-/// delivered, in any service the chain reaches. Its fetches are sent unless
+/// logs or database writes are committed and no wake is armed, in any service
+/// the chain reaches. Its fetches are sent unless
 /// one of `answers` matches.
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -368,7 +332,7 @@ pub struct ToolSpec {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deprecated: bool,
     /// Callable by accounts and other programs. A tool that is not is only
-    /// called by its host, for the program's own subscriptions and wakes.
+    /// called by its host, for the program's own wakes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub public: bool,
     /// Which callers a public tool takes. `None` takes both.
@@ -423,6 +387,7 @@ pub const INCLUDED_INSTRUCTIONS: u64 = 1_000_000;
 /// What a call used of one program: its invocations, the wasm instructions
 /// they executed, the largest linear memory one reached, in bytes, the rows
 /// they read and wrote, and the bytes sent and received through the proxy.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Meter {
     pub calls: u64,

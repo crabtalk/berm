@@ -25,6 +25,12 @@ use std::{
 /// The last [`Callsite::chain`] handed out.
 static CHAINS: AtomicU64 = AtomicU64::new(0);
 
+/// A [`Callsite::chain`] no chain in this process has had, for
+/// [`Program::call_as`].
+pub fn chain() -> u64 {
+    CHAINS.fetch_add(1, Ordering::Relaxed) + 1
+}
+
 /// One compiled program: an image, its tools, and the syscalls it was linked
 /// against. Compilation is paid once; every invocation gets a fresh instance so
 /// no guest state crosses between calls.
@@ -172,13 +178,14 @@ impl Program {
         tool: &str,
         args: impl Into<Vec<u8>>,
     ) -> Result<Outcome> {
-        self.call_as(caller, None, tool, args, None, Arc::default())
+        self.call_as(caller, None, tool, args, None, Arc::default(), chain())
             .await
     }
 
     /// [`Program::call`] on behalf of `user`, which every call in the chain
     /// reads off its [`Callsite`], metered in `meters`, and dry when `dry` is
-    /// set.
+    /// set. `chain`, from [`chain`], is the chain's [`Callsite::chain`].
+    #[allow(clippy::too_many_arguments)]
     pub async fn call_as(
         &self,
         caller: Option<Arc<str>>,
@@ -187,6 +194,7 @@ impl Program {
         args: impl Into<Vec<u8>>,
         dry: Option<Arc<Dry>>,
         meters: Arc<Meters>,
+        chain: u64,
     ) -> Result<Outcome> {
         let journal = Arc::new(Journal::default());
         let Ended { result, denied } = self
@@ -199,7 +207,7 @@ impl Program {
                 false,
                 dry,
                 watchdog::fresh(),
-                CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
+                chain,
                 journal.clone(),
                 meters,
                 Arc::from([self.name.clone()]),
@@ -246,7 +254,7 @@ impl Program {
                 query,
                 dry,
                 deadline,
-                CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
+                chain(),
                 journal.clone(),
                 meters,
                 stack,

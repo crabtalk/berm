@@ -1,10 +1,9 @@
-//! A held scope's services: no wakes, no deliveries, no calls from services or
-//! peers, and everything they had waiting runs once the scope is released.
+//! A held scope's services: no wakes and no calls from services or peers, and
+//! everything they had waiting runs once the scope is released.
 
 use anyhow::Result;
 use berm_api::host::Link;
 use berm_host::test::{self, TestHost};
-use std::time::Duration;
 
 async fn deployed(services: &[&str]) -> Result<TestHost> {
     let host = TestHost::open(0).await?;
@@ -85,25 +84,4 @@ async fn a_held_scope_takes_no_calls_from_services_or_peers() -> Result<()> {
             .is_ok()
     );
     Ok(())
-}
-
-#[tokio::test]
-async fn a_held_delivery_runs_once_released() -> Result<()> {
-    let host = deployed(&["acct/fixture"]).await?;
-    host.host().hold(vec!["acct".into()]).await?;
-    host.call("acct/fixture", "note", br#"{"word":"kept"}"#)
-        .await?;
-
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(host.state("acct/fixture", "seen").await?, None);
-
-    host.host().hold(Vec::new()).await?;
-    for _ in 0..50 {
-        if let Some(seen) = host.state("acct/fixture", "seen").await? {
-            assert_eq!(seen, b"1 kept");
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    panic!("the delivery did not run once released");
 }

@@ -127,12 +127,15 @@ pub struct Usage {
     pub public: Option<bool>,
 }
 
-/// `?topic=&after=&page=&limit=` on a service's logs.
+/// `?topic=&call=&after=&page=&limit=` on a service's logs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Page {
     /// Only logs carrying this topic.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topic: Option<String>,
+    /// Only logs emitted in this call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<i64>,
     /// Only logs after this sequence number.
     #[serde(default)]
     pub after: i64,
@@ -152,38 +155,135 @@ fn limit() -> i64 {
 }
 
 impl Page {
-    /// The `Link` header for this page of `total` logs, in GitHub's form:
-    /// `first` and `prev` past the first page, `next` and `last` before the
-    /// last, each a reference relative to the request. `None` for the only
-    /// page.
+    /// The `Link` header for this page of `total` logs.
     pub fn link(&self, total: i64) -> Option<String> {
-        let last = ((total + self.limit - 1) / self.limit).max(1);
-        let mut rels = Vec::new();
-        if self.page > 1 {
-            rels.push((1, "first"));
-            rels.push(((self.page - 1).min(last), "prev"));
-        }
-        if self.page < last {
-            rels.push((self.page + 1, "next"));
-            rels.push((last, "last"));
-        }
-        if rels.is_empty() {
-            return None;
-        }
-        let link = rels
-            .into_iter()
-            .map(|(page, rel)| {
-                let query = serde_urlencoded::to_string(Page {
-                    page,
-                    ..self.clone()
-                })
-                .unwrap_or_default();
-                format!("<?{query}>; rel=\"{rel}\"")
+        link(self.page, self.limit, total, |page| {
+            serde_urlencoded::to_string(Page {
+                page,
+                ..self.clone()
             })
-            .collect::<Vec<_>>()
-            .join(", ");
-        Some(link)
+        })
     }
+}
+
+/// `?tool=&event=&since=&until=&page=&limit=` on a service's calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallPage {
+    /// Only calls of this tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// Only calls that emitted a log carrying this topic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+    /// Only calls begun at or after this, in epoch milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
+    /// Only calls begun before this, in epoch milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<u64>,
+    /// Which run of `limit` calls, counting from 1.
+    #[serde(default = "first")]
+    pub page: i64,
+    #[serde(default = "limit")]
+    pub limit: i64,
+}
+
+impl CallPage {
+    /// The `Link` header for this page of `total` calls.
+    pub fn link(&self, total: i64) -> Option<String> {
+        link(self.page, self.limit, total, |page| {
+            serde_urlencoded::to_string(CallPage {
+                page,
+                ..self.clone()
+            })
+        })
+    }
+}
+
+/// A `Link` header in GitHub's form for page `page` of `total` items, `limit`
+/// a page: `first` and `prev` past the first page, `next` and `last` before
+/// the last, each a reference relative to the request whose query `query`
+/// writes. `None` for the only page.
+fn link(
+    page: i64,
+    limit: i64,
+    total: i64,
+    query: impl Fn(i64) -> Result<String, serde_urlencoded::ser::Error>,
+) -> Option<String> {
+    let last = ((total + limit - 1) / limit).max(1);
+    let mut rels = Vec::new();
+    if page > 1 {
+        rels.push((1, "first"));
+        rels.push(((page - 1).min(last), "prev"));
+    }
+    if page < last {
+        rels.push((page + 1, "next"));
+        rels.push((last, "last"));
+    }
+    if rels.is_empty() {
+        return None;
+    }
+    let link = rels
+        .into_iter()
+        .map(|(page, rel)| format!("<?{}>; rel=\"{rel}\"", query(page).unwrap_or_default()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(link)
+}
+
+/// What a service is scheduled to run.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Schedule {
+    /// The pending wakes that call one of its tools, soonest first.
+    pub wakes: Vec<Scheduled>,
+    /// Its scope is held: no wake runs until it is let go.
+    pub held: bool,
+}
+
+/// A pending wake.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Scheduled {
+    /// The tool it calls.
+    pub tool: String,
+    /// The arguments it calls the tool with, as JSON text.
+    pub args: String,
+    /// When it fires, in epoch milliseconds.
+    pub due: u64,
+    /// The service that armed it, by its name.
+    pub by: String,
+    /// Times it failed in a row since it was last armed.
+    pub failures: u64,
+    /// The last time a wake armed by the same service ran this tool, in the
+    /// last 30 days.
+    pub last: Option<Call>,
+}
+
+/// One run of a service: a call from outside or a wake.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Call {
+    /// Its position among the service's calls; newer calls have larger ids.
+    pub id: u64,
+    /// When it began, in epoch milliseconds.
+    pub at: u64,
+    pub tool: String,
+    /// As [`Usage::source`] names it.
+    pub source: String,
+    /// As [`Usage::caller`] names it.
+    pub caller: String,
+    /// As [`Usage::outcome`] names it.
+    pub outcome: String,
+    /// How long it ran, in milliseconds.
+    pub ms: u64,
+    /// What it used, summed over every service it reached. `None` for a call
+    /// the host refused.
+    pub meter: Option<Meter>,
+    /// What its caller paid, in USD micros.
+    pub price_micros: u64,
+    /// How many logs it emitted.
+    pub logs: u64,
 }
 
 /// One day of a service's meter.
@@ -192,8 +292,8 @@ impl Page {
 pub struct Metered {
     /// Days since the Unix epoch.
     pub day: i32,
-    /// Invocations of the service: from outside, from other services, wakes
-    /// and deliveries.
+    /// Invocations of the service: from outside, from other services, and
+    /// wakes.
     pub calls: u64,
     /// Wasm instructions those invocations executed.
     pub instructions: u64,

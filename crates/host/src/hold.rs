@@ -1,5 +1,5 @@
 //! The scopes this host holds, as its daemon last set them: a held scope's
-//! services fire no wakes, take no deliveries and take no calls from services.
+//! services fire no wakes and take no calls from services.
 
 use crate::store::Store;
 use anyhow::Result;

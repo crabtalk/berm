@@ -118,17 +118,6 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
         .filter_map(|event| event["name"].as_str())
         .map(|name| format_ident!("{name}"))
         .collect();
-    let event_docs = events
-        .iter()
-        .map(|event| event["description"].as_str().unwrap_or_default());
-    let event_deprecations = events.iter().map(deprecation);
-    let reads = names.iter().map(|name| {
-        quote! {
-            if let ::core::option::Option::Some(read) = logged.read::<#name>() {
-                return ::core::option::Option::Some(read.map(Self::#name));
-            }
-        }
-    });
     let events = match names.is_empty() {
         true => quote!(),
         false => quote! {
@@ -143,24 +132,6 @@ pub fn expand(name: &Ident) -> syn::Result<TokenStream> {
                     }
                 )*
 
-                /// Any one of its events.
-                #[derive(Debug, Clone)]
-                pub enum Event {
-                    #(#[doc = #event_docs] #event_deprecations #names(#names),)*
-                }
-
-                impl Event {
-                    /// `logged` as one of these events, or `None` when its
-                    /// topics name none of them.
-                    pub fn read(
-                        logged: &::berm_lang::Logged,
-                    ) -> ::core::option::Option<
-                        ::core::result::Result<Self, ::berm_lang::serde_json::Error>,
-                    > {
-                        #(#reads)*
-                        ::core::option::Option::None
-                    }
-                }
             }
         },
     };

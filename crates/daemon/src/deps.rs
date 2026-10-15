@@ -6,9 +6,8 @@ use berm_api::Deps;
 
 impl Service {
     /// The declared dependencies nothing here answers to: programs not
-    /// deployed, secrets `secrets.toml` does not grant the program, and
-    /// subscriptions to programs not deployed. An unreadable `secrets.toml`
-    /// grants nothing.
+    /// deployed, and secrets `secrets.toml` does not grant the program. An
+    /// unreadable `secrets.toml` grants nothing.
     pub(crate) fn unresolved(&self, program: &Program) -> Deps {
         let deps = &program.manifest().deps;
         Deps {
@@ -27,12 +26,6 @@ impl Service {
                     .cloned()
                     .collect()
             },
-            logs: deps
-                .logs
-                .iter()
-                .filter(|logs| self.get(&logs.program).is_none())
-                .cloned()
-                .collect(),
         }
     }
 }

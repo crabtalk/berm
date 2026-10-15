@@ -1,8 +1,8 @@
 //! The `services` table and what a service's calls commit beside it.
 
-use crate::store::Store;
+use crate::{calls, host, store::Store};
 use anyhow::Result;
-use berm_api::Logged;
+use berm_api::{Logged, host::Scheduled};
 use rusqlite::{OptionalExtension, Transaction, params};
 
 /// One service, as a row.
@@ -151,43 +151,19 @@ pub(crate) async fn read(
         .await
 }
 
-/// One service's part of a commit.
-#[derive(Default)]
-pub(crate) struct Share {
-    pub writes: Vec<(String, Vec<u8>)>,
-    /// Each log's topics and data.
-    pub logs: Vec<(Vec<String>, String)>,
-}
-
-/// Commit one service's share inside `tx`: number its logs after the last,
-/// append them, upsert its writes, and advance its commit count.
+/// Commit one service's `writes` inside `tx`: upsert them, and advance its
+/// commit count.
 pub(crate) fn commit(
     tx: &Transaction<'_>,
     scope: &str,
     name: &str,
-    share: &Share,
+    writes: &[(String, Vec<u8>)],
 ) -> rusqlite::Result<()> {
-    let seq: i64 = tx.query_row(
-        "UPDATE services SET commits = commits + 1, seq = seq + ?3
-          WHERE scope = ?1 AND name = ?2 RETURNING seq",
-        params![scope, name, share.logs.len() as i64],
-        |row| row.get(0),
+    tx.execute(
+        "UPDATE services SET commits = commits + 1 WHERE scope = ?1 AND name = ?2",
+        params![scope, name],
     )?;
-    let first = seq - share.logs.len() as i64 + 1;
-    for (at, (topics, data)) in share.logs.iter().enumerate() {
-        tx.execute(
-            "INSERT INTO service_logs (scope, name, seq, topics, data)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                scope,
-                name,
-                first + at as i64,
-                serde_json::to_string(topics).unwrap_or_default(),
-                data
-            ],
-        )?;
-    }
-    for (key, value) in &share.writes {
+    for (key, value) in writes {
         tx.execute(
             "INSERT INTO service_state (scope, name, key, value) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (scope, name, key) DO UPDATE SET value = excluded.value",
@@ -198,13 +174,15 @@ pub(crate) fn commit(
 }
 
 /// `scope/name`'s logs after `after`, oldest first, those carrying `topic`
-/// when one is given: at most `limit` past the first `offset`, and how many
-/// there are in all.
+/// and emitted in `call` when given: at most `limit` past the first `offset`,
+/// and how many there are in all.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn logs(
     store: &Store,
     scope: &str,
     name: &str,
     topic: Option<String>,
+    call: Option<i64>,
     after: i64,
     offset: i64,
     limit: i64,
@@ -214,23 +192,26 @@ pub(crate) async fn logs(
         .run(move |conn| {
             const MATCHING: &str = "FROM service_logs
                   WHERE scope = ?1 AND name = ?2 AND seq > ?3
-                    AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(topics) WHERE value = ?4))";
+                    AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(topics) WHERE value = ?4))
+                    AND (?5 IS NULL OR call = ?5)";
             let total = conn.query_row(
                 &format!("SELECT COUNT(*) {MATCHING}"),
-                params![scope, name, after, topic],
+                params![scope, name, after, topic, call],
                 |row| row.get(0),
             )?;
             let mut statement = conn.prepare(&format!(
-                "SELECT seq, topics, data {MATCHING} ORDER BY seq LIMIT ?5 OFFSET ?6"
+                "SELECT seq, call, at, topics, data {MATCHING} ORDER BY seq LIMIT ?6 OFFSET ?7"
             ))?;
             let rows = statement.query_map(
-                params![scope, name, after, topic, limit, offset],
+                params![scope, name, after, topic, call, limit, offset],
                 |row| {
-                    let topics: String = row.get(1)?;
+                    let topics: String = row.get(3)?;
                     Ok(Logged {
                         seq: row.get::<_, i64>(0)? as u64,
+                        call: row.get::<_, Option<i64>>(1)?.map(|call| call as u64),
+                        at: row.get::<_, i64>(2)? as u64,
                         topics: serde_json::from_str(&topics).unwrap_or_default(),
-                        data: row.get(2)?,
+                        data: row.get(4)?,
                     })
                 },
             )?;
@@ -238,45 +219,6 @@ pub(crate) async fn logs(
             Ok((logs, total))
         })
         .await
-}
-
-/// The last log of `scope/program` that subscriber `scope/name` was
-/// delivered or skipped, or 0.
-pub(crate) async fn position(store: &Store, scope: &str, name: &str, program: &str) -> Result<i64> {
-    let row = [scope, name, program].map(str::to_owned);
-    store
-        .run(move |conn| {
-            let [scope, name, program] = row;
-            let seq: Option<i64> = conn
-                .query_row(
-                    "SELECT seq FROM service_positions
-                      WHERE scope = ?1 AND name = ?2 AND program = ?3",
-                    params![scope, name, program],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            Ok(seq.unwrap_or(0))
-        })
-        .await
-}
-
-/// Move a subscriber's position from `from` to `to` inside `tx`. `false` when
-/// it no longer stood at `from`.
-pub(crate) fn advance(
-    tx: &Transaction<'_>,
-    scope: &str,
-    name: &str,
-    program: &str,
-    from: i64,
-    to: i64,
-) -> rusqlite::Result<bool> {
-    let moved = tx.execute(
-        "INSERT INTO service_positions (scope, name, program, seq) VALUES (?1, ?2, ?3, ?5)
-         ON CONFLICT (scope, name, program) DO UPDATE SET seq = excluded.seq
-          WHERE service_positions.seq = ?4",
-        params![scope, name, program, from, to],
-    )?;
-    Ok(moved == 1)
 }
 
 /// One pending wake.
@@ -310,7 +252,7 @@ pub(crate) async fn arm(
                  ON CONFLICT (scope, name) DO UPDATE
                     SET program = excluded.program, tool = excluded.tool,
                         args = excluded.args, due = excluded.due,
-                        armed = service_wakes.armed + 1",
+                        armed = service_wakes.armed + 1, failures = 0",
                 params![scope, name, program, tool, args, due],
             )?;
             Ok(())
@@ -358,12 +300,43 @@ pub(crate) async fn settle(store: &Store, wake: &Wake, retry: Option<i64>) -> Re
                     params![scope, name, armed],
                 )?,
                 Some(due) => conn.execute(
-                    "UPDATE service_wakes SET due = ?4
+                    "UPDATE service_wakes SET due = ?4, failures = failures + 1
                       WHERE scope = ?1 AND name = ?2 AND armed = ?3",
                     params![scope, name, armed, due],
                 )?,
             };
             Ok(())
+        })
+        .await
+}
+
+/// The pending wakes that call a tool of `scope/program`, soonest first. A
+/// wake that is running is due when its lease ends.
+pub(crate) async fn scheduled(store: &Store, scope: &str, program: &str) -> Result<Vec<Scheduled>> {
+    let (scope, program) = (scope.to_owned(), program.to_owned());
+    store
+        .run(move |conn| {
+            let mut statement = conn.prepare(
+                "SELECT tool, args, due, name, failures FROM service_wakes
+                  WHERE scope = ?1 AND program = ?2
+                  ORDER BY due",
+            )?;
+            let rows = statement.query_map(params![scope, program], |row| {
+                Ok(Scheduled {
+                    tool: row.get(0)?,
+                    args: row.get(1)?,
+                    due: row.get::<_, i64>(2)? as u64,
+                    by: row.get(3)?,
+                    failures: row.get::<_, i64>(4)? as u64,
+                    last: None,
+                })
+            })?;
+            let mut wakes = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+            for wake in &mut wakes {
+                let armer = host::join(&scope, &wake.by);
+                wake.last = calls::last(conn, &scope, &program, &wake.tool, &armer)?;
+            }
+            Ok(wakes)
         })
         .await
 }

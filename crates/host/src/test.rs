@@ -212,7 +212,15 @@ impl TestHost {
             .with_context(|| format!("no service named {service:?} is deployed"))?;
         let invoked = self
             .host
-            .invoke(&program, None, None, tool, args.to_vec(), None, None)
+            .invoke(
+                &program,
+                self.host.calls.start().id,
+                None,
+                None,
+                tool,
+                args.to_vec(),
+                None,
+            )
             .await?;
         Ok(Ran {
             result: invoked.result,
@@ -231,11 +239,11 @@ impl TestHost {
             .host
             .invoke(
                 &program,
+                self.host.calls.start().id,
                 None,
                 None,
                 tool,
                 args.to_vec(),
-                None,
                 Some(Arc::new(dry)),
             )
             .await?;
@@ -290,6 +298,7 @@ impl TestHost {
                     service,
                     Page {
                         topic: topic.map(str::to_owned),
+                        call: None,
                         after,
                         page: 1,
                         limit: i64::MAX,
@@ -472,10 +481,6 @@ pub struct Nowhere;
 
 impl Peers for Nowhere {
     async fn link(&self, peer: &str, _: &str, _: &str, _: Vec<u8>, _: Link) -> Result<Reply> {
-        bail!("no peer named {peer:?}")
-    }
-
-    async fn logs(&self, peer: &str, _: &str, _: i64, _: i64) -> Result<Vec<Logged>> {
         bail!("no peer named {peer:?}")
     }
 

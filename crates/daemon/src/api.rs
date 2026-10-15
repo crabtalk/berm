@@ -16,7 +16,7 @@ use axum::{
 use berm::Program;
 use berm_api::{
     Budget, DryRun, Price, Program as Wire, Terms,
-    host::{self, Caller, Metered, Page},
+    host::{self, CallPage, Caller, Metered, Page},
 };
 use berm_host::{Denied, deny};
 use rmcp::transport::{
@@ -47,6 +47,8 @@ pub fn router(service: Arc<Service>) -> Router {
         .route("/programs/{name}/tools/{tool}", post(call).get(query))
         .route("/programs/{name}/tools/{tool}/dry", post(dry))
         .route("/programs/{name}/logs", get(logs))
+        .route("/programs/{name}/calls", get(calls))
+        .route("/programs/{name}/schedule", get(schedule))
         .route("/programs/{name}/meters", get(meters))
         .route("/programs/{name}/terms", get(terms))
         .route("/programs/{name}/tools/{tool}/budget", put(budget))
@@ -260,7 +262,32 @@ async fn logs(
     Query(page): Query<Page>,
 ) -> Result<impl IntoResponse, Denied> {
     let (logs, link) = service.host.logs(&name, page).await?;
-    Ok((AppendHeaders(link.map(|link| (header::LINK, link))), Json(logs)))
+    Ok((
+        AppendHeaders(link.map(|link| (header::LINK, link))),
+        Json(logs),
+    ))
+}
+
+/// A program's runs, newest first, a page at a time, with the other pages in
+/// `Link`.
+async fn calls(
+    State(service): State<Arc<Service>>,
+    Path(name): Path<String>,
+    Query(page): Query<CallPage>,
+) -> Result<impl IntoResponse, Denied> {
+    let (calls, link) = service.host.calls(&name, page).await?;
+    Ok((
+        AppendHeaders(link.map(|link| (header::LINK, link))),
+        Json(calls),
+    ))
+}
+
+/// What a program is scheduled to run.
+async fn schedule(
+    State(service): State<Arc<Service>>,
+    Path(name): Path<String>,
+) -> Result<Json<host::Schedule>, Denied> {
+    Ok(Json(service.host.schedule(&name).await?))
 }
 
 async fn undeploy(

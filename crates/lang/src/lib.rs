@@ -37,8 +37,9 @@
 //! the rest run only under a host that registers them, and trap as unknown host
 //! calls otherwise.
 //!
-//! What [`set`] writes and [`emit`] emits is kept only if the call the host
-//! started returns a result.
+//! What [`set`] writes is kept only if the call the host started returns a
+//! result. What [`emit`] emits is kept whatever the call returns: logs are what
+//! its developer reads to debug it.
 
 #![no_std]
 
@@ -64,7 +65,6 @@ pub mod html;
 pub mod http;
 #[doc(hidden)]
 pub mod json;
-mod logs;
 pub mod schema;
 mod sql;
 mod store;
@@ -84,7 +84,6 @@ pub use call::{CallError, Caller, User, after, call, caller, deny, user};
 pub use emit::event as __event;
 pub use emit::{Event, emit};
 pub use error::{Error, Result};
-pub use logs::Logged;
 pub use schema::Schema;
 pub use sql::sql;
 pub use store::{get, get_json, set, set_json};

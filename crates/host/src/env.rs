@@ -4,10 +4,7 @@
 use crate::Denied;
 use anyhow::Result;
 use berm::syscall::http::{Request, Response};
-use berm_api::{
-    Logged,
-    host::{Caller, Link, Reply, Used},
-};
+use berm_api::host::{Caller, Link, Reply, Used};
 use std::future::Future;
 
 /// One daemon's edges, as types.
@@ -60,15 +57,6 @@ pub trait Peers: Send + Sync + 'static {
         args: Vec<u8>,
         link: Link,
     ) -> impl Future<Output = Result<Reply>> + Send;
-
-    /// `service`'s logs on `peer` after `after`, at most `limit`.
-    fn logs(
-        &self,
-        peer: &str,
-        service: &str,
-        after: i64,
-        limit: i64,
-    ) -> impl Future<Output = Result<Vec<Logged>>> + Send;
 
     /// Hand `peer` the uses counted here of services it runs.
     fn ship(&self, peer: &str, used: &[Used]) -> impl Future<Output = Result<()>> + Send;

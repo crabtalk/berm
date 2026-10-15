@@ -2,7 +2,7 @@
 //! and reading and setting what each service is.
 
 use crate::{
-    Denied, deny,
+    Denied, calls, deny,
     env::{Admit, Env},
     host::{self, Host},
     meter, service,
@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// The most logs one page answers.
+/// The most logs or calls one page answers.
 const MAX_PAGE: i64 = 1000;
 
 impl<E: Env> Host<E> {
@@ -29,11 +29,12 @@ impl<E: Env> Host<E> {
         Ok(host::idl(host::split(service).1, &program))
     }
 
-    /// The IDL of every service in `scope` this host runs.
-    pub fn idls(&self, scope: &str) -> Vec<berm_api::Program> {
+    /// The IDL of every service in `scope` this host runs, with every tool,
+    /// each marked by `public`.
+    pub fn described(&self, scope: &str) -> Vec<berm_api::Program> {
         self.list(scope)
             .into_iter()
-            .map(|(name, program)| host::idl(&name, &program))
+            .map(|(name, program)| host::described(&name, &program))
             .collect()
     }
 
@@ -182,10 +183,21 @@ impl<E: Env> Host<E> {
         }
         let (source, who) = counted(caller);
         let counts = dry.is_none();
+        let started = self.calls.start();
         let refused = |denied: Denied| {
             if counts {
                 self.usage
                     .record(service, Kind::Tool, tool, source, who, Outcome::Refused);
+                self.calls.record(
+                    service,
+                    started,
+                    tool,
+                    source,
+                    who,
+                    Outcome::Refused,
+                    None,
+                    0,
+                );
             }
             Err(denied)
         };
@@ -225,20 +237,35 @@ impl<E: Env> Host<E> {
         let invoked = self
             .invoke(
                 &program,
+                started.id,
                 caller.map(|caller| caller.id.as_str()),
                 caller
                     .and_then(|caller| caller.user.as_ref())
                     .map(host::user),
                 tool,
                 args,
-                None,
                 dry,
             )
             .await
             .map_err(|e| deny(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
         if counts {
+            let outcome = invoked.outcome();
             self.usage
-                .record(service, Kind::Tool, tool, source, who, invoked.outcome());
+                .record(service, Kind::Tool, tool, source, who, outcome);
+            let price = match outcome {
+                Outcome::Done => self.terms.get(service, tool).price_micros,
+                _ => 0,
+            };
+            self.calls.record(
+                service,
+                started,
+                tool,
+                source,
+                who,
+                outcome,
+                Some(invoked.meter),
+                price,
+            );
         }
         headers.insert(
             HeaderName::from_static(wire::METER),
@@ -282,6 +309,7 @@ impl<E: Env> Host<E> {
         mut page: wire::Page,
     ) -> Result<(Vec<Logged>, Option<String>), Denied> {
         self.deployed(service).await?;
+        self.flush().await?;
         let (scope, name) = host::split(service);
         page.limit = page.limit.clamp(1, MAX_PAGE);
         page.page = page.page.max(1);
@@ -290,12 +318,40 @@ impl<E: Env> Host<E> {
             scope,
             name,
             page.topic.clone(),
+            page.call,
             page.after,
             (page.page - 1).saturating_mul(page.limit),
             page.limit,
         )
         .await?;
         Ok((logs, page.link(total)))
+    }
+
+    /// What `service` is scheduled to run.
+    pub async fn schedule(&self, service: &str) -> Result<wire::Schedule, Denied> {
+        self.deployed(service).await?;
+        self.flush().await?;
+        let (scope, name) = host::split(service);
+        Ok(wire::Schedule {
+            wakes: service::scheduled(&self.store, scope, name).await?,
+            held: self.holds.holds(scope),
+        })
+    }
+
+    /// `service`'s runs on `page`, newest first, and its `Link` header. At
+    /// most `page.limit`, held to [`MAX_PAGE`].
+    pub async fn calls(
+        &self,
+        service: &str,
+        mut page: wire::CallPage,
+    ) -> Result<(Vec<wire::Call>, Option<String>), Denied> {
+        self.deployed(service).await?;
+        self.flush().await?;
+        let (scope, name) = host::split(service);
+        page.limit = page.limit.clamp(1, MAX_PAGE);
+        page.page = page.page.max(1);
+        let (calls, total) = calls::read(&self.store, scope, name, page.clone()).await?;
+        Ok((calls, page.link(total)))
     }
 
     /// A call from a service on a peer, run as `link` and committed here unless
@@ -371,7 +427,7 @@ impl<E: Env> Host<E> {
             },
         };
         if outcome.result.is_ok() && !dry {
-            self.commits.commit(&outcome.changes, None).await?;
+            self.commits.commit(&outcome.changes).await?;
         }
         let ended = match (&outcome.result, outcome.denied) {
             (Ok(_), _) => Outcome::Done,
@@ -412,14 +468,11 @@ impl<E: Env> Host<E> {
     }
 
     /// Hold `scopes` in place of the scopes held. A held scope's services fire
-    /// no wakes, take no deliveries and take no calls from services or peers;
-    /// what they stored and what was due stays, and runs once the scope is
-    /// released. Calls from outside are the daemon's to refuse.
+    /// no wakes and take no calls from services or peers; what they stored and
+    /// what was due stays, and runs once the scope is released. Calls from
+    /// outside are the daemon's to refuse.
     pub async fn hold(&self, scopes: Vec<String>) -> Result<(), Denied> {
-        let released = self.holds.replace(scopes.into_iter().collect()).await?;
-        for scope in &released {
-            self.deliveries.released(scope);
-        }
+        self.holds.replace(scopes.into_iter().collect()).await?;
         self.waking.notify_one();
         Ok(())
     }

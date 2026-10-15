@@ -3,14 +3,14 @@
 //! scope, and a service reaches services by name within its own.
 
 use crate::{
-    Denied,
+    Denied, calls,
     commit::{self, Commits},
     config::Config,
-    deliver::Deliveries,
     deny,
     env::{Clock, Edges, Env, Images, Peers},
     fetch,
     hold::Holds,
+    logs,
     meter::{self, Meters as Pending},
     routes::Routes,
     service,
@@ -54,12 +54,14 @@ pub struct Host<E: Env> {
     /// Chains in flight. Each holds up to `depth + 1` guests, and a guest past
     /// `Config::instances` fails to instantiate.
     pub(crate) gate: Arc<Semaphore>,
-    /// Each subscription's delivery.
-    pub(crate) deliveries: Arc<Deliveries>,
     /// Wakes the timer.
     pub(crate) waking: Arc<Notify>,
     /// Uses not yet written.
     pub(crate) usage: Arc<Counts>,
+    /// Runs not yet written.
+    pub(crate) calls: Arc<calls::Pending>,
+    /// Logs not yet written.
+    pub(crate) logs: Arc<logs::Pending>,
     /// Meters not yet written.
     pub(crate) meters: Arc<Pending>,
     /// Where the databases of the services that keep one live.
@@ -95,9 +97,10 @@ impl<E: Env> Clone for Host<E> {
             store: self.store.clone(),
             berm: self.berm.clone(),
             gate: self.gate.clone(),
-            deliveries: self.deliveries.clone(),
             waking: self.waking.clone(),
             usage: self.usage.clone(),
+            calls: self.calls.clone(),
+            logs: self.logs.clone(),
             meters: self.meters.clone(),
             databases_dir: self.databases_dir.clone(),
             sampled: self.sampled.clone(),
@@ -172,8 +175,7 @@ impl<E: Env> Host<E> {
                     .map(|_| databases.get(program))
             }
         };
-        let deliveries = Arc::new(Deliveries::default());
-        let commits = Commits::new(store.clone(), databases.clone(), deliveries.clone());
+        let commits = Commits::new(store.clone(), databases.clone());
         let (reading, writing) = (kept.clone(), kept.clone());
         let (store_reading, commits_reading) = (store.clone(), commits.clone());
         syscalls.extend(state::programs(
@@ -205,16 +207,11 @@ impl<E: Env> Host<E> {
                 }
             },
         ));
-        let emitting = kept.clone();
+        let emitted = Arc::new(logs::Pending::new(now.clone()));
+        let taking = emitted.clone();
         syscalls.push(emit::programs(move |at: Callsite, log: Log| {
-            let kept = emitting(&at.program);
-            async move {
-                let Some(database) = kept else {
-                    return Ok(false);
-                };
-                database?.emit(at.chain, log).await?;
-                Ok(true)
-            }
+            let taken = taking.take(&at, log);
+            async move { Ok(taken) }
         }));
         syscalls.push(sql::programs(move |at: Callsite, statement: Statement| {
             let kept = kept(&at.program);
@@ -244,6 +241,10 @@ impl<E: Env> Host<E> {
             waking.clone(),
         ));
         let usage = Arc::new(Counts::new(now.clone()));
+        let ran = Arc::new(calls::Pending::new(
+            now.clone(),
+            calls::newest(&store).await?,
+        ));
         let meters = Arc::new(Pending::new(now.clone()));
         let (reporting, reported) = (usage.clone(), deployed);
         let terms = Arc::new(Terms::default());
@@ -333,9 +334,10 @@ impl<E: Env> Host<E> {
             store,
             berm,
             gate: Arc::new(Semaphore::new(chains as usize)),
-            deliveries,
             waking,
             usage,
+            calls: ran,
+            logs: emitted,
             meters,
             databases_dir: config.databases.clone(),
             sampled: Arc::default(),
@@ -356,8 +358,8 @@ impl<E: Env> Host<E> {
         })
     }
 
-    /// Load every service this host runs off the request path, deliver what
-    /// subscribers have not had, fire due wakes, and write counted uses.
+    /// Load every service this host runs off the request path, fire due wakes,
+    /// and write counted uses.
     pub fn boot(&self) {
         let flushing = self.clone();
         tokio::spawn(async move {
@@ -374,8 +376,7 @@ impl<E: Env> Host<E> {
         tokio::spawn(async move { waking.wakes().await });
     }
 
-    /// Load every service as `services` names it, copy what each database's
-    /// outbox holds, then deliver.
+    /// Load every service as `services` names it.
     async fn reconcile(&self) {
         let rows = match service::all(&self.store).await {
             Ok(rows) => rows,
@@ -389,16 +390,10 @@ impl<E: Env> Host<E> {
             match self.load(row).await {
                 Ok(program) => {
                     tracing::debug!(service = key, digest = %program.digest, "loaded");
-                    if keeps(&program)
-                        && let Err(e) = self.commits.ship(&key).await
-                    {
-                        tracing::error!(service = key, "copying the outbox failed: {e:#}");
-                    }
                 }
                 Err(e) => tracing::error!(service = key, "loading failed: {e:#}"),
             }
         }
-        self.subscribe();
     }
 
     /// The program a `services` row names, pulled and compiled unless it
@@ -432,6 +427,8 @@ impl<E: Env> Host<E> {
                 tracing::warn!(peer, "handing over service usage failed: {e:#}");
             }
         }
+        calls::write(&self.store, self.calls.take(), (self.now)()).await?;
+        logs::write(&self.store, self.logs.take_all(), (self.now)()).await?;
         meter::write(&self.store, self.meters.take()).await?;
         let today = self.today();
         if self.sampled.swap(today, Ordering::Relaxed) != today {
@@ -481,7 +478,6 @@ impl<E: Env> Host<E> {
         let removed = service::remove(&self.store, scope, name).await?;
         self.berm.remove(service)?;
         self.terms.forget(service);
-        self.subscribe();
         Ok(removed)
     }
 
@@ -636,27 +632,28 @@ impl<E: Env> Host<E> {
             usage::seconds(&self.now),
         )
         .await?;
-        self.subscribe();
         Ok(program)
     }
 
-    /// Run `tool` on `program` as the first link of a chain, and commit what it
-    /// wrote and emitted, with `advance` for a delivery, unless `dry` is set. A
-    /// writing call into a service with a database commits that database when
-    /// it returns.
+    /// Run `tool` on `program` as the first link of a chain, as call `call`,
+    /// and commit what it wrote unless `dry` is set. A writing call into a
+    /// service with a database commits that database when it returns. What the
+    /// chain emits is kept beside `call` whatever it returns.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn invoke(
         &self,
         program: &Program,
+        call: u64,
         caller: Option<&str>,
         user: Option<User>,
         tool: &str,
         args: Vec<u8>,
-        advance: Option<Advance>,
         dry: Option<Arc<Dry>>,
     ) -> Result<Invoked> {
         let meters = Arc::new(Meters::default());
         let keeps = dry.is_none();
+        let chain = berm::chain();
+        self.logs.started(chain, call);
         let outcome = program
             .call_as(
                 caller.map(Into::into),
@@ -665,23 +662,23 @@ impl<E: Env> Host<E> {
                 args,
                 dry,
                 meters.clone(),
+                chain,
             )
             .await;
+        self.logs.ended(chain);
         let meter = self.metered(meters.take());
         let outcome = outcome?;
         if outcome.result.is_err() || !keeps {
             return Ok(Invoked {
                 result: outcome.result,
                 denied: outcome.denied,
-                committed: true,
                 meter,
             });
         }
-        let committed = self.commits.commit(&outcome.changes, advance).await?;
+        self.commits.commit(&outcome.changes).await?;
         Ok(Invoked {
             result: outcome.result,
             denied: false,
-            committed,
             meter,
         })
     }
@@ -718,9 +715,6 @@ pub(crate) struct Invoked {
     pub result: Result<String, String>,
     /// `result` is `Err` because the tool refused its caller.
     pub denied: bool,
-    /// `false` when a delivery's position lost to another and nothing was
-    /// committed.
-    pub committed: bool,
     /// What the chain used, over every service it reached.
     pub meter: Meter,
 }
@@ -749,17 +743,6 @@ pub(crate) fn join(scope: &str, name: &str) -> String {
         "" => name.to_owned(),
         scope => format!("{scope}/{name}"),
     }
-}
-
-/// A subscriber's position, moving past the logs a delivery read.
-pub(crate) struct Advance {
-    pub scope: String,
-    /// The subscriber.
-    pub name: String,
-    /// The service subscribed to, as the subscriber names it.
-    pub program: String,
-    pub from: i64,
-    pub to: i64,
 }
 
 /// The scope `service` is in, and its name within it: `a/b` is `b` in `a`,
@@ -791,6 +774,13 @@ pub(crate) fn user(user: &host::User) -> User {
 
 /// A service's IDL: the JSON `crab idl` writes, with its public tools only.
 pub(crate) fn idl(name: &str, program: &Program) -> berm_api::Program {
+    let mut idl = described(name, program);
+    idl.tools.retain(|tool| tool.public);
+    idl
+}
+
+/// A service's IDL with every tool, each marked by `public`.
+pub(crate) fn described(name: &str, program: &Program) -> berm_api::Program {
     let Manifest {
         abi_version: _,
         database: _,
@@ -805,7 +795,7 @@ pub(crate) fn idl(name: &str, program: &Program) -> berm_api::Program {
         version,
         digest: program.digest.clone(),
         usage,
-        tools: tools.into_iter().filter(|tool| tool.public).collect(),
+        tools,
         deps,
         events,
         unresolved: Deps::default(),

@@ -1,5 +1,5 @@
-//! The reference guest keeping a database: its `berm.get`, `berm.set` and
-//! `berm.emit` land in the database beside its own `words` table.
+//! The reference guest keeping a database: its `berm.get` and `berm.set` land
+//! in the database beside its own `words` table.
 //!
 //! `put` writes a word every way the database takes one, `count` reads the
 //! table back, and `relay` calls both on `inner`.

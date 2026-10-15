@@ -32,16 +32,13 @@
 //! [`Calls::enter`].
 
 use anyhow::Result;
-pub use berm_api::{
-    Budget, Delivery, Deps, Dry, INCLUDED_INSTRUCTIONS, Logged, Manifest, Meter, Subscription,
-    ToolSpec,
-};
+pub use berm_api::{Budget, Deps, Dry, INCLUDED_INSTRUCTIONS, Logged, Manifest, Meter, ToolSpec};
 pub use engine::{Config, Engine};
 use journal::Journal;
 pub use journal::{Changes, Log, Write};
 pub use meter::Meters;
 use meter::Rows;
-pub use program::{Ended, Invocation, Link, Outcome, Program, Refused, digest};
+pub use program::{Ended, Invocation, Link, Outcome, Program, Refused, chain, digest};
 use std::{
     collections::BTreeMap,
     pin::Pin,

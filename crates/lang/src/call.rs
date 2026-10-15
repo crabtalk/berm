@@ -66,7 +66,7 @@ pub enum Caller {
 }
 
 /// Who made this call, as the host says. `None` when the host started it on
-/// this program's own behalf: a subscription's delivery or a wake.
+/// this program's own behalf: a wake.
 ///
 /// Set by the host, never by the caller, so it can be checked:
 ///
