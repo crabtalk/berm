@@ -65,7 +65,7 @@ pub struct Host<E: Env> {
     /// Meters not yet written.
     pub(crate) meters: Arc<Pending>,
     /// Where the databases of the services that keep one live.
-    databases_dir: PathBuf,
+    pub(crate) databases_dir: PathBuf,
     /// The last day stored bytes were sampled, in days since the Unix epoch.
     sampled: Arc<AtomicI32>,
     /// The databases of the services that keep one.

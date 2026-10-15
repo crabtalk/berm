@@ -344,6 +344,37 @@ pub struct Call {
     pub logs: u64,
 }
 
+/// What a service is using now.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Live {
+    /// Its invocations running now.
+    pub running: u64,
+    /// Bytes of linear memory they hold.
+    pub memory: u64,
+    /// Bytes it stores: its database file, its write-ahead log and its state.
+    pub stored: u64,
+    /// Wasm instructions executed.
+    pub instructions: Count,
+    /// Rows read and written in its database and state.
+    pub read: Count,
+    pub written: Count,
+    /// Bytes sent and received through `berm.http.proxy`.
+    pub proxied: Count,
+    /// Bytes of the logs it emitted.
+    pub logged: Count,
+}
+
+/// One of a [`Live`]'s counts.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Count {
+    /// Since its first deploy.
+    pub total: u64,
+    /// Per second over the UTC day so far.
+    pub per_second: f64,
+}
+
 /// One day of a service's meter.
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]

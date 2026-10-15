@@ -38,8 +38,8 @@ pub use berm_api::{
 pub use engine::{Config, Engine};
 use journal::Journal;
 pub use journal::{Changes, Log, Write};
-pub use meter::Meters;
 use meter::Rows;
+pub use meter::{Meters, Running};
 pub use program::{Ended, Invocation, Link, Outcome, Program, Refused, chain, digest};
 use std::{
     collections::BTreeMap,

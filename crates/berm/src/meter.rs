@@ -32,6 +32,74 @@ impl Meters {
     }
 }
 
+/// What a program's invocations hold while they run.
+#[derive(Debug, Default)]
+pub struct Running {
+    calls: AtomicU64,
+    memory: AtomicU64,
+}
+
+impl Running {
+    /// Its invocations running now, and the bytes of linear memory they hold.
+    pub fn now(&self) -> (u64, u64) {
+        (
+            self.calls.load(Ordering::Relaxed),
+            self.memory.load(Ordering::Relaxed),
+        )
+    }
+}
+
+/// One invocation's part of its program's [`Running`], from when it is built
+/// until it is dropped. Its store's limiter, so the memory it holds is counted
+/// as it grows.
+#[derive(Debug)]
+pub(crate) struct Held {
+    running: Arc<Running>,
+    memory: u64,
+}
+
+impl Held {
+    pub(crate) fn new(running: Arc<Running>) -> Self {
+        running.calls.fetch_add(1, Ordering::Relaxed);
+        Self { running, memory: 0 }
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        self.running.calls.fetch_sub(1, Ordering::Relaxed);
+        self.running
+            .memory
+            .fetch_sub(self.memory, Ordering::Relaxed);
+    }
+}
+
+impl wasmtime::ResourceLimiter for Held {
+    fn memory_growing(
+        &mut self,
+        current: usize,
+        desired: usize,
+        maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        let allowed = maximum.is_none_or(|maximum| desired <= maximum);
+        if allowed {
+            let grown = (desired - current) as u64;
+            self.memory += grown;
+            self.running.memory.fetch_add(grown, Ordering::Relaxed);
+        }
+        Ok(allowed)
+    }
+
+    fn table_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        Ok(maximum.is_none_or(|maximum| desired <= maximum))
+    }
+}
+
 /// One invocation's rows read and written, against its budget.
 #[derive(Debug)]
 pub(crate) struct Rows {

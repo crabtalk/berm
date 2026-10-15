@@ -5,7 +5,7 @@ use crate::{
     bound::watchdog,
     engine::{Engine, Image},
     journal::{Changes, Journal},
-    meter::Rows,
+    meter::{Held, Rows, Running},
     syscall::{
         self,
         call::{Budgeted, Enter, Now},
@@ -55,6 +55,8 @@ pub struct Program {
     budget: Budgeted,
     /// What `berm.now` answers.
     now: Now,
+    /// What its invocations hold while they run.
+    pub running: Arc<Running>,
 }
 
 struct Tool {
@@ -127,6 +129,7 @@ impl Program {
             enter,
             budget,
             now,
+            running: Arc::default(),
         })
     }
 
@@ -373,6 +376,7 @@ impl Program {
         let held = at.journal.clone();
         let mark = journal.mark();
         let invocation = Invocation {
+            held: Held::new(self.running.clone()),
             at,
             now: self.now.clone(),
             args,
@@ -483,6 +487,8 @@ pub struct Invocation {
     pub(crate) outcome: Option<Result<Vec<u8>, String>>,
     /// Set by `berm.deny`.
     pub(crate) denied: bool,
+    /// Its part of its program's [`Running`].
+    pub(crate) held: Held,
 }
 
 /// A syscall's answer when it refused the call and nothing ran.

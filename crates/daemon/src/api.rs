@@ -15,7 +15,7 @@ use axum::{
 };
 use berm_api::{
     Budget, Cron, Deployed, DryRun, Listing, Price, Program as Wire, Runtime, Terms,
-    host::{self, CallPage, Caller, Metered, Page},
+    host::{self, CallPage, Caller, Live, Metered, Page},
 };
 use berm_host::{Denied, deny};
 use rmcp::transport::{
@@ -52,6 +52,7 @@ pub fn router(service: Arc<Service>) -> Router {
         .route("/programs/{name}/crons", get(crons))
         .route("/programs/{name}/wakes", get(wakes))
         .route("/programs/{name}/meters", get(meters))
+        .route("/programs/{name}/live", get(live))
         .route("/programs/{name}/terms", get(terms))
         .route("/programs/{name}/tools/{tool}/budget", put(budget))
         .route("/programs/{name}/tools/{tool}/price", put(price))
@@ -281,6 +282,14 @@ async fn meters(
     Path(name): Path<String>,
 ) -> Result<Json<Vec<Metered>>, Denied> {
     Ok(Json(service.host.meters(&name).await?))
+}
+
+/// What a program is using now.
+async fn live(
+    State(service): State<Arc<Service>>,
+    Path(name): Path<String>,
+) -> Result<Json<Live>, Denied> {
+    Ok(Json(service.host.live(&name).await?))
 }
 
 /// A program's logs, oldest first, after the sequence number `after`, a page

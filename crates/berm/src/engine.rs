@@ -217,6 +217,7 @@ impl Image {
     ) -> Result<Invocation> {
         let deadline = invocation.at.deadline;
         let mut store = Store::new(&self.engine, invocation);
+        store.limiter(|invocation| &mut invocation.held);
 
         // Rounded up, and never zero: a guest gets at least what is left of the
         // bound it inherited, and a deadline of no ticks would trap it before

@@ -514,6 +514,26 @@ impl<E: Env> Host<E> {
         Ok(meter::read(&self.store, scope, name, self.today()).await?)
     }
 
+    /// What `service` is using now.
+    pub async fn live(&self, service: &str) -> Result<wire::Live, Denied> {
+        let (program, _) = self.deployed(service).await?;
+        self.flush().await?;
+        let (scope, name) = host::split(service);
+        let [instructions, read, written, proxied, logged] =
+            meter::counts(&self.store, scope, name, usage::seconds(&self.now)).await?;
+        let (running, memory) = program.running.now();
+        Ok(wire::Live {
+            running,
+            memory,
+            stored: meter::stored(&self.store, service, &self.databases_dir.join(service)).await?,
+            instructions,
+            read,
+            written,
+            proxied,
+            logged,
+        })
+    }
+
     /// Hold `routes` in place of the routes held.
     pub async fn route(&self, routes: Vec<Route>) -> Result<(), Denied> {
         Ok(self.routes.replace(routes).await?)

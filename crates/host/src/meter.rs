@@ -5,7 +5,7 @@
 use crate::{host, store::Store, usage};
 use anyhow::Result;
 use berm::{Meter, Now};
-use berm_api::host::Metered;
+use berm_api::host::{Count, Metered};
 use parking_lot::Mutex;
 use rusqlite::params;
 use std::{collections::HashMap, mem, path::Path};
@@ -85,14 +85,9 @@ pub(crate) async fn write(store: &Store, metered: Vec<((String, i32), Meter)>) -
         .await
 }
 
-/// Record what `service` stores on `day`: its database file, if any, at
-/// `database`, and its state.
+/// Record what `service` stores on `day`, as [`stored`] measures it.
 pub(crate) async fn sample(store: &Store, service: &str, database: &Path, day: i32) -> Result<()> {
-    let file: u64 = ["sqlite", "sqlite-wal"]
-        .iter()
-        .filter_map(|extension| std::fs::metadata(database.with_extension(extension)).ok())
-        .map(|metadata| metadata.len())
-        .sum();
+    let stored = stored(store, service, database).await?;
     let (scope, name) = host::split(service);
     let (scope, name) = (scope.to_owned(), name.to_owned());
     store
@@ -100,15 +95,36 @@ pub(crate) async fn sample(store: &Store, service: &str, database: &Path, day: i
             conn.execute(
                 "INSERT INTO service_meters (scope, name, day, stored)
                  SELECT ?1, ?2, ?3, ?4
-                        + (SELECT COALESCE(SUM(LENGTH(key) + LENGTH(value)), 0) FROM service_state
-                            WHERE scope = ?1 AND name = ?2)
                   WHERE EXISTS (SELECT 1 FROM services WHERE scope = ?1 AND name = ?2)
                  ON CONFLICT (scope, name, day) DO UPDATE SET stored = excluded.stored",
-                params![scope, name, day, file as i64],
+                params![scope, name, day, stored as i64],
             )?;
             Ok(())
         })
         .await
+}
+
+/// The bytes `service` stores now: its database file and its write-ahead log,
+/// if any, at `database`, and its state.
+pub(crate) async fn stored(store: &Store, service: &str, database: &Path) -> Result<u64> {
+    let file: u64 = ["sqlite", "sqlite-wal"]
+        .iter()
+        .filter_map(|extension| std::fs::metadata(database.with_extension(extension)).ok())
+        .map(|metadata| metadata.len())
+        .sum();
+    let (scope, name) = host::split(service);
+    let (scope, name) = (scope.to_owned(), name.to_owned());
+    let state: i64 = store
+        .run(move |conn| {
+            conn.query_row(
+                "SELECT COALESCE(SUM(LENGTH(key) + LENGTH(value)), 0) FROM service_state
+                  WHERE scope = ?1 AND name = ?2",
+                params![scope, name],
+                |row| row.get(0),
+            )
+        })
+        .await?;
+    Ok(file + state as u64)
 }
 
 /// `scope/name`'s meters over the [`usage::WINDOW`] days to `today`, oldest
@@ -145,6 +161,41 @@ pub(crate) async fn read(
                 })
             })?;
             rows.collect()
+        })
+        .await
+}
+
+/// `scope/name`'s instructions, rows read, rows written, bytes proxied and
+/// bytes logged, each since its first deploy and per second over the UTC day to
+/// `now`, in epoch seconds, as written.
+pub(crate) async fn counts(store: &Store, scope: &str, name: &str, now: i64) -> Result<[Count; 5]> {
+    let (scope, name) = (scope.to_owned(), name.to_owned());
+    let today = now.div_euclid(86_400);
+    let elapsed = (now - today * 86_400).max(1) as f64;
+    store
+        .run(move |conn| {
+            conn.query_row(
+                "SELECT COALESCE(SUM(instructions), 0), COALESCE(SUM(read), 0),
+                        COALESCE(SUM(written), 0), COALESCE(SUM(proxied), 0),
+                        COALESCE(SUM(logged), 0),
+                        COALESCE(SUM(instructions) FILTER (WHERE day = ?3), 0),
+                        COALESCE(SUM(read) FILTER (WHERE day = ?3), 0),
+                        COALESCE(SUM(written) FILTER (WHERE day = ?3), 0),
+                        COALESCE(SUM(proxied) FILTER (WHERE day = ?3), 0),
+                        COALESCE(SUM(logged) FILTER (WHERE day = ?3), 0)
+                   FROM service_meters
+                  WHERE scope = ?1 AND name = ?2",
+                params![scope, name, today],
+                |row| {
+                    let count = |i: usize| -> rusqlite::Result<Count> {
+                        Ok(Count {
+                            total: row.get::<_, i64>(i)? as u64,
+                            per_second: row.get::<_, i64>(i + 5)? as f64 / elapsed,
+                        })
+                    };
+                    Ok([count(0)?, count(1)?, count(2)?, count(3)?, count(4)?])
+                },
+            )
         })
         .await
 }
