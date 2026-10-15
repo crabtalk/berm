@@ -8,6 +8,10 @@ use std::collections::BTreeMap;
 /// program the call reached, as JSON.
 pub const METER: &str = "berm-meter";
 
+/// Header carrying how many calls a [`CallPage`]'s filters match, across
+/// every page.
+pub const TOTAL: &str = "x-total-count";
+
 /// Header carrying the [`Caller`] a call to bermd is made as, as JSON. bermd
 /// verifies none of it.
 pub const CALLER: &str = "x-berm-caller";
@@ -192,7 +196,7 @@ impl Page {
     }
 }
 
-/// `?tool=&event=&since=&until=&page=&limit=` on a service's calls.
+/// `?tool=&event=&outcome=&since=&until=&page=&limit=` on a service's calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallPage {
     /// Only calls of this tool.
@@ -201,6 +205,9 @@ pub struct CallPage {
     /// Only calls that emitted a log carrying this topic.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event: Option<String>,
+    /// Only calls that ended so: `done`, `failed`, `denied` or `refused`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
     /// Only calls begun at or after this, in epoch milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<u64>,

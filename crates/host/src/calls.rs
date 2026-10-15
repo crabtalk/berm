@@ -160,6 +160,7 @@ pub(crate) async fn read(
             const MATCHING: &str = "FROM service_calls c
                   WHERE c.scope = :scope AND c.name = :name
                     AND (:tool IS NULL OR c.tool = :tool)
+                    AND (:outcome IS NULL OR c.outcome = :outcome)
                     AND (:since IS NULL OR c.at >= :since)
                     AND (:until IS NULL OR c.at < :until)
                     AND (:event IS NULL OR EXISTS (
@@ -170,7 +171,7 @@ pub(crate) async fn read(
             let until = page.until.map(|until| until as i64);
             let matching = named_params! {
                 ":scope": scope, ":name": name, ":tool": page.tool, ":event": page.event,
-                ":since": since, ":until": until,
+                ":outcome": page.outcome, ":since": since, ":until": until,
             };
             let total =
                 conn.query_row(&format!("SELECT COUNT(*) {MATCHING}"), matching, |row| {
@@ -184,7 +185,8 @@ pub(crate) async fn read(
             let rows = statement.query_map(
                 named_params! {
                     ":scope": scope, ":name": name, ":tool": page.tool, ":event": page.event,
-                    ":since": since, ":until": until, ":limit": page.limit, ":offset": offset,
+                    ":outcome": page.outcome, ":since": since, ":until": until,
+                    ":limit": page.limit, ":offset": offset,
                 },
                 call,
             )?;

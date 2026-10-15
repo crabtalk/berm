@@ -305,15 +305,16 @@ async fn logs(
 }
 
 /// A program's runs, newest first, a page at a time, with the other pages in
-/// `Link`.
+/// `Link` and how many runs match in [`host::TOTAL`].
 async fn calls(
     State(service): State<Arc<Service>>,
     Path(name): Path<String>,
     Query(page): Query<CallPage>,
 ) -> Result<impl IntoResponse, Denied> {
-    let (calls, link) = service.host.calls(&name, page).await?;
+    let (calls, total, link) = service.host.calls(&name, page).await?;
     Ok((
         AppendHeaders(link.map(|link| (header::LINK, link))),
+        [(host::TOTAL, total.to_string())],
         Json(calls),
     ))
 }

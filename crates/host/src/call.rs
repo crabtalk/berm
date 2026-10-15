@@ -387,14 +387,14 @@ impl<E: Env> Host<E> {
         &self,
         service: &str,
         mut page: wire::CallPage,
-    ) -> Result<(Vec<wire::Call>, Option<String>), Denied> {
+    ) -> Result<(Vec<wire::Call>, i64, Option<String>), Denied> {
         self.deployed(service).await?;
         self.flush().await?;
         let (scope, name) = host::split(service);
         page.limit = page.limit.clamp(1, MAX_PAGE);
         page.page = page.page.max(1);
         let (calls, total) = calls::read(&self.store, scope, name, page.clone()).await?;
-        Ok((calls, page.link(total)))
+        Ok((calls, total, page.link(total)))
     }
 
     /// A call from a service on a peer, run as `link` and committed here unless
