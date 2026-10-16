@@ -5,7 +5,7 @@
 use crate::{host, store::Store, usage};
 use anyhow::Result;
 use berm::{Meter, Now};
-use berm_api::host::{Count, Metered};
+use berm_api::host::Metered;
 use parking_lot::Mutex;
 use rusqlite::params;
 use std::{collections::HashMap, mem, path::Path};
@@ -32,6 +32,20 @@ impl Meters {
             .lock()
             .entry((service.to_owned(), day))
             .or_default() += used;
+    }
+
+    /// What `service` used that is not yet written, in all and on `day`.
+    pub(crate) fn unsaved(&self, service: &str, day: i32) -> (Meter, Meter) {
+        let (mut all, mut on) = (Meter::default(), Meter::default());
+        for ((pending, at), used) in self.pending.lock().iter() {
+            if pending == service {
+                all += *used;
+                if *at == day {
+                    on += *used;
+                }
+            }
+        }
+        (all, on)
     }
 
     /// Take what is pending.
@@ -165,13 +179,15 @@ pub(crate) async fn read(
         .await
 }
 
-/// `scope/name`'s instructions, rows read, rows written, bytes proxied and
-/// bytes logged, each since its first deploy and per second over the UTC day to
-/// `now`, in epoch seconds, as written.
-pub(crate) async fn counts(store: &Store, scope: &str, name: &str, now: i64) -> Result<[Count; 5]> {
+/// What `scope/name` used as written, since its first deploy and on `day`,
+/// counted from the Unix epoch.
+pub(crate) async fn used(
+    store: &Store,
+    scope: &str,
+    name: &str,
+    day: i32,
+) -> Result<(Meter, Meter)> {
     let (scope, name) = (scope.to_owned(), name.to_owned());
-    let today = now.div_euclid(86_400);
-    let elapsed = (now - today * 86_400).max(1) as f64;
     store
         .run(move |conn| {
             conn.query_row(
@@ -185,15 +201,19 @@ pub(crate) async fn counts(store: &Store, scope: &str, name: &str, now: i64) -> 
                         COALESCE(SUM(logged) FILTER (WHERE day = ?3), 0)
                    FROM service_meters
                   WHERE scope = ?1 AND name = ?2",
-                params![scope, name, today],
+                params![scope, name, day],
                 |row| {
-                    let count = |i: usize| -> rusqlite::Result<Count> {
-                        Ok(Count {
-                            total: row.get::<_, i64>(i)? as u64,
-                            per_second: row.get::<_, i64>(i + 5)? as f64 / elapsed,
+                    let meter = |i: usize| -> rusqlite::Result<Meter> {
+                        Ok(Meter {
+                            instructions: row.get::<_, i64>(i)? as u64,
+                            read: row.get::<_, i64>(i + 1)? as u64,
+                            written: row.get::<_, i64>(i + 2)? as u64,
+                            proxied: row.get::<_, i64>(i + 3)? as u64,
+                            logged: row.get::<_, i64>(i + 4)? as u64,
+                            ..Meter::default()
                         })
                     };
-                    Ok([count(0)?, count(1)?, count(2)?, count(3)?, count(4)?])
+                    Ok((meter(0)?, meter(5)?))
                 },
             )
         })

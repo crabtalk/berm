@@ -517,20 +517,28 @@ impl<E: Env> Host<E> {
     /// What `service` is using now.
     pub async fn live(&self, service: &str) -> Result<wire::Live, Denied> {
         let (program, _) = self.deployed(service).await?;
-        self.flush().await?;
         let (scope, name) = host::split(service);
-        let [instructions, read, written, proxied, logged] =
-            meter::counts(&self.store, scope, name, usage::seconds(&self.now)).await?;
+        let now = usage::seconds(&self.now);
+        let day = now.div_euclid(86_400) as i32;
+        let (mut all, mut today) = meter::used(&self.store, scope, name, day).await?;
+        let (unsaved, unsaved_today) = self.meters.unsaved(service, day);
+        all += unsaved;
+        today += unsaved_today;
+        let elapsed = (now - day as i64 * 86_400).max(1) as f64;
+        let count = |total: u64, on: u64| wire::Count {
+            total,
+            per_second: on as f64 / elapsed,
+        };
         let (running, memory) = program.running.now();
         Ok(wire::Live {
             running,
             memory,
             stored: meter::stored(&self.store, service, &self.databases_dir.join(service)).await?,
-            instructions,
-            read,
-            written,
-            proxied,
-            logged,
+            instructions: count(all.instructions, today.instructions),
+            read: count(all.read, today.read),
+            written: count(all.written, today.written),
+            proxied: count(all.proxied, today.proxied),
+            logged: count(all.logged, today.logged),
         })
     }
 
