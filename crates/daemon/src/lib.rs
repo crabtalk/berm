@@ -6,20 +6,17 @@
 
 use anyhow::{Context, Result};
 use berm::Program;
-use berm_host::{Config, Edges, Host, System};
+use berm_host::{Config, Edges, Host, Layers, System};
 use std::{path::PathBuf, sync::Arc};
 use tokio::{net::TcpListener, sync::broadcast};
 
-pub use admit::Open;
 pub use env::Local;
 pub use fetch::Fetch;
 pub use images::Stored;
 pub use peers::Alone;
 pub use secrets::Grants;
 
-mod admit;
 mod api;
-mod deps;
 mod env;
 mod fetch;
 mod images;
@@ -36,8 +33,6 @@ pub struct Service {
     host: Host<Local>,
     /// Where uploaded images are kept for the host to pull.
     images: Stored,
-    /// What each program may have substituted into its requests.
-    secrets: Grants,
     /// Fires when the deployed set changes. Connected MCP sessions turn this
     /// into `notifications/tools/list_changed`.
     changed: broadcast::Sender<()>,
@@ -49,7 +44,6 @@ impl Service {
     /// `berm.http.proxy` goes through `proxy`, or direct without one.
     pub async fn new(root: PathBuf, depth: u32, proxy: Option<&str>) -> Result<Arc<Self>> {
         let images = Stored::open(&root);
-        let secrets = Grants::open(&root);
         let config = Config {
             depth,
             cache_dir: Some(root.join("cache")),
@@ -64,8 +58,9 @@ impl Service {
                 proxy: Some(Fetch::new(proxy)?),
                 images: images.clone(),
                 peers: Alone,
-                secrets: secrets.clone(),
-                admit: Open,
+                secrets: Grants::open(&root),
+                layers: Layers::new(tower::layer::util::Identity::new()),
+                observe: (),
                 clock: System,
             },
         )
@@ -75,7 +70,6 @@ impl Service {
         Ok(Arc::new(Self {
             host,
             images,
-            secrets,
             changed: broadcast::channel(CHANGE_BACKLOG).0,
         }))
     }

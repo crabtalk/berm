@@ -7,11 +7,12 @@ use crate::{
     commit::{self, Commits},
     config::Config,
     cron, deny,
-    env::{Clock, Edges, Env, Images, Peers},
+    env::{Clock, Edges, Env, Images, Observe, Peers},
     fetch,
     hold::Holds,
     logs,
     meter::{self, Meters as Pending},
+    outside::Layers,
     routes::Routes,
     service,
     store::Store,
@@ -49,7 +50,9 @@ use tokio::sync::{Notify, Semaphore};
 
 /// Every service, compiled and callable.
 pub struct Host<E: Env> {
-    pub(crate) store: Store,
+    /// Where the host keeps its state. A daemon may keep tables of its own
+    /// here, named apart from the host's.
+    pub store: Store,
     pub(crate) berm: Arc<Berm>,
     /// Chains in flight. Each holds up to `depth + 1` guests, and a guest past
     /// `Config::instances` fails to instantiate.
@@ -78,12 +81,13 @@ pub struct Host<E: Env> {
     pub(crate) holds: Arc<Holds>,
     pub(crate) peers: Arc<E::Peers>,
     images: Arc<E::Images>,
-    /// What a call from outside is put to.
-    pub admit: Arc<E::Admit>,
+    pub(crate) secrets: Arc<E::Secrets>,
+    /// [`Edges::layers`].
+    pub(crate) layers: Layers,
     /// The most one invocation may use, and what a tool's owner has not set
     /// takes.
     pub budget: Budget,
-    /// Each tool's budget and price its owner set.
+    /// Each tool's budget its owner set.
     pub(crate) terms: Arc<Terms>,
     /// Held by a deploy of the service keyed by its key.
     deploying: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
@@ -110,7 +114,8 @@ impl<E: Env> Clone for Host<E> {
             holds: self.holds.clone(),
             peers: self.peers.clone(),
             images: self.images.clone(),
-            admit: self.admit.clone(),
+            secrets: self.secrets.clone(),
+            layers: self.layers.clone(),
             budget: self.budget,
             terms: self.terms.clone(),
             deploying: self.deploying.clone(),
@@ -127,7 +132,8 @@ impl<E: Env> Host<E> {
     /// `berm.http.fetch` through `edges.fetch` and, when given one,
     /// `berm.http.proxy` through `edges.proxy`, both with `edges.secrets`.
     /// Images come from `edges.images`, a service it does not run is reached
-    /// through `edges.peers`, and a call from outside is put to `edges.admit`.
+    /// through `edges.peers`, a call from outside goes through `edges.layers`,
+    /// and `edges.observe` is told of each invocation.
     pub async fn open(state: &Path, config: &Config, edges: Edges<E>) -> Result<Self> {
         let Edges {
             fetch,
@@ -135,7 +141,8 @@ impl<E: Env> Host<E> {
             images,
             peers,
             secrets,
-            admit,
+            layers,
+            observe,
             clock,
         } = edges;
         let clock = Arc::new(clock);
@@ -154,7 +161,7 @@ impl<E: Env> Host<E> {
         let secrets = Arc::new(secrets);
         let mut syscalls = vec![fetch::syscall::<E>(fetch, secrets.clone(), false)];
         if let Some(proxy) = proxy {
-            syscalls.push(fetch::syscall::<E>(proxy, secrets, true));
+            syscalls.push(fetch::syscall::<E>(proxy, secrets.clone(), true));
         }
         let runtime: Arc<OnceLock<Weak<Berm>>> = Arc::new(OnceLock::new());
         let databases = Arc::new(Databases::new(config.databases.clone()));
@@ -282,6 +289,13 @@ impl<E: Env> Host<E> {
             // A callee is told the calling service's name; it is in the same
             // scope.
             named: Arc::new(|program: &str| split(program).1.to_owned()),
+            invoked: {
+                let running = emitted.clone();
+                Arc::new(move |at: &Callsite, tool: &str, used: Meter| {
+                    let call = at.dry.is_none().then(|| running.run(at.chain)).flatten();
+                    observe.invoked(&at.program, tool, call, &used);
+                })
+            },
             enter: commit::enter(commits.clone()),
             budget: Arc::new(move |service: &str, tool: &str| budgeting.get(service, tool).budget),
             now: now.clone(),
@@ -347,7 +361,8 @@ impl<E: Env> Host<E> {
             holds,
             peers,
             images: Arc::new(images),
-            admit: Arc::new(admit),
+            secrets,
+            layers,
             budget: Budget {
                 instructions: config.fuel,
                 rows: config.rows,
@@ -580,7 +595,9 @@ impl<E: Env> Host<E> {
                 let undone: Vec<String> = service::edited(&self.store, scope, name)
                     .await?
                     .into_iter()
-                    .filter(|(tool, cron, _)| cron_tools.contains(tool) && crons.get(tool) != cron.as_ref())
+                    .filter(|(tool, cron, _)| {
+                        cron_tools.contains(tool) && crons.get(tool) != cron.as_ref()
+                    })
                     .map(|(tool, cron, _)| {
                         format!(
                             "{tool}: the deploy sets {}, its owner set {}",

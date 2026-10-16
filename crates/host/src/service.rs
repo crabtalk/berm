@@ -101,7 +101,10 @@ pub(crate) async fn install(
                 .iter()
                 .map(|tool| {
                     let cron = crons.get(tool).cloned();
-                    let due = cron.as_deref().map(|cron| cron::next(cron, now)).transpose()?;
+                    let due = cron
+                        .as_deref()
+                        .map(|cron| cron::next(cron, now))
+                        .transpose()?;
                     Ok((tool.clone(), cron, due))
                 })
                 .collect::<Result<Vec<_>>>()

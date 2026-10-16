@@ -41,7 +41,6 @@ pub(crate) struct Ran {
     outcome: Outcome,
     ms: u64,
     meter: Option<Meter>,
-    price_micros: u64,
 }
 
 /// A run being timed, from [`Pending::start`].
@@ -83,7 +82,6 @@ impl Pending {
         caller: &str,
         outcome: Outcome,
         meter: Option<Meter>,
-        price_micros: u64,
     ) {
         self.pending.lock().push(Ran {
             id: started.id,
@@ -95,7 +93,6 @@ impl Pending {
             outcome,
             ms: started.began.elapsed().as_millis() as u64,
             meter,
-            price_micros,
         });
     }
 
@@ -119,8 +116,8 @@ pub(crate) async fn write(store: &Store, ran: Vec<Ran>, now: u64) -> Result<()> 
                     .map(|meter| serde_json::to_string(meter).expect("a meter is JSON"));
                 tx.execute(
                     "INSERT INTO service_calls
-                            (id, scope, name, at, tool, source, caller, outcome, ms, meter, price_micros)
-                     SELECT ?11, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+                            (id, scope, name, at, tool, source, caller, outcome, ms, meter)
+                     SELECT ?10, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
                       WHERE EXISTS (SELECT 1 FROM services WHERE scope = ?1 AND name = ?2)",
                     params![
                         scope,
@@ -132,7 +129,6 @@ pub(crate) async fn write(store: &Store, ran: Vec<Ran>, now: u64) -> Result<()> 
                         call.outcome.as_str(),
                         call.ms as i64,
                         meter,
-                        call.price_micros as i64,
                         call.id as i64
                     ],
                 )?;
@@ -219,8 +215,8 @@ pub(crate) fn last(
 
 /// The columns [`call`] reads, in order, of `service_calls c`.
 const COLUMNS: &str = "c.id, c.at, c.tool, c.source, c.caller, c.outcome, c.ms, c.meter,
-    c.price_micros, (SELECT COUNT(*) FROM service_logs l
-                      WHERE l.scope = c.scope AND l.name = c.name AND l.call = c.id)";
+    (SELECT COUNT(*) FROM service_logs l
+      WHERE l.scope = c.scope AND l.name = c.name AND l.call = c.id)";
 
 /// A row of [`COLUMNS`] as a call. A service caller is named by its name.
 fn call(row: &Row) -> rusqlite::Result<Call> {
@@ -240,8 +236,7 @@ fn call(row: &Row) -> rusqlite::Result<Call> {
         outcome: row.get(5)?,
         ms: row.get::<_, i64>(6)? as u64,
         meter: meter.and_then(|meter| serde_json::from_str(&meter).ok()),
-        price_micros: row.get::<_, i64>(8)? as u64,
-        logs: row.get::<_, i64>(9)? as u64,
+        logs: row.get::<_, i64>(8)? as u64,
     })
 }
 

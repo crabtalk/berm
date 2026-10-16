@@ -43,7 +43,7 @@ impl Service {
         for broken in &breaks {
             tracing::warn!(name, "breaks callers: {broken}");
         }
-        let unresolved = self.unresolved(&program);
+        let unresolved = self.host.runtime(name).await?.unresolved;
         if !unresolved.is_empty() {
             tracing::warn!(name, "nothing here answers to {unresolved}");
         }

@@ -1,4 +1,4 @@
-use crate::{Alone, Fetch, Grants, Open, Stored};
+use crate::{Alone, Fetch, Grants, Stored};
 use berm_host::{Env, System};
 
 /// One machine, running every program itself.
@@ -9,6 +9,6 @@ impl Env for Local {
     type Images = Stored;
     type Peers = Alone;
     type Secrets = Grants;
-    type Admit = Open;
+    type Observe = ();
     type Clock = System;
 }

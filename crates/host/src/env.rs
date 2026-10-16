@@ -1,10 +1,13 @@
 //! The edges a daemon gives its [`Host`](crate::Host): what differs between
 //! running services on a laptop and on a fleet's node.
 
-use crate::Denied;
+use crate::Layers;
 use anyhow::Result;
-use berm::syscall::http::{Request, Response};
-use berm_api::host::{Caller, Link, Reply, Used};
+use berm::{
+    Meter,
+    syscall::http::{Request, Response},
+};
+use berm_api::host::{Link, Reply, Used};
 use std::future::Future;
 
 /// One daemon's edges, as types.
@@ -19,7 +22,7 @@ pub trait Env: Send + Sync + 'static {
     type Images: Images;
     type Peers: Peers;
     type Secrets: Secrets;
-    type Admit: Admit;
+    type Observe: Observe;
     type Clock: Clock;
 }
 
@@ -32,7 +35,10 @@ pub struct Edges<E: Env> {
     pub images: E::Images,
     pub peers: E::Peers,
     pub secrets: E::Secrets,
-    pub admit: E::Admit,
+    /// Put around every call from outside, outermost first. A refusal one
+    /// answers with a `4xx` is counted as `refused`.
+    pub layers: Layers,
+    pub observe: E::Observe,
     /// What `berm.now` answers, when a wake is due, and the day a use or a
     /// meter is counted on.
     pub clock: E::Clock,
@@ -71,19 +77,28 @@ pub trait Secrets: Send + Sync + 'static {
         secret: &str,
         host: &str,
     ) -> impl Future<Output = Result<Option<String>>> + Send;
+
+    /// The names of the secrets granted to `service`, for whatever hosts.
+    fn names(&self, service: &str) -> impl Future<Output = Result<Vec<String>>> + Send;
 }
 
-/// Who may call a public tool from outside. Asked before the tool runs, once
-/// the tool is public and its manifest takes calls from outside; a refusal is
-/// answered as it is and counted as `refused`.
-pub trait Admit: Send + Sync + 'static {
-    fn admit(
-        &self,
-        service: &str,
-        tool: &str,
-        query: bool,
-        caller: Option<&Caller>,
-    ) -> impl Future<Output = Result<(), Denied>> + Send;
+/// Told of each invocation this host runs once it ran, trapped or not, with
+/// what it used itself, the services it called left out. Cannot change how it
+/// ended.
+pub trait Observe: Send + Sync + 'static {
+    /// `call` is the run on this host the invocation is part of, as the
+    /// service's calls number it; `None` in a dry chain or a link from a peer.
+    fn invoked(&self, service: &str, tool: &str, call: Option<u64>, used: &Meter);
+}
+
+impl Observe for () {
+    fn invoked(&self, _: &str, _: &str, _: Option<u64>, _: &Meter) {}
+}
+
+impl<O: Observe> Observe for std::sync::Arc<O> {
+    fn invoked(&self, service: &str, tool: &str, call: Option<u64>, used: &Meter) {
+        (**self).invoked(service, tool, call, used);
+    }
 }
 
 /// What time it is.

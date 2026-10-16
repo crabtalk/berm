@@ -1,7 +1,8 @@
 //! The host every berm daemon runs: the services it holds, the state they
 //! commit, and the calls into them. A daemon builds a [`Host`] over its own
-//! [`Env`], authenticates its callers and serves its own routes; everything a
-//! program observes is the host's.
+//! [`Env`], authenticates its callers, nests [`router`] under the path it names
+//! services by and serves its own routes beside it; everything a program
+//! observes is the host's.
 
 use axum::{
     Json,
@@ -12,8 +13,11 @@ use berm_api::Failed;
 use std::fmt;
 
 pub use config::Config;
-pub use env::{Admit, Clock, Edges, Env, Images, Peers, Secrets, System};
+pub use env::{Clock, Edges, Env, Images, Observe, Peers, Secrets, System};
 pub use host::Host;
+pub use outside::{Call, Called, Layers, Outside};
+pub use serve::{Named, router};
+pub use store::Store;
 
 mod call;
 mod calls;
@@ -26,7 +30,9 @@ mod hold;
 mod host;
 mod logs;
 mod meter;
+mod outside;
 mod routes;
+mod serve;
 mod service;
 mod store;
 mod terms;

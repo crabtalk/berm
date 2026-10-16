@@ -14,7 +14,9 @@ pub(crate) fn parse(expression: &str) -> Result<Cron> {
         .year(Year::Disallowed)
         .build()
         .parse(expression)
-        .map_err(|e| anyhow!("{expression:?} is not a cron expression such as \"*/5 * * * *\": {e}"))
+        .map_err(|e| {
+            anyhow!("{expression:?} is not a cron expression such as \"*/5 * * * *\": {e}")
+        })
 }
 
 /// When `expression` next fires after `now`, both in epoch milliseconds.

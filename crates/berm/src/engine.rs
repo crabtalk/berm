@@ -7,7 +7,7 @@
 //! free until the reply resolves.
 
 use crate::{
-    Budget, INCLUDED_INSTRUCTIONS, Invocation, Meter,
+    Budget, Invocation, Meter,
     syscall::{self, Door, Table},
 };
 use anyhow::{Context, Result, anyhow, bail};
@@ -246,7 +246,6 @@ impl Image {
         });
         store.data().at.meter(Meter {
             instructions,
-            overage: instructions.saturating_sub(INCLUDED_INSTRUCTIONS),
             memory,
             ..Meter::default()
         });

@@ -198,7 +198,6 @@ impl<E: Env> Host<E> {
                 &from,
                 invoked.outcome(),
                 Some(invoked.meter),
-                0,
             );
             let failed = invoked.result.clone().err();
             ran = Some(invoked);

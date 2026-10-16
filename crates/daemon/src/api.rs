@@ -6,18 +6,16 @@
 
 use crate::Service;
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     body::Bytes,
-    extract::{FromRequestParts, Path, Query, State},
-    http::{StatusCode, header, request::Parts},
-    response::{AppendHeaders, IntoResponse, Response},
-    routing::{get, post, put},
+    extract::{Path, Query, Request, State},
+    http::StatusCode,
+    middleware::{self, Next},
+    response::Response,
+    routing::{get, put},
 };
-use berm_api::{
-    Budget, Cron, Deployed, DryRun, Listing, Price, Program as Wire, Runtime, Terms,
-    host::{self, CallPage, Caller, Live, Metered, Page},
-};
-use berm_host::{Denied, deny};
+use berm_api::{Deployed, Program as Wire, host};
+use berm_host::{Denied, Named, deny};
 use rmcp::transport::{
     StreamableHttpService, streamable_http_server::session::local::LocalSessionManager,
 };
@@ -36,29 +34,45 @@ pub fn router(service: Arc<Service>) -> Router {
         Arc::new(LocalSessionManager::default()),
         Default::default(),
     );
+    let program = berm_host::router(service.host.clone())
+        .merge(
+            Router::new()
+                .route("/", put(deploy).delete(undeploy))
+                .with_state(service.clone()),
+        )
+        .route_layer(middleware::from_fn(named));
 
     Router::new()
         .route("/programs", get(list))
-        .route(
-            "/programs/{name}",
-            get(listing).put(deploy).delete(undeploy),
-        )
-        .route("/programs/{name}/idl", get(inspect))
-        .route("/programs/{name}/runtime", get(runtime))
-        .route("/programs/{name}/tools/{tool}", post(call).get(query))
-        .route("/programs/{name}/tools/{tool}/dry", post(dry))
-        .route("/programs/{name}/logs", get(logs))
-        .route("/programs/{name}/calls", get(calls))
-        .route("/programs/{name}/crons", get(crons))
-        .route("/programs/{name}/wakes", get(wakes))
-        .route("/programs/{name}/meters", get(meters))
-        .route("/programs/{name}/live", get(live))
-        .route("/programs/{name}/terms", get(terms))
-        .route("/programs/{name}/tools/{tool}/budget", put(budget))
-        .route("/programs/{name}/tools/{tool}/price", put(price))
-        .route("/programs/{name}/tools/{tool}/cron", put(cron))
-        .route_service("/mcp", mcp)
         .with_state(service)
+        .nest("/programs/{name}", program)
+        .route_service("/mcp", mcp)
+}
+
+/// The program a request names.
+#[derive(Deserialize)]
+struct Name {
+    name: String,
+}
+
+/// Name the program a request is for, and the caller it is made as, from
+/// [`host::CALLER`], unverified.
+async fn named(
+    Path(Name { name }): Path<Name>,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, Denied> {
+    if let Some(value) = request.headers().get(host::CALLER) {
+        let caller: host::Caller = serde_json::from_slice(value.as_bytes()).map_err(|e| {
+            deny(
+                StatusCode::BAD_REQUEST,
+                format!("{} is not a caller: {e}", host::CALLER),
+            )
+        })?;
+        request.extensions_mut().insert(caller);
+    }
+    request.extensions_mut().insert(Named(name));
+    Ok(next.run(request).await)
 }
 
 async fn list(State(service): State<Arc<Service>>) -> Json<Vec<Wire>> {
@@ -69,75 +83,6 @@ async fn list(State(service): State<Arc<Service>>) -> Json<Vec<Wire>> {
             .map(|one| one.idl(&one.name))
             .collect(),
     )
-}
-
-/// A program as anyone it is visible to sees it.
-async fn listing(
-    State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
-) -> Result<Json<Listing>, Denied> {
-    Ok(Json(service.host.listing(&name).await?))
-}
-
-async fn inspect(
-    State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
-) -> Result<Json<Wire>, Denied> {
-    match service.get(&name) {
-        Some(deployed) => Ok(Json(deployed.idl(&name))),
-        None => Err(missing(&name)),
-    }
-}
-
-/// How a program runs, and what of what it reaches nothing here answers to.
-async fn runtime(
-    State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
-) -> Result<Json<Runtime>, Denied> {
-    let deployed = service.get(&name).ok_or_else(|| missing(&name))?;
-    Ok(Json(Runtime {
-        unresolved: service.unresolved(&deployed),
-        ..deployed.runtime()
-    }))
-}
-
-/// What a call of each public tool is held to.
-async fn terms(
-    State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
-) -> Result<Json<Terms>, Denied> {
-    Ok(Json(service.host.terms(&name)?))
-}
-
-/// Set what one call of a tool may use, from its next call.
-async fn budget(
-    State(service): State<Arc<Service>>,
-    Path((name, tool)): Path<(String, String)>,
-    Json(budget): Json<Budget>,
-) -> Result<StatusCode, Denied> {
-    service.host.set_budget(&name, &tool, budget).await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-/// Set what a call of a tool that ends `done` costs, from its next call. bermd
-/// charges nothing.
-async fn price(
-    State(service): State<Arc<Service>>,
-    Path((name, tool)): Path<(String, String)>,
-    Json(Price { price_micros }): Json<Price>,
-) -> Result<StatusCode, Denied> {
-    service.host.set_price(&name, &tool, price_micros).await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-/// Set a cron tool's expression, until a deploy's config sets another.
-async fn cron(
-    State(service): State<Arc<Service>>,
-    Path((name, tool)): Path<(String, String)>,
-    Json(Cron { cron }): Json<Cron>,
-) -> Result<StatusCode, Denied> {
-    service.host.set_cron(&name, &tool, cron).await?;
-    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `?public=a,b&force=true&crons={"tick":"*/5 * * * *"}` on a deploy: the
@@ -157,7 +102,7 @@ struct Confirmed {
 /// address and redeploying the same name replaces what is there.
 async fn deploy(
     State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
+    Extension(Named(name)): Extension<Named>,
     Query(confirmed): Query<Confirmed>,
     image: Bytes,
 ) -> Result<Json<Deployed>, Denied> {
@@ -187,169 +132,15 @@ async fn deploy(
     }))
 }
 
-/// The caller a tool call is made as, from [`host::CALLER`], unverified.
-struct Called(Option<Caller>);
-
-impl<S: Send + Sync> FromRequestParts<S> for Called {
-    type Rejection = Denied;
-
-    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Denied> {
-        let Some(value) = parts.headers.get(host::CALLER) else {
-            return Ok(Self(None));
-        };
-        let caller = serde_json::from_slice(value.as_bytes()).map_err(|e| {
-            deny(
-                StatusCode::BAD_REQUEST,
-                format!("{} is not a caller: {e}", host::CALLER),
-            )
-        })?;
-        Ok(Self(Some(caller)))
-    }
-}
-
-/// Run one tool. `POST` because an invocation is not idempotent, and the body
-/// is the argument object byte for byte as the program will read it.
-async fn call(
-    State(service): State<Arc<Service>>,
-    Called(caller): Called,
-    Path((name, tool)): Path<(String, String)>,
-    arguments: Bytes,
-) -> Result<Response, Denied> {
-    run(&service, &name, caller, &tool, arguments.to_vec(), false).await
-}
-
-/// Run one tool dry: its arguments and how its fetches are answered in the
-/// body, nothing it changes kept, answered as a call is.
-async fn dry(
-    State(service): State<Arc<Service>>,
-    Called(caller): Called,
-    Path((name, tool)): Path<(String, String)>,
-    Json(run): Json<DryRun>,
-) -> Result<Response, Denied> {
-    let (headers, output) = service
-        .host
-        .dry_run(&name, caller.as_ref(), &tool, run.arguments(), run.dry)
-        .await?;
-    Ok((headers, Json(output)).into_response())
-}
-
-/// `?args=` on a `GET`: the argument object, URL-encoded JSON.
-#[derive(Deserialize)]
-struct Arguments {
-    #[serde(default)]
-    args: String,
-}
-
-/// Run one `query` tool, its argument object in `?args=`.
-async fn query(
-    State(service): State<Arc<Service>>,
-    Called(caller): Called,
-    Path((name, tool)): Path<(String, String)>,
-    Query(arguments): Query<Arguments>,
-) -> Result<Response, Denied> {
-    run(
-        &service,
-        &name,
-        caller,
-        &tool,
-        arguments.args.into_bytes(),
-        true,
-    )
-    .await
-}
-
-/// Run `tool` on `name` as `caller`, answering with the headers the host
-/// gives the answer, its meter among them. `query` holds it to a tool its
-/// manifest marks `query`.
-async fn run(
-    service: &Service,
-    name: &str,
-    caller: Option<Caller>,
-    tool: &str,
-    arguments: Vec<u8>,
-    query: bool,
-) -> Result<Response, Denied> {
-    let (headers, output) = service
-        .host
-        .call(name, caller.as_ref(), tool, arguments, query)
-        .await?;
-    Ok((headers, Json(output)).into_response())
-}
-
-/// A program's meters over the last 30 days, a day each.
-async fn meters(
-    State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
-) -> Result<Json<Vec<Metered>>, Denied> {
-    Ok(Json(service.host.meters(&name).await?))
-}
-
-/// What a program is using now.
-async fn live(
-    State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
-) -> Result<Json<Live>, Denied> {
-    Ok(Json(service.host.live(&name).await?))
-}
-
-/// A program's logs, oldest first, after the sequence number `after`, a page
-/// at a time, with the other pages in `Link`.
-async fn logs(
-    State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
-    Query(page): Query<Page>,
-) -> Result<impl IntoResponse, Denied> {
-    let (logs, link) = service.host.logs(&name, page).await?;
-    Ok((
-        AppendHeaders(link.map(|link| (header::LINK, link))),
-        Json(logs),
-    ))
-}
-
-/// A program's runs, newest first, a page at a time, with the other pages in
-/// `Link` and how many runs match in [`host::TOTAL`].
-async fn calls(
-    State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
-    Query(page): Query<CallPage>,
-) -> Result<impl IntoResponse, Denied> {
-    let (calls, total, link) = service.host.calls(&name, page).await?;
-    Ok((
-        AppendHeaders(link.map(|link| (header::LINK, link))),
-        [(host::TOTAL, total.to_string())],
-        Json(calls),
-    ))
-}
-
-/// A program's cron tools.
-async fn crons(
-    State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
-) -> Result<Json<host::Crons>, Denied> {
-    Ok(Json(service.host.crons(&name).await?))
-}
-
-/// The wakes armed to call a program's tools that have not run.
-async fn wakes(
-    State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
-) -> Result<Json<host::Wakes>, Denied> {
-    Ok(Json(service.host.armed(&name).await?))
-}
-
 async fn undeploy(
     State(service): State<Arc<Service>>,
-    Path(name): Path<String>,
+    Extension(Named(name)): Extension<Named>,
 ) -> Result<StatusCode, Denied> {
     match service.undeploy(&name).await? {
         true => Ok(StatusCode::NO_CONTENT),
-        false => Err(missing(&name)),
+        false => Err(deny(
+            StatusCode::NOT_FOUND,
+            format!("no program named {name:?} is deployed"),
+        )),
     }
-}
-
-fn missing(name: &str) -> Denied {
-    deny(
-        StatusCode::NOT_FOUND,
-        format!("no program named {name:?} is deployed"),
-    )
 }

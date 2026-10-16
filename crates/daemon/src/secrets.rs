@@ -48,15 +48,6 @@ impl Grants {
         }
     }
 
-    /// The names granted to `program`, for whatever hosts.
-    pub(crate) fn names(&self, program: &str) -> Result<Vec<String>> {
-        Ok(self
-            .read()?
-            .remove(program)
-            .map(|granted| granted.into_keys().collect())
-            .unwrap_or_default())
-    }
-
     /// Every grant, or none when the file is absent.
     fn read(&self) -> Result<Table> {
         let text = match fs::read_to_string(&self.path) {
@@ -86,5 +77,13 @@ impl Secrets for Grants {
                     .any(|allowed| allowed.eq_ignore_ascii_case(host))
             })
             .map(|grant| grant.value))
+    }
+
+    async fn names(&self, program: &str) -> Result<Vec<String>> {
+        Ok(self
+            .read()?
+            .remove(program)
+            .map(|granted| granted.into_keys().collect())
+            .unwrap_or_default())
     }
 }

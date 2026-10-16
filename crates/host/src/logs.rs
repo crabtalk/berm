@@ -45,12 +45,17 @@ impl Pending {
         self.runs.lock().remove(&chain);
     }
 
+    /// The call chain `chain` is, while it runs.
+    pub(crate) fn run(&self, chain: u64) -> Option<u64> {
+        self.runs.lock().get(&chain).copied()
+    }
+
     /// Hold `log`, emitted at `at`. `false`, holding nothing, in a dry chain.
     pub(crate) fn take(&self, at: &Callsite, log: Log) -> bool {
         if at.dry.is_some() {
             return false;
         }
-        let call = self.runs.lock().get(&at.chain).copied();
+        let call = self.run(at.chain);
         self.pending.lock().push(Emitted {
             service: at.program.to_string(),
             call,

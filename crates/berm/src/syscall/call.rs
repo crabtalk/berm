@@ -6,7 +6,8 @@
 //! reaches is the embedder's [`Calls::resolve`].
 
 use crate::{
-    Berm, Budget, Caller, Callsite, Changes, Ended, Link, Program, Refused, Syscall, abi, wire,
+    Berm, Budget, Caller, Callsite, Changes, Ended, Link, Meter, Program, Refused, Syscall, abi,
+    wire,
 };
 use anyhow::{Result, bail};
 use std::{
@@ -58,6 +59,10 @@ pub enum Called {
 /// Told of every nested call that reached a deployed program: the calling
 /// site, the deployed name, the tool, and how it ended.
 pub type Reported = Arc<dyn Fn(&Callsite, &str, &str, Called) + Send + Sync>;
+
+/// Told of every invocation once it ran, trapped or not: its site, the tool,
+/// and what it used itself, the programs it called left out.
+pub type Invoked = Arc<dyn Fn(&Callsite, &str, Meter) + Send + Sync>;
 
 /// Reaches a program deployed outside this runtime: asked with the calling
 /// site, the deployed name, the tool, its arguments, and the link the target
@@ -116,6 +121,7 @@ pub struct Calls {
     pub budget: Budgeted,
     pub now: Now,
     pub called: Reported,
+    pub invoked: Invoked,
     pub remote: Remote,
 }
 
@@ -131,6 +137,7 @@ impl Calls {
             budget: Arc::new(|_, _| None),
             now: Arc::new(system_now),
             called: Arc::new(|_, _, _, _| {}),
+            invoked: Arc::new(|_, _, _| {}),
             remote: Arc::new(|_, _, _, _, _| None),
         }
     }
@@ -153,6 +160,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
         budget: _,
         now: _,
         called,
+        invoked: _,
         remote,
     } = calls;
     Syscall {

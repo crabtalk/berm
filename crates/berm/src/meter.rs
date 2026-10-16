@@ -100,28 +100,34 @@ impl wasmtime::ResourceLimiter for Held {
     }
 }
 
-/// One invocation's rows read and written, against its budget.
+/// What one invocation used itself, the programs it called left out, and its
+/// budget of rows read and written.
 #[derive(Debug)]
-pub(crate) struct Rows {
-    used: AtomicU64,
+pub(crate) struct Own {
+    used: Mutex<Meter>,
     budget: u64,
 }
 
-impl Rows {
+impl Own {
     pub(crate) fn new(budget: u64) -> Self {
         Self {
-            used: AtomicU64::new(0),
+            used: Mutex::default(),
             budget,
         }
     }
 
-    pub(crate) fn add(&self, rows: u64) {
-        self.used.fetch_add(rows, Ordering::Relaxed);
+    pub(crate) fn add(&self, used: Meter) {
+        *self.used.lock().unwrap_or_else(PoisonError::into_inner) += used;
+    }
+
+    pub(crate) fn take(&self) -> Meter {
+        std::mem::take(&mut *self.used.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     /// Refused once the budget is used.
     pub(crate) fn left(&self) -> Result<()> {
-        if self.used.load(Ordering::Relaxed) >= self.budget {
+        let used = *self.used.lock().unwrap_or_else(PoisonError::into_inner);
+        if used.read + used.written >= self.budget {
             return Err(Refused(format!(
                 "this call has used its budget of {} rows",
                 self.budget

@@ -5,10 +5,10 @@ use crate::{
     bound::watchdog,
     engine::{Engine, Image},
     journal::{Changes, Journal},
-    meter::{Held, Rows, Running},
+    meter::{Held, Own, Running},
     syscall::{
         self,
-        call::{Budgeted, Enter, Now},
+        call::{Budgeted, Calls, Enter, Invoked, Now},
     },
 };
 use anyhow::{Context, Result, bail};
@@ -55,6 +55,8 @@ pub struct Program {
     budget: Budgeted,
     /// What `berm.now` answers.
     now: Now,
+    /// Told of each invocation once it ran.
+    invoked: Invoked,
     /// What its invocations hold while they run.
     pub running: Arc<Running>,
 }
@@ -73,9 +75,7 @@ impl Program {
         image: &[u8],
         name: impl Into<Arc<str>>,
         syscalls: &[Syscall],
-        enter: Enter,
-        budget: Budgeted,
-        now: Now,
+        calls: &Calls,
     ) -> Result<Self> {
         let compiled = Image::compile(engine, image, syscall::table(syscalls)?)
             .context("failed to compile program")?;
@@ -126,9 +126,10 @@ impl Program {
             deps: Arc::new(manifest.deps.clone()),
             manifest,
             tools,
-            enter,
-            budget,
-            now,
+            enter: calls.enter.clone(),
+            budget: calls.budget.clone(),
+            now: calls.now.clone(),
+            invoked: calls.invoked.clone(),
             running: Arc::default(),
         })
     }
@@ -362,7 +363,7 @@ impl Program {
             chain,
             journal: journal.clone(),
             meters,
-            rows: Arc::new(Rows::new(budget.rows)),
+            own: Arc::new(Own::new(budget.rows)),
         };
         at.meter(Meter {
             calls: 1,
@@ -375,6 +376,7 @@ impl Program {
         }
         let held = at.journal.clone();
         let mark = journal.mark();
+        let site = at.clone();
         let invocation = Invocation {
             held: Held::new(self.running.clone()),
             at,
@@ -407,6 +409,7 @@ impl Program {
             })
         }
         .await;
+        (self.invoked)(&site, tool, site.own.take());
         match &ended {
             Ok(Ended { result: Ok(_), .. }) => {
                 let changes = match own {

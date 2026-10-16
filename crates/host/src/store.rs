@@ -222,6 +222,9 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE service_wakes DROP COLUMN every;
     ALTER TABLE service_wakes DROP COLUMN declared;
     ALTER TABLE service_wakes RENAME COLUMN declared_cron TO declared;",
+    "ALTER TABLE service_terms DROP COLUMN price_micros;
+    ALTER TABLE service_calls DROP COLUMN price_micros;
+    ALTER TABLE service_meters DROP COLUMN overage;",
 ];
 
 /// One connection, shared. Every statement runs off the async workers.

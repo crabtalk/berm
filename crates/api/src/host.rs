@@ -59,6 +59,15 @@ pub struct Deploy {
     pub crons: Option<BTreeMap<String, String>>,
 }
 
+/// A change to one of a service's tools.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolUpdate {
+    /// When a deprecated tool stops being served, in epoch seconds; `null`
+    /// clears it.
+    pub sunset: Option<i64>,
+}
+
 /// Where a service this host does not run lives: the peer it runs on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
@@ -338,8 +347,6 @@ pub struct Call {
     /// What it used, summed over every service it reached. `None` for a call
     /// the host refused.
     pub meter: Option<Meter>,
-    /// What its caller paid, in USD micros.
-    pub price_micros: u64,
     /// How many logs it emitted.
     pub logs: u64,
 }
@@ -386,10 +393,6 @@ pub struct Metered {
     pub calls: u64,
     /// Wasm instructions those invocations executed.
     pub instructions: u64,
-    /// The instructions each of them executed past its first
-    /// [`INCLUDED_INSTRUCTIONS`](crate::INCLUDED_INSTRUCTIONS), summed.
-    #[serde(default)]
-    pub overage: u64,
     /// The largest linear memory one of them reached, in bytes.
     pub memory: u64,
     /// Rows read and written in the service's database and state.

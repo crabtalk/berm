@@ -13,9 +13,9 @@
 //! ```
 
 use crate::{
-    Denied,
-    env::{Admit, Clock, Edges, Env, Images, Peers, Secrets},
+    env::{Clock, Edges, Env, Images, Peers, Secrets},
     host::{self, Host},
+    outside::Layers,
     service,
 };
 use anyhow::{Context, Result, bail};
@@ -28,7 +28,7 @@ use berm::{
 };
 use berm_api::{
     Logged,
-    host::{Caller, Deploy, Link, Page, Reply, Used},
+    host::{Deploy, Link, Page, Reply, Used},
 };
 use parking_lot::Mutex;
 use std::{
@@ -52,7 +52,7 @@ impl Env for Test {
     type Images = Given;
     type Peers = Nowhere;
     type Secrets = Granted;
-    type Admit = Anyone;
+    type Observe = ();
     type Clock = Manual;
 }
 
@@ -115,7 +115,8 @@ impl TestHost {
                 images: images.clone(),
                 peers: Nowhere,
                 secrets: secrets.clone(),
-                admit: Anyone,
+                layers: Layers::new(tower::layer::util::Identity::new()),
+                observe: (),
                 clock: clock.clone(),
             },
         )
@@ -506,14 +507,15 @@ impl Secrets for Granted {
             .get(&(service.to_owned(), secret.to_owned(), host.to_owned()))
             .cloned())
     }
-}
 
-/// Admits every caller.
-pub struct Anyone;
-
-impl Admit for Anyone {
-    async fn admit(&self, _: &str, _: &str, _: bool, _: Option<&Caller>) -> Result<(), Denied> {
-        Ok(())
+    async fn names(&self, service: &str) -> Result<Vec<String>> {
+        Ok(self
+            .0
+            .lock()
+            .keys()
+            .filter(|(granted, _, _)| granted == service)
+            .map(|(_, secret, _)| secret.clone())
+            .collect())
     }
 }
 

@@ -261,14 +261,11 @@ pub struct Terms {
     pub tools: BTreeMap<String, ToolTerms>,
 }
 
-/// What one call of a tool is held to, and what it costs.
+/// What one call of a tool is held to.
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolTerms {
     pub budget: Budget,
-    /// USD micros a call that ends `done` costs its caller; 0 is free.
-    #[serde(default)]
-    pub price_micros: u64,
 }
 
 /// How a call is made dry. A dry chain keeps nothing berm holds: no state,
@@ -339,14 +336,6 @@ pub struct Cron {
     /// Five fields, minute to day of week, in UTC: `*/5 * * * *`. `None`
     /// stops its calls.
     pub cron: Option<String>,
-}
-
-/// A tool's price, as its owner sets it.
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Price {
-    /// USD micros a call that ends `done` costs its caller; 0 is free.
-    pub price_micros: u64,
 }
 
 /// The most one invocation may use: wasm instructions, and rows read and
@@ -426,10 +415,6 @@ impl From<Output> for Result<String, String> {
     }
 }
 
-/// Instructions an invocation executes before those past them count as
-/// [`Meter::overage`].
-pub const INCLUDED_INSTRUCTIONS: u64 = 1_000_000;
-
 /// The most bytes one log may hold, its data and topics together.
 pub const MAX_LOG: usize = 4096;
 
@@ -442,10 +427,6 @@ pub const MAX_LOG: usize = 4096;
 pub struct Meter {
     pub calls: u64,
     pub instructions: u64,
-    /// The instructions each invocation executed past its first
-    /// [`INCLUDED_INSTRUCTIONS`], summed.
-    #[serde(default)]
-    pub overage: u64,
     pub memory: u64,
     pub read: u64,
     pub written: u64,
@@ -459,7 +440,6 @@ impl std::ops::AddAssign for Meter {
     fn add_assign(&mut self, other: Meter) {
         self.calls += other.calls;
         self.instructions += other.instructions;
-        self.overage += other.overage;
         self.memory = self.memory.max(other.memory);
         self.read += other.read;
         self.written += other.written;
