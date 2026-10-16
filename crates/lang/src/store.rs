@@ -10,7 +10,6 @@
 //! Whether a host serves these at all is its own decision, the same as
 //! [`crate::call`]: under a plain `berm::Berm` the call traps as an unknown
 //! host call.
-#![cfg(feature = "alloc")]
 
 use crate::abi::{self, host, host::CallError, wire};
 use alloc::{string::String, vec::Vec};
@@ -40,7 +39,6 @@ pub fn set(key: &str, value: &[u8]) -> Result<(), CallError> {
 }
 
 /// Read `key` as JSON, or `None` if this program has never written it.
-#[cfg(feature = "args")]
 pub fn get_json<T: for<'de> serde_guest::Deserialize<'de>>(
     key: &str,
 ) -> Result<Option<T>, CallError> {
@@ -53,7 +51,6 @@ pub fn get_json<T: for<'de> serde_guest::Deserialize<'de>>(
 }
 
 /// Write `value` as JSON under `key`, replacing whatever was there.
-#[cfg(feature = "args")]
 pub fn set_json<T: serde_guest::Serialize>(key: &str, value: &T) -> Result<(), CallError> {
     let bytes = serde_json_guest::to_vec(value)
         .map_err(|error| CallError::Failed(alloc::format!("unserializable value: {error}")))?;

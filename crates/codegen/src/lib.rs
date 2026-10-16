@@ -3,13 +3,15 @@
 //! The exports an image needs are ceremony: a description the host reads at
 //! registration, and dispatch from a tool index back to a function. None of it
 //! is the author's problem, so none of it is in their source.
+//!
+//! `#[derive(Schema)]`, `#[event]` and `#[error_code]` go on types anywhere in
+//! the program's crate.
 
 use proc_macro::TokenStream;
-use quote::quote;
-use std::collections::BTreeSet;
+use quote::{format_ident, quote};
 use syn::{
-    Expr, ExprLit, Item, ItemFn, ItemMod, ItemStruct, Lit, LitStr, Token, parse::Parse,
-    parse_macro_input,
+    DeriveInput, Expr, ExprLit, FnArg, GenericArgument, Item, ItemFn, ItemMod, Lit, Pat,
+    PathArguments, ReturnType, Token, Type, ext::IdentExt, parse::Parse, parse_macro_input,
 };
 
 mod declare;
@@ -43,12 +45,13 @@ pub fn syscalls(input: TokenStream) -> TokenStream {
 /// ```ignore
 /// berm_lang::declare_program!(hn);
 ///
-/// let feed = hn::calls::latest(&hn::types::Latest { page: 0 })?;
+/// let lanes = hn::calls::lanes()?;
 /// match hn::events::Event::read(&logged) { … }
 /// ```
 ///
-/// Reads `idls/hn.json`, which `berm idl hn` writes, from the crate's
-/// directory or the nearest ancestor that has one.
+/// Reads `idls/hn.json`, which `crab idl hn` writes, from the crate's
+/// directory or the nearest ancestor that has one. A call takes the tool's
+/// arguments in the IDL's key order, an optional one as an `Option`.
 #[proc_macro]
 pub fn declare_program(input: TokenStream) -> TokenStream {
     let name = parse_macro_input!(input as syn::Ident);
@@ -66,24 +69,30 @@ pub fn hosts(input: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Default size of the argument and result buffers, in bytes.
+/// Default size of the argument buffer, and the most a result may be, in
+/// bytes.
 ///
-/// This is paid on every invocation, not once: the buffers live in `.bss`,
-/// which the host zeroes each time it instantiates the guest. Measured against
-/// the reference guest, 64 KiB costs a few microseconds per call over 16 KiB, and 4 KiB
-/// buys nothing back. `buffer = N` overrides it for a program that needs room.
+/// The buffer is paid on every invocation, not once: it lives in `.bss`, which
+/// the host zeroes each time it instantiates the guest. Measured against the
+/// reference guest, 64 KiB costs a few microseconds per call over 16 KiB, and
+/// 4 KiB buys nothing back. `buffer = N` overrides it for a program that needs
+/// room.
 const DEFAULT_BUFFER: usize = 16 * 1024;
 
-/// JSON Schema for a tool that declares no parameters.
+/// JSON Schema for a tool that takes no parameters.
 const DEFAULT_PARAMETERS: &str = r#"{"type":"object"}"#;
 
 /// Prefix on every tool's exported symbol, so a tool called `init` or
 /// `describe` cannot collide with the exports the ABI reserves.
 const TOOL_PREFIX: &str = "berm_tool_";
 
+/// Prefix on the function in the program's module that reads a tool's
+/// arguments, calls it and writes its reply.
+const DISPATCH_PREFIX: &str = "__berm_";
+
 struct Config {
     buffer: usize,
-    usage: String,
+    readme: String,
     /// Programs this one calls by name, as the author declares them.
     programs: Vec<String>,
     /// Syscalls it makes beyond the ABI's own, each beside what it reaches
@@ -93,17 +102,26 @@ struct Config {
     secrets: Vec<String>,
     /// Kept only to re-emit as an `include_str!`, so editing the file
     /// rebuilds the program.
-    usage_file: Option<syn::LitStr>,
+    readme_file: Option<syn::LitStr>,
     /// The database's migrations directory, relative to the crate, and each
     /// `*.sql` file in it by name.
     database: Option<(syn::LitStr, Vec<(String, String)>)>,
 }
 
+/// The file at `path`, relative to the crate, for argument `key`.
+fn read(key: &syn::Ident, path: &syn::LitStr) -> syn::Result<String> {
+    let root = std::env::var("CARGO_MANIFEST_DIR")
+        .map_err(|_| syn::Error::new(key.span(), format!("{key} needs CARGO_MANIFEST_DIR")))?;
+    let full = std::path::Path::new(&root).join(path.value());
+    std::fs::read_to_string(&full)
+        .map_err(|e| syn::Error::new(path.span(), format!("{}: {e}", full.display())))
+}
+
 impl Parse for Config {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let mut buffer = DEFAULT_BUFFER;
-        let mut usage = String::new();
-        let mut usage_file = None;
+        let mut readme = String::new();
+        let mut readme_file = None;
         let mut programs = Vec::new();
         let mut syscalls = Vec::new();
         let mut secrets = Vec::new();
@@ -118,28 +136,21 @@ impl Parse for Config {
                     let size: syn::LitInt = input.parse()?;
                     buffer = size.base10_parse()?;
                 }
-                // A path rather than the text, because usage runs to
-                // paragraphs and `include_str!` cannot help here: a proc
-                // macro sees the unexpanded call, never the file. So the
-                // macro reads it, and the expansion carries an
-                // `include_str!` of its own purely so cargo rebuilds when
-                // the file changes.
-                "usage_file" => {
+                // A path rather than the text, because a README runs to
+                // pages and `include_str!` cannot help here: a proc macro
+                // sees the unexpanded call, never the file. So the macro
+                // reads it, and the expansion carries an `include_str!` of
+                // its own purely so cargo rebuilds when the file changes.
+                "readme" => {
                     let path: syn::LitStr = input.parse()?;
-                    let root = std::env::var("CARGO_MANIFEST_DIR").map_err(|_| {
-                        syn::Error::new(key.span(), "usage_file needs CARGO_MANIFEST_DIR")
-                    })?;
-                    let full = std::path::Path::new(&root).join(path.value());
-                    usage = std::fs::read_to_string(&full).map_err(|e| {
-                        syn::Error::new(path.span(), format!("{}: {e}", full.display()))
-                    })?;
-                    usage_file = Some(path);
+                    readme = read(&key, &path)?;
+                    readme_file = Some(path);
                 }
                 // Declared, never inferred: a target the program computes at
                 // the call is invisible to anything reading the image, so a
                 // scan of this crate would report a list that is quietly short.
                 // A directory of `*.sql` migrations, applied in name order.
-                // Read here for the same reason `usage_file` is.
+                // Read here for the same reason `readme` is.
                 "database" => {
                     let path: syn::LitStr = input.parse()?;
                     let root = std::env::var("CARGO_MANIFEST_DIR").map_err(|_| {
@@ -200,7 +211,7 @@ impl Parse for Config {
                     return Err(syn::Error::new(
                         key.span(),
                         format!(
-                            "unknown argument: {other} (expected `buffer`, `usage_file`, `database`, `programs`, `syscalls` or `secrets`)"
+                            "unknown argument: {other} (expected `buffer`, `readme`, `database`, `programs`, `syscalls` or `secrets`)"
                         ),
                     ));
                 }
@@ -219,8 +230,8 @@ impl Parse for Config {
 
         Ok(Config {
             buffer,
-            usage,
-            usage_file,
+            readme,
+            readme_file,
             database,
             programs,
             syscalls,
@@ -245,14 +256,9 @@ struct Tool {
     ident: syn::Ident,
     name: String,
     description: String,
-    parameters: String,
-    /// The struct its arguments are read as, from `#[args(...)]`. The handler
-    /// always receives the raw blob; this gives the schema.
-    args: Option<syn::Ident>,
-    /// The struct its result is written as, from `#[returns(...)]`.
-    returns: Option<syn::Ident>,
-    /// JSON Schema for its result, from `returns`.
-    output: Option<String>,
+    params: Vec<Param>,
+    /// The `T` of its `Result<T>`; `None` for `()`, which replies nothing.
+    reply: Option<Type>,
     /// From `#[query]`: the tool may not write, emit or arm a wake.
     query: bool,
     /// From `#[deprecated]`.
@@ -261,18 +267,15 @@ struct Tool {
     public: bool,
     /// From `#[callers(services)]` or `#[callers(accounts)]`.
     callers: Option<String>,
-    /// Programs whose logs this tool takes, each beside the topics it takes.
-    logs: Vec<(String, Vec<String>)>,
+    /// From `#[cron]`.
+    cron: bool,
 }
 
-/// One `#[event]` struct: a typed log, emitted under its name.
-struct Event {
+/// One parameter: a property of the tool's arguments.
+struct Param {
     ident: syn::Ident,
+    ty: Type,
     description: String,
-    /// JSON Schema for its data.
-    fields: String,
-    /// From `#[deprecated]`.
-    deprecated: bool,
 }
 
 /// Declare a program from a module of tool functions.
@@ -280,56 +283,74 @@ struct Event {
 /// ```ignore
 /// #[program]
 /// mod tools {
-///     use berm_lang::{Failed, Out};
+///     use berm_lang::Result;
 ///
-///     /// Echo the argument blob back.
-///     pub fn echo(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-///         out.write(args);
-///         Ok(())
+///     /// Greets `name`.
+///     #[public]
+///     pub fn greet(
+///         /// Who to greet.
+///         name: String,
+///     ) -> Result<String> {
+///         Ok(format!("hello, {name}"))
 ///     }
 /// }
 /// ```
 ///
 /// Every `pub fn` in the module becomes a tool. Its doc comment is the
-/// description the model reads.
+/// description the model reads. Its parameters are the properties of its
+/// arguments, each a `Schema` type, and a parameter's doc comment is its
+/// description. It returns `berm_lang::Result<T>`: `T` is its reply, written as
+/// JSON, and `()` replies nothing.
 ///
 /// **A tool is internal unless marked `#[public]`.** An internal tool is only
-/// called by the host, for the program's own subscriptions and wakes. A
+/// called by the host, for the program's own wakes and crons. A
 /// `#[public]` tool can be called by any account the host authenticates and
 /// any program allowed to reach this one, with arguments the caller chooses.
 /// `berm_lang::caller()` says who called. `#[callers(services)]` limits a
 /// public tool to programs, `#[callers(accounts)]` to callers from outside.
-/// `#[args(Struct)]` and `#[returns(Struct)]` name
-/// structs declared in the module that give the schemas of its arguments and
-/// result, and `#[params("…")]` carries an argument schema literal instead.
 /// `#[query]` marks it read-only: the host refuses its writes, logs and wakes.
-/// `#[deprecated]` on a tool or an event marks it so in the manifest.
-/// An `#[event]` struct in the module is a typed log, emitted with
-/// `berm_lang::emit!` under the struct's name.
-/// `#[logs("hn" = ["item"])]` subscribes it to a program's logs, delivered as
-/// its arguments; without `= [...]` it takes every topic.
+/// `#[deprecated]` on a tool marks it so in the manifest.
+///
+/// `#[cron]` marks a tool its host calls when the cron expression its deploy
+/// or its owner sets fires. A cron tool takes no parameters and is not
+/// `#[public]`.
 #[proc_macro_attribute]
 pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
     let config = parse_macro_input!(args as Config);
     let mut module = parse_macro_input!(item as ItemMod);
 
-    let (tools, events) = match collect(&mut module) {
-        Ok(collected) => collected,
+    let tools = match collect(&mut module) {
+        Ok(tools) => tools,
         Err(error) => return error.to_compile_error().into(),
     };
 
-    let description = describe(&config, &tools, &events);
-    let description_len = description.len();
-    let description_bytes =
-        syn::LitByteStr::new(description.as_bytes(), proc_macro2::Span::call_site());
+    let pieces = manifest(&config, &tools);
     let module_ident = &module.ident;
     let buffer = config.buffer;
+
+    let (_, items) = module.content.as_mut().expect("collect checked the body");
+    for tool in &tools {
+        items.push(dispatch(tool));
+    }
+    // In the module, where the types its shapes name resolve.
+    items.push(syn::parse_quote! {
+        // What this program is, as a section rather than an export: the host
+        // reads it out of the image without compiling or running anything, so
+        // learning what a program claims never means executing it.
+        const _: () = {
+            const PIECES: &[::berm_lang::schema::Piece] = &[#(#pieces),*];
+            #[used]
+            #[cfg_attr(target_arch = "wasm32", unsafe(link_section = ".berm.abi"))]
+            static ABI: [u8; ::berm_lang::schema::len(PIECES)] =
+                ::berm_lang::schema::render(PIECES);
+        };
+    });
 
     // One export per tool, so the host resolves it the way it resolves any
     // other symbol.
     let exports = tools.iter().map(|tool| {
-        let ident = &tool.ident;
-        let symbol = syn::Ident::new(&format!("{TOOL_PREFIX}{}", tool.name), ident.span());
+        let symbol = format_ident!("{TOOL_PREFIX}{}", tool.name);
+        let dispatch = format_ident!("{DISPATCH_PREFIX}{}", tool.name);
         let doc = format!("Tool `{}`. {}", tool.name, tool.description);
 
         quote! {
@@ -341,29 +362,22 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
                 if length > _CRABTALK_BUFFER {
                     return ::berm_lang::abi::fail(b"arguments exceeded the input buffer");
                 }
-                let arguments = &arguments[..length];
-
-                let buffer = unsafe { &mut *::core::ptr::addr_of_mut!(_CRABTALK_OUT) };
-                let mut out = ::berm_lang::Out::new(buffer);
-
-                match #module_ident::#ident(arguments, &mut out) {
-                    Ok(()) if out.overflowed() => {
+                match #module_ident::#dispatch(&arguments[..length]) {
+                    Ok(reply) if reply.len() > _CRABTALK_BUFFER => {
                         ::berm_lang::abi::fail(b"result exceeded the output buffer")
                     }
-                    Ok(()) => out.finish(),
-                    Err(::berm_lang::Failed) => {
-                        ::berm_lang::abi::fail(out.written())
-                    }
+                    Ok(reply) => ::berm_lang::abi::done(&reply),
+                    Err(error) => ::berm_lang::abi::fail(error.message.as_bytes()),
                 }
             }
         }
     });
 
-    // The macro read the usage file itself, which cargo cannot see. This
-    // makes the dependency visible so editing it rebuilds the program.
-    let usage_rebuild = config.usage_file.as_ref().map(|path| {
+    // The macro read the README itself, which cargo cannot see. This makes
+    // the dependency visible so editing it rebuilds the program.
+    let readme_rebuild = config.readme_file.as_ref().map(|path| {
         quote! {
-            const _CRABTALK_USAGE: &str =
+            const _CRABTALK_README: &str =
                 include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", #path));
         }
     });
@@ -381,20 +395,12 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         #module
 
-        #usage_rebuild
+        #readme_rebuild
 
         #(#database_rebuild)*
 
         const _CRABTALK_BUFFER: usize = #buffer;
         static mut _CRABTALK_ARGS: [u8; _CRABTALK_BUFFER] = [0; _CRABTALK_BUFFER];
-        static mut _CRABTALK_OUT: [u8; _CRABTALK_BUFFER] = [0; _CRABTALK_BUFFER];
-
-        /// What this program is, as a section rather than an export: the host
-        /// reads it out of the image without compiling or running anything, so
-        /// learning what a program claims never means executing it.
-        #[used]
-        #[cfg_attr(target_arch = "wasm32", unsafe(link_section = ".berm.abi"))]
-        static _CRABTALK_ABI: [u8; #description_len] = *#description_bytes;
 
         /// A program is a binary, and off a guest target a binary needs a
         /// `main` — which is what lets `cargo test` build one natively.
@@ -406,10 +412,43 @@ pub fn program(args: TokenStream, item: TokenStream) -> TokenStream {
     .into()
 }
 
-/// Pull the tools and events out of the module, along with the structs that
-/// describe their arguments and results, stripping the attributes that only
-/// exist to be read here.
-fn collect(module: &mut ItemMod) -> syn::Result<(Vec<Tool>, Vec<Event>)> {
+/// A type's JSON Schema, and the serde impls that read and write it.
+///
+/// A struct with named fields is an object titled by its name: a field's doc
+/// comment is its description, and an `Option` field may be absent. An enum
+/// of unit variants is a string, each variant in `snake_case`.
+#[proc_macro_derive(Schema)]
+pub fn derive_schema(input: TokenStream) -> TokenStream {
+    schema::derive(&parse_macro_input!(input as DeriveInput))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// A typed log, emitted with `berm_lang::emit!` under the struct's name and
+/// listed in the program's manifest. Its doc comment is what a reader of the
+/// logs is told it means; `#[deprecated]` marks it so in the manifest.
+#[proc_macro_attribute]
+pub fn event(args: TokenStream, item: TokenStream) -> TokenStream {
+    let _ = parse_macro_input!(args as syn::parse::Nothing);
+    schema::event(parse_macro_input!(item as syn::ItemStruct))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// An enum of a program's failures. Each variant takes `#[msg("…")]`, the
+/// message a tool failing with it answers, and converts into
+/// `berm_lang::Error`.
+#[proc_macro_attribute]
+pub fn error_code(args: TokenStream, item: TokenStream) -> TokenStream {
+    let _ = parse_macro_input!(args as syn::parse::Nothing);
+    schema::error_code(parse_macro_input!(item as syn::ItemEnum))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Pull the tools out of the module, stripping the attributes that only exist
+/// to be read here.
+fn collect(module: &mut ItemMod) -> syn::Result<Vec<Tool>> {
     let Some((_, items)) = module.content.as_mut() else {
         return Err(syn::Error::new_spanned(
             &module.ident,
@@ -432,126 +471,21 @@ fn collect(module: &mut ItemMod) -> syn::Result<(Vec<Tool>, Vec<Event>)> {
             "a program needs at least one `pub fn` to expose as a tool",
         ));
     }
-
-    // A tool's argument and result structs give its schemas, and every struct
-    // they reach gets the derive that reads or writes it. The author writes
-    // neither.
-    let declared: Vec<ItemStruct> = items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Struct(item) => Some(item.clone()),
-            _ => None,
-        })
-        .collect();
-    let mut read = BTreeSet::new();
-    let mut written = BTreeSet::new();
-    let mut events = Vec::new();
-    for item in items.iter_mut() {
-        let Item::Struct(item) = item else { continue };
-        let before = item.attrs.len();
-        item.attrs.retain(|a| !a.path().is_ident("event"));
-        if item.attrs.len() == before {
-            continue;
-        }
-        let before = item.attrs.len();
-        item.attrs.retain(|a| !a.path().is_ident("deprecated"));
-        let deprecated = item.attrs.len() != before;
-        let (fields, used) = schema::of(&item.ident, &declared)?;
-        written.extend(used);
-        let description = docs(&item.attrs);
-        if description.is_empty() {
-            return Err(syn::Error::new_spanned(
-                &item.ident,
-                "an event needs a doc comment — it is what a reader of the logs is told it means",
-            ));
-        }
-        events.push(Event {
-            ident: item.ident.clone(),
-            description,
-            fields,
-            deprecated,
-        });
-    }
-    for tool in &mut tools {
-        if let Some(ty) = &tool.args {
-            let (schema, used) = schema::of(ty, &declared)?;
-            tool.parameters = schema;
-            read.extend(used);
-        }
-        if let Some(ty) = &tool.returns {
-            let (schema, used) = schema::of(ty, &declared)?;
-            tool.output = Some(schema);
-            written.extend(used);
-        }
-    }
-
-    for item in items.iter_mut() {
-        let Item::Struct(item) = item else { continue };
-        let name = item.ident.to_string();
-        let (reads, writes) = (read.contains(&name), written.contains(&name));
-        if reads {
-            // An argument struct may be read for its shape alone, never
-            // constructed. Saying so beats an author silencing the warning.
-            item.attrs.push(syn::parse_quote!(#[allow(dead_code)]));
-            item.attrs
-                .push(syn::parse_quote!(#[derive(::berm_lang::serde::Deserialize)]));
-        }
-        if writes {
-            item.attrs
-                .push(syn::parse_quote!(#[derive(::berm_lang::serde::Serialize)]));
-            // The schema leaves an optional field out of `required` rather than
-            // allowing `null`, so an absent value is written as an absent key.
-            for field in item.fields.iter_mut() {
-                if schema::optional(&field.ty) {
-                    field.attrs.push(syn::parse_quote!(
-                        #[serde(skip_serializing_if = "::core::option::Option::is_none")]
-                    ));
-                }
-            }
-        }
-        if reads || writes {
-            // Reached through the SDK rather than named directly, so a program
-            // depends on one crate and cannot pick a serde the derive
-            // disagrees with.
-            item.attrs
-                .push(syn::parse_quote!(#[serde(crate = "::berm_lang::serde")]));
-        }
-    }
-
-    for event in &events {
-        let ident = &event.ident;
-        let name = ident.to_string();
-        items.push(syn::parse_quote! {
-            impl ::berm_lang::Event for #ident {
-                const NAME: &'static str = #name;
-            }
-        });
-    }
-
-    Ok((tools, events))
+    Ok(tools)
 }
 
 fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     let description = docs(&function.attrs);
-    let args = args_of(function)?;
-    let mut parameters = None;
-    let mut returns = None;
     let mut query = false;
     let mut public = false;
     let mut callers = None;
+    let mut cron = false;
     let deprecated = function
         .attrs
         .iter()
         .any(|a| a.path().is_ident("deprecated"));
-    let mut logs: Vec<(String, Vec<String>)> = Vec::new();
 
     for attribute in &function.attrs {
-        if attribute.path().is_ident("params") {
-            parameters = Some(attribute.parse_args::<LitStr>()?.value());
-        }
-        if attribute.path().is_ident("returns") {
-            returns = Some(attribute.parse_args::<syn::Ident>()?);
-        }
         if attribute.path().is_ident("query") {
             attribute.meta.require_path_only()?;
             query = true;
@@ -570,43 +504,18 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
             }
             callers = Some(kind.to_string());
         }
-        if attribute.path().is_ident("logs") {
-            let (program, topics) =
-                attribute.parse_args_with(|input: syn::parse::ParseStream| {
-                    let program: LitStr = input.parse()?;
-                    let topics = match input.peek(Token![=]) {
-                        true => {
-                            input.parse::<Token![=]>()?;
-                            strings(input)?
-                        }
-                        false => Vec::new(),
-                    };
-                    Ok((program, topics))
-                })?;
-            if logs.iter().any(|(seen, _)| *seen == program.value()) {
-                return Err(syn::Error::new(
-                    program.span(),
-                    "program subscribed twice; list every topic in one #[logs]",
-                ));
-            }
-            logs.push((program.value(), topics));
+        if attribute.path().is_ident("cron") {
+            attribute.meta.require_path_only()?;
+            cron = true;
         }
     }
 
     // These exist for this macro to read; leaving them would reach the
     // compiler as unknown attributes.
     function.attrs.retain(|a| {
-        ![
-            "params",
-            "returns",
-            "query",
-            "public",
-            "callers",
-            "logs",
-            "deprecated",
-        ]
-        .iter()
-        .any(|name| a.path().is_ident(name))
+        !["query", "public", "callers", "deprecated", "cron"]
+            .iter()
+            .any(|name| a.path().is_ident(name))
     });
 
     if description.is_empty() {
@@ -616,46 +525,250 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         ));
     }
 
+    let mut params = Vec::new();
+    for input in function.sig.inputs.iter_mut() {
+        let FnArg::Typed(typed) = input else {
+            return Err(syn::Error::new_spanned(input, "a tool is a free function"));
+        };
+        let Pat::Ident(pattern) = &*typed.pat else {
+            return Err(syn::Error::new_spanned(
+                &typed.pat,
+                "a tool's parameter is a plain name — it is the argument's key",
+            ));
+        };
+        let description = docs(&typed.attrs);
+        typed.attrs.retain(|a| !a.path().is_ident("doc"));
+        params.push(Param {
+            ident: pattern.ident.clone(),
+            ty: (*typed.ty).clone(),
+            description,
+        });
+    }
+
+    if cron && public {
+        return Err(syn::Error::new_spanned(
+            &function.sig.ident,
+            "a cron tool is called by its host, and cannot be `#[public]`",
+        ));
+    }
+    if cron && !params.is_empty() {
+        return Err(syn::Error::new_spanned(
+            &function.sig.inputs,
+            "a cron tool is called with no arguments",
+        ));
+    }
+
     Ok(Tool {
         ident: function.sig.ident.clone(),
         name: function.sig.ident.to_string(),
         description,
-        args,
-        parameters: parameters.unwrap_or_else(|| DEFAULT_PARAMETERS.to_owned()),
-        returns,
-        output: None,
+        params,
+        reply: reply(&function.sig.output)?,
         query,
         deprecated,
         public,
         callers,
-        logs,
+        cron,
     })
 }
 
-/// Where a tool's schema comes from: `#[args(Shape)]` names a struct declared
-/// beside it. The handler still receives bytes.
-fn args_of(function: &mut ItemFn) -> syn::Result<Option<syn::Ident>> {
-    let mut declared = None;
-    for attribute in &function.attrs {
-        if attribute.path().is_ident("args") {
-            declared = Some(attribute.parse_args::<syn::Ident>()?);
+/// The `T` of a tool's `Result<T>`, or `None` for `()`.
+fn reply(output: &ReturnType) -> syn::Result<Option<Type>> {
+    let wrong = || {
+        syn::Error::new_spanned(
+            output,
+            "a tool returns `berm_lang::Result<T>`, `T` being its reply",
+        )
+    };
+    let ReturnType::Type(_, ty) = output else {
+        return Err(wrong());
+    };
+    let Type::Path(path) = &**ty else {
+        return Err(wrong());
+    };
+    let Some(segment) = path.path.segments.last() else {
+        return Err(wrong());
+    };
+    let PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return Err(wrong());
+    };
+    if segment.ident != "Result" {
+        return Err(wrong());
+    }
+    let Some(GenericArgument::Type(reply)) = args.args.first() else {
+        return Err(wrong());
+    };
+    Ok(match reply {
+        Type::Tuple(unit) if unit.elems.is_empty() => None,
+        reply => Some(reply.clone()),
+    })
+}
+
+/// The function in the program's module that reads `tool`'s arguments, calls
+/// it and writes its reply.
+fn dispatch(tool: &Tool) -> Item {
+    let name = format_ident!("{DISPATCH_PREFIX}{}", tool.name);
+    let ident = &tool.ident;
+    let idents: Vec<_> = tool.params.iter().map(|param| &param.ident).collect();
+    let types = tool.params.iter().map(|param| &param.ty);
+    let read = match idents.is_empty() {
+        true => quote!(let _ = args;),
+        false => quote! {
+            #[derive(::berm_lang::serde::Deserialize)]
+            #[serde(crate = "::berm_lang::serde")]
+            struct __BermArgs {
+                #(#idents: #types,)*
+            }
+            let __BermArgs { #(#idents),* } = ::berm_lang::dispatch::args(args)?;
+        },
+    };
+    let call = quote!(#ident(#(#idents),*)?);
+    let write = match tool.reply {
+        Some(_) => quote!(::berm_lang::dispatch::reply(&#call)),
+        None => quote! {
+            #call;
+            Ok(::berm_lang::__private::Vec::new())
+        },
+    };
+    syn::parse_quote! {
+        #[doc(hidden)]
+        pub(crate) fn #name(
+            args: &[u8],
+        ) -> ::berm_lang::Result<::berm_lang::__private::Vec<u8>> {
+            #read
+            #write
         }
     }
-    function.attrs.retain(|a| !a.path().is_ident("args"));
+}
 
-    match function.sig.inputs.first() {
-        Some(syn::FnArg::Typed(first)) if matches!(&*first.ty, syn::Type::Reference(r) if matches!(&*r.elem, syn::Type::Slice(_))) =>
-            {}
-        _ => {
-            return Err(syn::Error::new_spanned(
-                &function.sig,
-                "a tool takes the argument blob as `&[u8]` and an `&mut Out` to write its result \
-                 into — declare its shape with #[args(Struct)] if it has one",
-            ));
-        }
+/// A manifest as JSON text, with each tool's schemas left to the types that
+/// own them.
+struct Pieces {
+    pieces: Vec<proc_macro2::TokenStream>,
+    text: String,
+}
+
+impl Pieces {
+    fn text(&mut self, text: &str) {
+        self.text.push_str(text);
     }
 
-    Ok(declared)
+    fn shape(&mut self, shape: proc_macro2::TokenStream) {
+        self.flush();
+        self.pieces
+            .push(quote!(::berm_lang::schema::Piece::Shape(&#shape)));
+    }
+
+    fn flush(&mut self) {
+        if !self.text.is_empty() {
+            let text = std::mem::take(&mut self.text);
+            self.pieces
+                .push(quote!(::berm_lang::schema::Piece::Text(#text)));
+        }
+    }
+}
+
+/// The program's record in the manifest section.
+fn manifest(config: &Config, tools: &[Tool]) -> Vec<proc_macro2::TokenStream> {
+    let mut out = Pieces {
+        pieces: Vec::new(),
+        text: String::new(),
+    };
+    let package = |key: &str| escape(&std::env::var(key).unwrap_or_default());
+    out.text(&format!(
+        r#"{{"abi_version":4,"version":"{}","description":"{}","homepage":"{}","repository":"{}","tools":["#,
+        package("CARGO_PKG_VERSION"),
+        package("CARGO_PKG_DESCRIPTION"),
+        package("CARGO_PKG_HOMEPAGE"),
+        package("CARGO_PKG_REPOSITORY"),
+    ));
+    for (at, tool) in tools.iter().enumerate() {
+        if at > 0 {
+            out.text(",");
+        }
+        out.text(&format!(
+            r#"{{"name":"{}","description":"{}","parameters":"#,
+            escape(&tool.name),
+            escape(&tool.description),
+        ));
+        match tool.params.is_empty() {
+            true => out.text(DEFAULT_PARAMETERS),
+            false => {
+                let fields = tool.params.iter().map(|param| {
+                    let name = param.ident.unraw().to_string();
+                    let description = escape(&param.description);
+                    let ty = &param.ty;
+                    quote! {
+                        ::berm_lang::schema::Field {
+                            name: #name,
+                            description: #description,
+                            shape: &<#ty as ::berm_lang::Schema>::SHAPE,
+                        }
+                    }
+                });
+                out.shape(quote! {
+                    ::berm_lang::schema::Shape::Object { title: "", fields: &[#(#fields),*] }
+                });
+            }
+        }
+        if let Some(reply) = &tool.reply {
+            out.text(r#","returns":"#);
+            out.shape(quote!(<#reply as ::berm_lang::Schema>::SHAPE));
+        }
+        if tool.query {
+            out.text(r#","query":true"#);
+        }
+        if tool.deprecated {
+            out.text(r#","deprecated":true"#);
+        }
+        if tool.public {
+            out.text(r#","public":true"#);
+        }
+        if let Some(kind) = &tool.callers {
+            out.text(&format!(r#","callers":"{kind}""#));
+        }
+        if tool.cron {
+            out.text(r#","cron":true"#);
+        }
+        out.text("}");
+    }
+
+    let list = |items: &[String]| {
+        items
+            .iter()
+            .map(|item| format!(r#""{}""#, escape(item)))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let programs = list(&config.programs);
+    let secrets = list(&config.secrets);
+    let syscalls = config
+        .syscalls
+        .iter()
+        .map(|(name, reached)| format!(r#""{}":[{}]"#, escape(name), list(reached)))
+        .collect::<Vec<_>>()
+        .join(",");
+    let database = match &config.database {
+        Some((_, migrations)) => format!(
+            r#","database":{{"migrations":[{}]}}"#,
+            migrations
+                .iter()
+                .map(|(name, sql)| format!(
+                    r#"{{"name":"{}","sql":"{}"}}"#,
+                    escape(name),
+                    escape(sql)
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        None => String::new(),
+    };
+    out.text(&format!(
+        r#"],"readme":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}]}}{database}}}"#,
+        escape(&config.readme),
+    ));
+    out.flush();
+    out.pieces
 }
 
 /// Join a doc comment into one line — the description is a JSON string.
@@ -676,112 +789,6 @@ pub(crate) fn docs(attrs: &[syn::Attribute]) -> String {
         }
     }
     description.trim().to_owned()
-}
-
-/// Build the description JSON at compile time.
-fn describe(config: &Config, tools: &[Tool], events: &[Event]) -> String {
-    let specs = tools
-        .iter()
-        .map(|t| {
-            let returns = t
-                .output
-                .as_ref()
-                .map(|schema| format!(r#","returns":{schema}"#))
-                .unwrap_or_default();
-            let query = match t.query {
-                true => r#","query":true"#,
-                false => "",
-            };
-            let deprecated = match t.deprecated {
-                true => r#","deprecated":true"#,
-                false => "",
-            };
-            let public = match t.public {
-                true => r#","public":true"#,
-                false => "",
-            };
-            let callers = match &t.callers {
-                Some(kind) => format!(r#","callers":"{kind}""#),
-                None => String::new(),
-            };
-            format!(
-                r#"{{"name":"{}","description":"{}","parameters":{}{returns}{query}{deprecated}{public}{callers}}}"#,
-                escape(&t.name),
-                escape(&t.description),
-                t.parameters,
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-
-    let list = |items: &[String]| {
-        items
-            .iter()
-            .map(|item| format!(r#""{}""#, escape(item)))
-            .collect::<Vec<_>>()
-            .join(",")
-    };
-    let programs = list(&config.programs);
-    let secrets = list(&config.secrets);
-    let syscalls = config
-        .syscalls
-        .iter()
-        .map(|(name, reached)| format!(r#""{}":[{}]"#, escape(name), list(reached)))
-        .collect::<Vec<_>>()
-        .join(",");
-    let logs = tools
-        .iter()
-        .flat_map(|tool| {
-            tool.logs.iter().map(|(program, topics)| {
-                format!(
-                    r#"{{"program":"{}","topics":[{}],"tool":"{}"}}"#,
-                    escape(program),
-                    list(topics),
-                    escape(&tool.name)
-                )
-            })
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-
-    let events = events
-        .iter()
-        .map(|event| {
-            let deprecated = match event.deprecated {
-                true => r#","deprecated":true"#,
-                false => "",
-            };
-            format!(
-                r#"{{"name":"{}","description":"{}","fields":{}{deprecated}}}"#,
-                event.ident,
-                escape(&event.description),
-                event.fields
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-
-    let database = match &config.database {
-        Some((_, migrations)) => format!(
-            r#","database":{{"migrations":[{}]}}"#,
-            migrations
-                .iter()
-                .map(|(name, sql)| format!(
-                    r#"{{"name":"{}","sql":"{}"}}"#,
-                    escape(name),
-                    escape(sql)
-                ))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
-        None => String::new(),
-    };
-
-    format!(
-        r#"{{"abi_version":4,"version":"{}","tools":[{specs}],"usage":"{}","deps":{{"programs":[{programs}],"syscalls":{{{syscalls}}},"secrets":[{secrets}],"logs":[{logs}]}},"events":[{events}]{database}}}"#,
-        escape(&std::env::var("CARGO_PKG_VERSION").unwrap_or_default()),
-        escape(&config.usage),
-    )
 }
 
 /// Minimal JSON string escaping — doc comments are prose and can carry

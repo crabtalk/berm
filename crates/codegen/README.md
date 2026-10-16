@@ -6,31 +6,28 @@ The `#[program]` proc macro. Re-exported by
 ```rust
 #[berm_lang::program]
 mod tools {
-    use berm_lang::{Failed, Out};
+    use berm_lang::Result;
 
-    /// Echo the argument blob back.
-    #[args(Echo)]
-    pub fn echo(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-        out.write(args);
-        Ok(())
-    }
-
-    /// Arguments for `echo`.
-    pub struct Echo {
-        /// The text to echo back.
-        pub query: String,
+    /// Greets `name`.
+    #[public]
+    pub fn greet(
+        /// Who to greet.
+        name: String,
+    ) -> Result<String> {
+        Ok(format!("hello, {name}"))
     }
 }
 ```
 
 Every `pub fn` becomes a tool; its doc comment is the description the model
-reads, and a tool without one is a compile error. `#[args(Struct)]` derives the
-JSON Schema from that struct's fields. The handler still receives raw bytes, so
-a program that wants no JSON parser links none.
+reads, and a tool without one is a compile error. Its parameters are its
+arguments and the `Ok` of its `Result` is its reply, each typed by `Schema`.
+`#[derive(Schema)]`, `#[event]` and `#[error_code]` go on types anywhere in the
+crate.
 
-The expansion also carries the exports, the `.bss` buffers sized by `buffer = N`,
-and the `.berm.abi` manifest — which is what lets a host learn what a program is
-without running it.
+The expansion also carries the exports, the `.bss` argument buffer sized by
+`buffer = N`, and the `.berm.abi` manifest — which is what lets a host learn
+what a program is without running it.
 
 ## License
 

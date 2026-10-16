@@ -8,9 +8,9 @@
 //!
 //! ```ignore
 //! #[test]
-//! fn echo_wraps_the_payload() {
-//!     let out = berm_lang::test::call(berm_tool_echo, b"hi").unwrap();
-//!     assert_eq!(out, br#"{"echo":hi}"#);
+//! fn echo_answers_its_arguments() {
+//!     let out = berm_lang::test::call(berm_tool_echo, br#"{"query":"hi"}"#).unwrap();
+//!     assert_eq!(out, br#"{"query":"hi"}"#);
 //! }
 //! ```
 #![cfg(not(target_arch = "wasm32"))]

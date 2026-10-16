@@ -1,5 +1,4 @@
 //! Text out of the HTML that feeds and APIs carry in their fields.
-#![cfg(feature = "alloc")]
 
 use alloc::string::String;
 

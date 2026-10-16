@@ -1,12 +1,11 @@
 {
   "name": "fixture",
   "version": "0.0.8",
-  "digest": "e7dba94f5118e9d657fb227def9ae64a43ef846e39b15539a69c7fb1f069063e",
-  "usage": "",
+  "digest": "ed8cfe27c73111d8be9e3c3f292f46cbce5a4f7bfc49fe59292d708e62079392",
   "tools": [
     {
       "name": "echo",
-      "description": "Echo the argument blob back inside a JSON envelope.",
+      "description": "Answers its arguments back.",
       "parameters": {
         "properties": {
           "page": {
@@ -22,8 +21,52 @@
         "required": [
           "query"
         ],
+        "type": "object"
+      },
+      "returns": {
+        "properties": {
+          "page": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
         "title": "Echo",
         "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "carry",
+      "description": "Takes its arguments without reading them, to price the parse `echo` makes of the same payload.",
+      "parameters": {
+        "type": "object"
+      },
+      "public": true
+    },
+    {
+      "name": "spin",
+      "description": "Loops `rounds` times, to run a call past the instructions it includes.",
+      "parameters": {
+        "properties": {
+          "rounds": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rounds"
+        ],
+        "type": "object"
+      },
+      "returns": {
+        "minimum": 0,
+        "type": "integer"
       },
       "public": true
     },
@@ -36,33 +79,17 @@
       "public": true
     },
     {
-      "name": "typed",
-      "description": "Deserializes its arguments, to price a JSON parse against `echo`, which carries the same payload without reading it.",
-      "parameters": {
-        "properties": {
-          "page": {
-            "description": "Page number, zero-indexed.",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "query": {
-            "description": "The text to read back.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "title": "Typed",
-        "type": "object"
-      },
-      "public": true
-    },
-    {
       "name": "probe",
       "description": "Allocates, to prove the heap arrives without a second entry.",
       "parameters": {
         "type": "object"
+      },
+      "returns": {
+        "items": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": "array"
       },
       "public": true
     },
@@ -72,21 +99,63 @@
       "parameters": {
         "type": "object"
       },
+      "returns": {
+        "enum": [
+          "set",
+          "unset"
+        ],
+        "title": "Wait",
+        "type": "string"
+      },
       "public": true
     },
     {
       "name": "fetch",
-      "description": "Fetches the URL in its arguments and answers the status and the body's length. A second word onward is one `Name: Value` header, which may name `{secret:fixture}`.",
+      "description": "Fetches `url` and answers the status and the body's length.",
       "parameters": {
+        "properties": {
+          "header": {
+            "description": "One `Name: Value` header, which may name `{secret:fixture}`.",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "returns": {
+        "properties": {
+          "bytes": {
+            "description": "The body's length.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "bytes"
+        ],
+        "title": "Fetched",
         "type": "object"
       },
       "public": true
     },
     {
       "name": "whoami",
-      "description": "Says who called: `outside NAME`, `program NAME`, or `none`.",
+      "description": "Says who called: `outside NAME`, `program NAME`, or `none`, then ` user ISSUER SUBJECT` when the chain runs for a user.",
       "parameters": {
         "type": "object"
+      },
+      "returns": {
+        "type": "string"
       },
       "public": true
     },
@@ -96,6 +165,9 @@
       "parameters": {
         "type": "object"
       },
+      "returns": {
+        "type": "string"
+      },
       "public": true
     },
     {
@@ -103,6 +175,9 @@
       "description": "Answers `ok`; only programs may call it.",
       "parameters": {
         "type": "object"
+      },
+      "returns": {
+        "type": "string"
       },
       "public": true,
       "callers": "services"
@@ -113,6 +188,9 @@
       "parameters": {
         "type": "object"
       },
+      "returns": {
+        "type": "string"
+      },
       "public": true
     },
     {
@@ -120,6 +198,9 @@
       "description": "Calls `whoami` on `fixture`, and answers what it said.",
       "parameters": {
         "type": "object"
+      },
+      "returns": {
+        "type": "string"
       },
       "public": true
     },
@@ -135,31 +216,84 @@
       "name": "nest",
       "description": "Calls `echo` on whatever is deployed as `inner`, to prove a program can reach a program. Says which kind of failure came back, because telling \"it ran and said no\" from \"it was never there\" is the point of the second bit on the wire.",
       "parameters": {
+        "properties": {
+          "page": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "returns": {
+        "properties": {
+          "page": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "Echo",
         "type": "object"
       },
       "public": true
     },
     {
       "name": "note",
-      "description": "Writes its argument under `note`, emits it as a `Noted` event, answers what it reads back, and fails when the argument is `fail`.",
+      "description": "Writes `word` under `note`, emits it as a `Noted` event, answers what it reads back, and fails when `word` is `fail`.",
       "parameters": {
+        "properties": {
+          "word": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "word"
+        ],
         "type": "object"
+      },
+      "returns": {
+        "type": "string"
       },
       "public": true
     },
     {
       "name": "relay",
-      "description": "Calls `note` on `inner` with its argument, carries on whether or not that failed, emits under the topic `relay`, and answers what this program reads back under `note`.",
+      "description": "Calls `note` on `inner` with `word`, carries on whether or not that failed, emits `word` under the topic `relay`, and answers what this program reads back under `note`.",
       "parameters": {
+        "properties": {
+          "word": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "word"
+        ],
         "type": "object"
+      },
+      "returns": {
+        "type": "string"
       },
       "public": true
     },
     {
       "name": "ask",
-      "description": "Calls `peek` on `fixture`, then `echo` on `fixture` with the note it read, and answers what `echo` did.",
+      "description": "Calls `peek` on `fixture`, then `echo` on `fixture` with the note it read, and answers the query `echo` answered.",
       "parameters": {
         "type": "object"
+      },
+      "returns": {
+        "type": "string"
       },
       "public": true
     },
@@ -211,60 +345,24 @@
     },
     {
       "name": "recurse",
-      "description": "Calls itself on `inner`, which is this same program when deployed under that name — the runaway a depth limit exists to stop. Reports how many levels got through before the host refused.",
+      "description": "Calls itself on `inner` one level deeper, which is this same program when deployed under that name — the runaway a depth limit exists to stop. Answers how many levels got through before the host refused.",
       "parameters": {
-        "type": "object"
-      },
-      "public": true
-    }
-  ],
-  "deps": {
-    "programs": [
-      "inner"
-    ],
-    "syscalls": {
-      "berm.call.after": [],
-      "berm.get": [],
-      "berm.http.fetch": [
-        "127.0.0.1"
-      ],
-      "berm.set": []
-    },
-    "secrets": [
-      "fixture"
-    ],
-    "logs": [
-      {
-        "program": "fixture",
-        "topics": [
-          "Noted"
-        ],
-        "tool": "seen"
-      }
-    ]
-  },
-  "events": [
-    {
-      "name": "Noted",
-      "description": "A word `note` wrote.",
-      "fields": {
         "properties": {
-          "bytes": {
-            "description": "Its length in bytes.",
+          "depth": {
             "minimum": 0,
             "type": "integer"
-          },
-          "word": {
-            "type": "string"
           }
         },
         "required": [
-          "word",
-          "bytes"
+          "depth"
         ],
-        "title": "Noted",
         "type": "object"
-      }
+      },
+      "returns": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "public": true
     }
   ]
 }

@@ -1,20 +1,21 @@
-//! Time as a source of calls: `berm.call.after` holds one wake per service in
-//! `service_wakes`, and the timer calls each when it is due.
+//! Time as a source of calls: `service_wakes` holds the one wake each service
+//! arms through `berm.call.after` and one for each cron tool of its manifest,
+//! and the timer calls each when it is due.
 
 use crate::{
     env::{Env, Peers},
-    host::{self, Host},
+    host::{self, Host, Invoked},
     routes::Routes,
     service,
     store::Store,
     usage::{Kind, Source},
 };
 use anyhow::{Result, bail};
-use berm::{Berm, Callsite, Syscall, syscall::after};
+use berm::{Berm, Callsite, Now, Syscall, syscall::after};
 use berm_api::host::{Link, Reply};
 use std::{
     sync::{Arc, OnceLock, Weak},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use tokio::sync::Notify;
 
@@ -29,15 +30,18 @@ const TIMEOUT: u64 = 60_000;
 
 /// `berm.call.after`: hold the wake for the service arming it, once its target
 /// is one of its own tools or a public tool of a deployed service in its
-/// scope. A target on a peer is checked there when the wake fires.
+/// scope. A target on a peer is checked there when the wake fires. In a dry
+/// chain the wake is checked and not held.
 pub(crate) fn syscall(
+    now: Now,
     store: Store,
     runtime: Arc<OnceLock<Weak<Berm>>>,
     routes: Arc<Routes>,
     waking: Arc<Notify>,
 ) -> Syscall {
     after::programs(move |at: Callsite, wake: after::Wake| {
-        let (store, runtime, routes, waking) = (
+        let (now, store, runtime, routes, waking) = (
+            now.clone(),
             store.clone(),
             runtime.clone(),
             routes.clone(),
@@ -70,7 +74,10 @@ pub(crate) fn syscall(
                     wake.tool
                 );
             }
-            let due = now().saturating_add(i64::try_from(wake.delay).unwrap_or(i64::MAX));
+            if at.dry.is_some() {
+                return Ok(());
+            }
+            let due = (now() as i64).saturating_add(i64::try_from(wake.delay).unwrap_or(i64::MAX));
             service::arm(
                 &store,
                 scope,
@@ -92,7 +99,7 @@ impl<E: Env> Host<E> {
     /// one is armed.
     pub(crate) async fn wakes(&self) {
         loop {
-            match service::claim(&self.store, now(), now() + LEASE, CLAIM).await {
+            match self.due().await {
                 Ok(due) => {
                     for wake in due {
                         let host = self.clone();
@@ -102,7 +109,7 @@ impl<E: Env> Host<E> {
                 Err(e) => tracing::error!("claiming wakes failed: {e:#}"),
             }
             let wait = match service::next(&self.store).await {
-                Ok(Some(due)) => Some((due - now()).max(0)),
+                Ok(Some(due)) => Some((due - (self.now)() as i64).max(0)),
                 Ok(None) => None,
                 Err(e) => {
                     tracing::error!("reading wakes failed: {e:#}");
@@ -119,10 +126,17 @@ impl<E: Env> Host<E> {
         }
     }
 
+    /// Claim up to [`CLAIM`] wakes due now.
+    pub(crate) async fn due(&self) -> Result<Vec<service::Wake>> {
+        let now = (self.now)() as i64;
+        service::claim(&self.store, now, now + LEASE, CLAIM).await
+    }
+
     /// Call one wake's tool with no caller and commit what it did, here or on
     /// the peer its target runs on. A wake that fails fires again after
-    /// [`RETRY`].
-    async fn fire(&self, wake: service::Wake) {
+    /// [`RETRY`]. Answers how the call ended when it ran here.
+    pub(crate) async fn fire(&self, wake: service::Wake) -> Option<Invoked> {
+        let mut ran = None;
         let fired = async {
             let key = host::join(&wake.scope, &wake.program);
             let from = host::join(&wake.scope, &wake.name);
@@ -138,6 +152,7 @@ impl<E: Env> Host<E> {
                     query: false,
                     timeout: TIMEOUT,
                     stack: vec![key.clone()],
+                    dry: None,
                 };
                 let Reply { result, .. } = self
                     .peers
@@ -155,9 +170,11 @@ impl<E: Env> Host<E> {
                 return Ok(());
             };
             let _slot = self.gate.acquire().await?;
+            let started = self.calls.start();
             let invoked = self
                 .invoke(
                     &target,
+                    started.id,
                     None,
                     None,
                     &wake.tool,
@@ -173,31 +190,37 @@ impl<E: Env> Host<E> {
                 &from,
                 invoked.outcome(),
             );
-            if let Err(failure) = invoked.result {
+            self.calls.record(
+                &target.name,
+                started,
+                &wake.tool,
+                Source::Service,
+                &from,
+                invoked.outcome(),
+                Some(invoked.meter),
+            );
+            let failed = invoked.result.clone().err();
+            ran = Some(invoked);
+            if let Some(failure) = failed {
                 bail!("{}: {failure}", wake.tool);
             }
             Result::<()>::Ok(())
         };
-        let retry = match fired.await {
-            Ok(()) => None,
+        let failed = match fired.await {
+            Ok(()) => false,
             Err(e) => {
                 tracing::warn!(
                     service = wake.name,
                     program = wake.program,
                     "wake failed: {e:#}"
                 );
-                Some(now() + RETRY)
+                true
             }
         };
-        if let Err(e) = service::settle(&self.store, &wake, retry).await {
+        let now = (self.now)() as i64;
+        if let Err(e) = service::settle(&self.store, &wake, failed, now, now + RETRY).await {
             tracing::error!(service = wake.name, "settling a wake failed: {e:#}");
         }
+        ran
     }
-}
-
-/// Milliseconds since the Unix epoch.
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_millis() as i64)
 }

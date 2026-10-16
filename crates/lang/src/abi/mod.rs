@@ -19,11 +19,9 @@ use crate::sys;
 
 /// One call path shared by every syscall. Needs a heap: a result whose
 /// size the guest learns at runtime has nowhere else to go.
-#[cfg(feature = "alloc")]
 #[doc(hidden)]
 pub mod host;
 /// Request framing, on the same terms as [`host`].
-#[cfg(feature = "alloc")]
 #[doc(hidden)]
 pub mod wire;
 

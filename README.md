@@ -37,7 +37,7 @@ about a host, and berm has no host.
 their schemas, when to reach for them, and what it will reach for itself —
 without compiling or running it.
 
-**A tool is internal unless marked `#[public]`.** Only the host calls an internal tool, for the program's own subscriptions and wakes. A `#[public]` tool can be called by any account the host authenticates and any program allowed to reach it, with arguments the caller chooses; `berm_lang::caller()` says who called. A deploy that makes a tool public is refused until the deployer confirms it.
+**A tool is internal unless marked `#[public]`.** Only the host calls an internal tool, for the program's own wakes and crons. A `#[public]` tool can be called by any account the host authenticates and any program allowed to reach it, with arguments the caller chooses; `berm_lang::caller()` says who called. A deploy that makes a tool public is refused until the deployer confirms it.
 
 ## Running programs
 
@@ -46,33 +46,29 @@ them on a single MCP endpoint, with tools named `{program}.{tool}`.
 
 ```sh
 bermd &
-berm deploy example ./program.wasm
-berm ls
+crab deploy
+crab ls
 ```
 
-See [`apps/service`](apps/service) for the control API and what a deployed
+`crab deploy` builds the program in the working directory and deploys it as its
+`berm.toml` names it.
+
+See [`crates/daemon`](crates/daemon) for the control API and what a deployed
 program can reach.
 
 ## Moving programs
 
 A program is one file, so it travels as one OCI layer with no tarball around it
 — and because the layer is the image and nothing else, the digest a registry
-addresses it by is the digest `berm ls` prints.
+addresses it by is the digest `crab ls` prints.
 
-```sh
-berm push ghcr.io/org/example:v1 ./program.wasm
-berm deploy example ghcr.io/org/example:v1
-berm search "read a file"
-```
-
-`deploy` takes a file or a reference. Finding one is a separate question, since
-no registry will tell you who published a program: the list is a git repository,
-so `search` reads a clone of it with no service and no credential. See
-[Publishing a Program](https://crabtalk.github.io/berm/book/berm/publishing.html).
+Against a host that pulls from a registry, `crab deploy` pushes the image to the
+`image` its `berm.toml` names first. See
+[Publishing a Program](https://crabtalk.github.io/berm/docs/berm/publishing/).
 
 ## Documentation
 
-- **[Guide and design notes](https://crabtalk.github.io/berm/book/)** — how it
+- **[Guide and design notes](https://crabtalk.github.io/berm/docs/)** — how it
   works and why, with worked examples.
 - **API reference** — `cargo doc --open`.
 

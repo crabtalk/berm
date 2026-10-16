@@ -22,7 +22,8 @@ pub const ABI_VERSION: u32 = 4;
 /// reading what a program claims to be never means running it.
 ///
 /// A wasm custom section, which is what `#[link_section]` emits on
-/// `wasm32`.
+/// `wasm32`. It holds JSON records back to back, in the order the linker
+/// joined them: the program's, and one `{"event": …}` per `#[event]`.
 pub const ABI_SECTION: &str = ".berm.abi";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -31,14 +32,18 @@ pub struct Manifest {
     /// The crate's version when it was built.
     #[serde(default)]
     pub version: String,
-    pub tools: Vec<ToolSpec>,
-    /// When to reach for these tools, and how they go together — the
-    /// question no single tool's `description` answers, because it is about
-    /// choosing between them. An embedder puts this in front of a model
-    /// before it decides, so it is paid on every turn: a few lines, not a
-    /// manual.
+    /// The crate's `description`, `homepage` and `repository` from its
+    /// `Cargo.toml`.
     #[serde(default)]
-    pub usage: String,
+    pub description: String,
+    #[serde(default)]
+    pub homepage: String,
+    #[serde(default)]
+    pub repository: String,
+    /// The Markdown file `readme` names on `#[program]`.
+    #[serde(default)]
+    pub readme: String,
+    pub tools: Vec<ToolSpec>,
     /// What this program reaches for once it runs.
     ///
     /// Runtime, and resolved wherever the image lands — nothing here is
@@ -96,57 +101,30 @@ pub struct Deps {
     /// the guest never holds.
     #[serde(default)]
     pub secrets: Vec<String>,
-    /// Programs whose logs it reads, and the tool each is delivered to.
-    #[serde(default)]
-    pub logs: Vec<Subscription>,
 }
 
 impl Deps {
     pub fn is_empty(&self) -> bool {
-        self.programs.is_empty()
-            && self.syscalls.is_empty()
-            && self.secrets.is_empty()
-            && self.logs.is_empty()
+        self.programs.is_empty() && self.syscalls.is_empty() && self.secrets.is_empty()
     }
 }
 
-/// One program's logs, delivered to one tool as a [`Delivery`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Subscription {
-    pub program: String,
-    /// A log is delivered when it carries any of these. Empty takes every log.
-    #[serde(default)]
-    pub topics: Vec<String>,
-    pub tool: String,
-}
-
-impl Subscription {
-    /// Whether a log carrying `topics` is delivered.
-    pub fn matches(&self, topics: &[String]) -> bool {
-        self.topics.is_empty() || topics.iter().any(|topic| self.topics.contains(topic))
-    }
-}
-
-/// What a subscribed tool is called with: logs of one program, oldest first.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Delivery {
-    pub program: String,
-    pub logs: Vec<Logged>,
-}
-
-/// One log as delivered.
+/// One log a program emitted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Logged {
-    /// Its position in the program's logs, counting from 1. The host assigns
-    /// it at commit.
+    /// Its position in the program's logs, counting from 1.
     pub seq: u64,
+    /// The call it was emitted in, as the host's call log numbers it. `None`
+    /// for a log emitted in a call into the program from another host.
+    pub call: Option<u64>,
+    /// When it was emitted, in epoch milliseconds.
+    pub at: u64,
     pub topics: Vec<String>,
     pub data: String,
 }
 
-/// `inner, berm.http.fetch (example.com), secret openai, logs hn (item) to
-/// ingest` — every program, every syscall with what it reaches, every secret,
-/// then every subscription.
+/// `inner, berm.http.fetch (example.com), secret openai` — every program,
+/// every syscall with what it reaches, then every secret.
 impl std::fmt::Display for Deps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut items = self.programs.clone();
@@ -159,15 +137,6 @@ impl std::fmt::Display for Deps {
                 }),
         );
         items.extend(self.secrets.iter().map(|name| format!("secret {name}")));
-        items.extend(self.logs.iter().map(|logs| match logs.topics.is_empty() {
-            true => format!("logs {} to {}", logs.program, logs.tool),
-            false => format!(
-                "logs {} ({}) to {}",
-                logs.program,
-                logs.topics.join(", "),
-                logs.tool
-            ),
-        }));
         f.write_str(&items.join(", "))
     }
 }
@@ -176,7 +145,7 @@ impl Manifest {
     /// Read what an image claims to be, without compiling or running it.
     ///
     /// This is what the section is *for* (RFC 0205): learning a program's tools,
-    /// deps, and usage must not mean instantiating it. An embedder assembling a
+    /// deps, and readme must not mean instantiating it. An embedder assembling a
     /// prompt or listing a registry needs exactly this and nothing else.
     pub fn from_image(image: &[u8]) -> Result<Self> {
         let json =
@@ -196,8 +165,21 @@ impl Manifest {
     }
 
     pub fn parse(json: &str) -> Result<Self> {
-        let manifest: Manifest =
-            serde_json::from_str(json).context("program manifest is not valid JSON")?;
+        let mut program: Option<Manifest> = None;
+        let mut events = Vec::new();
+        for record in serde_json::Deserializer::from_str(json).into_iter::<Record>() {
+            match record.context("program manifest is not valid JSON")? {
+                Record::Event { event } => events.push(event),
+                Record::Program(manifest) => {
+                    if program.replace(*manifest).is_some() {
+                        bail!("program manifest holds two program records");
+                    }
+                }
+            }
+        }
+        let mut manifest = program.context("program manifest holds no program record")?;
+        events.sort_by(|a, b| a.name.cmp(&b.name));
+        manifest.events.extend(events);
         if manifest.abi_version != ABI_VERSION {
             bail!(
                 "program was built against ABI version {}, this host speaks {ABI_VERSION}",
@@ -208,29 +190,66 @@ impl Manifest {
     }
 }
 
-/// A deployed program, as the control API reports it.
+/// One record of the manifest section.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Record {
+    Event { event: EventSpec },
+    Program(Box<Manifest>),
+}
+
+/// A deployed program as its callers see it: the IDL.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Program {
     pub name: String,
     /// The crate's version when it was built.
     #[serde(default)]
     pub version: String,
+    /// The crate's `description`, `homepage` and `repository` from its
+    /// `Cargo.toml`.
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub homepage: String,
+    #[serde(default)]
+    pub repository: String,
+    /// The Markdown file `readme` names on `#[program]`.
+    #[serde(default)]
+    pub readme: String,
     /// sha256 of the image.
     pub digest: String,
-    /// When to reach for this program's tools, and how they go together.
-    pub usage: String,
+    /// Its public tools.
     pub tools: Vec<ToolSpec>,
-    #[serde(default)]
+}
+
+/// How a deployed program runs, for its owners: what [`Program`] leaves out.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Runtime {
+    /// Its tools that are not public.
+    pub tools: Vec<ToolSpec>,
     pub deps: Deps,
-    #[serde(default)]
     pub events: Vec<EventSpec>,
-    /// The part of `deps` this service answers to nothing for.
+    /// The part of `deps` this host answers to nothing for.
     #[serde(default, skip_serializing_if = "Deps::is_empty")]
     pub unresolved: Deps,
-    /// How this deploy broke callers of the program it replaced, as
-    /// [`Manifest::breaks`] words it. Set only in a deploy's answer.
+}
+
+/// A deploy's answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Deployed {
+    pub program: Program,
+    /// How it broke callers of the program it replaced, as
+    /// [`Manifest::breaks`] words it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub breaks: Vec<String>,
+}
+
+/// A deployed program as anyone it is visible to sees it: its IDL and what it
+/// served.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Listing {
+    pub program: Program,
+    pub served: host::Served,
 }
 
 /// What a service's owner set for calling it, as the host answering holds it.
@@ -247,6 +266,76 @@ pub struct Terms {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolTerms {
     pub budget: Budget,
+}
+
+/// How a call is made dry. A dry chain keeps nothing berm holds: no state,
+/// logs or database writes are committed and no wake is armed, in any service
+/// the chain reaches. Its fetches are sent unless
+/// one of `answers` matches.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Dry {
+    /// What a request is answered with in place of being sent, by method and
+    /// URL.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<Answer>,
+    /// Refuse a request no answer matches, rather than send it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub offline: bool,
+}
+
+impl Dry {
+    /// The answer to `method` on `url`, if one matches.
+    pub fn answer(&self, method: &str, url: &str) -> Option<&Answer> {
+        self.answers
+            .iter()
+            .find(|answer| answer.method.eq_ignore_ascii_case(method) && answer.url == url)
+    }
+}
+
+/// One request's answer in a dry call.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Answer {
+    pub method: String,
+    pub url: String,
+    pub status: u16,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub headers: Vec<(String, String)>,
+    #[serde(default)]
+    pub body: String,
+}
+
+/// A dry call of a tool: its arguments, and how it is made dry.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DryRun {
+    /// The argument object. A string is handed to the tool as its text, and
+    /// `null` as no arguments.
+    #[serde(default)]
+    pub args: serde_json::Value,
+    #[serde(flatten)]
+    pub dry: Dry,
+}
+
+impl DryRun {
+    /// The bytes the tool is handed.
+    pub fn arguments(&self) -> Vec<u8> {
+        match &self.args {
+            serde_json::Value::Null => Vec::new(),
+            serde_json::Value::String(text) => text.clone().into_bytes(),
+            args => args.to_string().into_bytes(),
+        }
+    }
+}
+
+/// A cron tool's expression, as its owner sets it.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Cron {
+    /// Five fields, minute to day of week, in UTC: `*/5 * * * *`. `None`
+    /// stops its calls.
+    pub cron: Option<String>,
 }
 
 /// The most one invocation may use: wasm instructions, and rows read and
@@ -274,12 +363,16 @@ pub struct ToolSpec {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deprecated: bool,
     /// Callable by accounts and other programs. A tool that is not is only
-    /// called by its host, for the program's own subscriptions and wakes.
+    /// called by its host, for the program's own wakes and crons.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub public: bool,
     /// Which callers a public tool takes. `None` takes both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callers: Option<Callers>,
+    /// Called by its host when the cron expression its deploy or its owner
+    /// sets fires. A cron tool is not public.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cron: bool,
 }
 
 /// One kind of caller.
@@ -322,9 +415,14 @@ impl From<Output> for Result<String, String> {
     }
 }
 
+/// The most bytes one log may hold, its data and topics together.
+pub const MAX_LOG: usize = 4096;
+
 /// What a call used of one program: its invocations, the wasm instructions
 /// they executed, the largest linear memory one reached, in bytes, the rows
-/// they read and wrote, and the bytes sent and received through the proxy.
+/// they read and wrote, the bytes sent and received through the proxy, and
+/// the bytes of the logs they emitted.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Meter {
     pub calls: u64,
@@ -333,6 +431,8 @@ pub struct Meter {
     pub read: u64,
     pub written: u64,
     pub proxied: u64,
+    #[serde(default)]
+    pub logged: u64,
 }
 
 impl std::ops::AddAssign for Meter {
@@ -344,6 +444,7 @@ impl std::ops::AddAssign for Meter {
         self.read += other.read;
         self.written += other.written;
         self.proxied += other.proxied;
+        self.logged += other.logged;
     }
 }
 

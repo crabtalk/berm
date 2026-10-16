@@ -8,7 +8,6 @@
 //! Whether a host serves this at all is its own decision. berm itself runs one
 //! program and registers nothing for it, so under a plain [`berm::Berm`] the
 //! call traps as an unknown host call.
-#![cfg(feature = "alloc")]
 
 use crate::abi::{self, host, wire};
 use alloc::string::{String, ToString};
@@ -67,13 +66,13 @@ pub enum Caller {
 }
 
 /// Who made this call, as the host says. `None` when the host started it on
-/// this program's own behalf: a subscription's delivery or a wake.
+/// this program's own behalf: a wake.
 ///
 /// Set by the host, never by the caller, so it can be checked:
 ///
 /// ```ignore
 /// if berm_lang::caller()? != Some(Caller::Program("lake".into())) {
-///     return Err(Failed);
+///     return Err(berm_lang::deny("only lake calls this"));
 /// }
 /// ```
 pub fn caller() -> Result<Option<Caller>, CallError> {
@@ -121,16 +120,9 @@ pub fn user() -> Result<Option<User>, CallError> {
     }
 }
 
-/// Refuse this call's caller: the tool fails, and the host counts the call as
-/// denied rather than failed.
-///
-/// ```ignore
-/// if berm_lang::caller()? != Some(Caller::Program("lake".into())) {
-///     out.write(b"only lake calls this");
-///     return Err(berm_lang::deny());
-/// }
-/// ```
-pub fn deny() -> crate::Failed {
+/// Refuse this call's caller with `message`: the tool fails, and the host
+/// counts the call as denied rather than failed.
+pub fn deny(message: &str) -> crate::Error {
     crate::abi::deny();
-    crate::Failed
+    message.into()
 }

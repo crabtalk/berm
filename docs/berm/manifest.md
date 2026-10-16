@@ -1,0 +1,109 @@
+---
+title: The Manifest
+description: "What a program says it is: its ABI version, its tools, its README, and what it reaches for itself."
+---
+
+The manifest is JSON, carried in a `.berm.abi` section of the image rather than
+behind an export. That placement is the point — reading what an image claims
+must not mean running it. `Manifest::from_image` parses the section with nothing
+compiled and nothing executed, which is what an embedder assembling a prompt, or
+a service listing a registry, actually needs.
+
+The section is a wasm custom section, which is what `#[link_section]` emits on
+`wasm32`. It holds JSON records back to back, in the order the linker joined
+them: the program's, and one `{"event": …}` per `#[event]`.
+`Manifest::from_image` merges them into one manifest.
+
+```rust,ignore
+let manifest = Manifest::from_image(&bytes)?;
+for tool in &manifest.tools {
+    println!("{}: {}", tool.name, tool.description);
+}
+```
+
+A `ToolSpec` carries the tool's name, the description a model reads, a JSON
+Schema for its arguments, and optionally `returns`, a JSON Schema for its
+result, and `"query": true` for a read-only tool. `events` lists the typed logs
+the program emits, each with a name, a description and a JSON Schema of its
+`fields`. They are rendered at compile time from the `Schema` impls of the
+types the tools and events name. A tool's arguments are an object without a
+title; every other object schema carries the struct's name as `title`, and a
+string enum its enum's name. A tool or
+event marked `#[deprecated]` carries `"deprecated": true`, and `version` is the
+crate's version when it was built.
+
+## Compatibility
+
+`Manifest::breaks(next)` lists every way `next` breaks a caller of this
+manifest: a tool or event removed, a tool no longer a query, an argument newly
+required, a result or event field no longer always present, a changed type, an
+unsigned integer becoming signed, an argument taking fewer strings or a result
+written with more. Arguments are compared as the new program
+reads them, results and events as old callers read them; added fields break
+nothing. bermd refuses a redeploy that breaks a tool or event a caller used in
+the last 30 days, unless the deploy says `force=true`, and reports the rest.
+
+## Package
+
+`description`, `homepage` and `repository` are the crate's, from its
+`Cargo.toml`, as `version` is. `readme` is the Markdown file
+`#[program(readme = "README.md")]` names, read at compile time. Each is empty
+when the crate sets none.
+
+## Dependencies
+
+```rust,ignore
+#[berm_lang::program(
+    programs = ["weather"],
+    syscalls = { "berm.get", "berm.http.fetch" = ["api.example.com"] },
+    secrets = ["example"],
+)]
+```
+
+is what an image says it will reach for once it runs: programs it calls by
+name, syscalls it makes beyond the ABI's own, each beside what it reaches
+through that call, and secrets it names as `{secret:NAME}` in a header. The
+manifest carries them as
+`"deps": {"programs": [...], "syscalls": {"name": [...]}, "secrets": [...]}`.
+
+`berm.http.fetch` holds a program to them: a host it does not declare, or a
+secret it does not declare, is refused before anything is sent.
+`berm.http.proxy` does the same for the hosts declared under it, and sends
+through the host's proxy. `berm.call`
+reaches the program itself and the programs it declares, and refuses any other
+name. A declared
+secret is substituted by the host for the chain's caller, and the guest never
+holds its value. These are runtime
+and resolved wherever the image lands: nothing here is fetched, installed, or
+compiled in, which is what separates them from the crate's own
+`[dependencies]`.
+
+Declared by the author rather than found by reading the image, because a target
+the program computes at the call is invisible to any scan — a list built that
+way would be quietly short, and the runtime `Refused` would still be needed
+underneath it.
+
+A declared program not deployed refuses nothing: `crab deploy` says so and
+carries on, and `crab inspect` marks it. A syscall the host does not serve
+refuses the deploy. What a served syscall reaches through it is that syscall's
+to grant.
+Refusing would make deploy order significant, and a restart brings programs
+back in whatever order the filesystem lists them — two that name each other
+could then never come up at all.
+
+## Two checks at load
+
+`Berm::deploy` refuses an image on two grounds before it can ever be offered to a
+model.
+
+A manifest built against a different `abi_version` is refused outright, rather
+than dispatched into a syscall its author did not mean.
+
+A manifest that declares a tool the image does not export is also refused. The
+symbol table and the manifest are both in hand at load, so the disagreement is
+caught there instead of surfacing mid-conversation as a missing symbol. Exports
+are matched by the `berm_tool_` prefix.
+
+Both are the same idea as compiling at deploy rather than on first call: a
+broken image should fail for whoever introduced it, not for whoever happens to
+use it next.

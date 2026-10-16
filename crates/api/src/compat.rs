@@ -109,6 +109,15 @@ fn accepts(at: &str, old: &Value, new: &Value, found: &mut Vec<String>) {
     if old.get("minimum").is_none() && new.get("minimum").is_some() {
         found.push(format!("{at} no longer takes a negative integer"));
     }
+    match (values(old), values(new)) {
+        (None, Some(_)) => found.push(format!("{at} takes only some strings")),
+        (Some(old), Some(new)) => {
+            for value in old.iter().filter(|value| !new.contains(value)) {
+                found.push(format!("{at} no longer takes {value:?}"));
+            }
+        }
+        _ => {}
+    }
     let old_required = required(old);
     for name in required(new) {
         if !old_required.contains(&name) {
@@ -125,6 +134,15 @@ fn writes(at: &str, old: &Value, new: &Value, found: &mut Vec<String>) {
     }
     if old.get("minimum").is_some() && new.get("minimum").is_none() {
         found.push(format!("{at} may now be a negative integer"));
+    }
+    match (values(old), values(new)) {
+        (Some(_), None) => found.push(format!("{at} may now be any string")),
+        (Some(old), Some(new)) => {
+            for value in new.iter().filter(|value| !old.contains(value)) {
+                found.push(format!("{at} may now be {value:?}"));
+            }
+        }
+        _ => {}
     }
     let new_required = required(new);
     for name in required(old) {
@@ -177,6 +195,12 @@ fn each_shared(
             compare(&format!("{at}[]"), old, new, found);
         }
     }
+}
+
+/// The strings a string enum is one of.
+fn values(schema: &Value) -> Option<Vec<&str>> {
+    let values = schema.get("enum")?.as_array()?;
+    Some(values.iter().filter_map(Value::as_str).collect())
 }
 
 fn required(schema: &Value) -> Vec<String> {

@@ -1,7 +1,7 @@
 //! The guest's allocator, initialized the first time something allocates by
 //! growing the guest's own memory. A program that never allocates never grows
 //! it.
-#![cfg(all(feature = "alloc", target_arch = "wasm32"))]
+#![cfg(target_arch = "wasm32")]
 
 use core::alloc::{GlobalAlloc, Layout};
 use linked_list_allocator::LockedHeap;

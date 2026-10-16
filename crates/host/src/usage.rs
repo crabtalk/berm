@@ -4,15 +4,11 @@
 
 use crate::{host, store::Store};
 use anyhow::Result;
-use berm::Called;
-use berm_api::host::{Usage, Used};
+use berm::{Called, Now};
+use berm_api::host::{Served, ServedDay, Usage, Used};
 use parking_lot::Mutex;
 use rusqlite::{OptionalExtension, params};
-use std::{
-    collections::HashMap,
-    mem,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::HashMap, mem};
 
 /// Days of usage a deploy and `/usage` look back over.
 pub(crate) const WINDOW: i32 = 30;
@@ -47,7 +43,7 @@ pub(crate) enum Source {
 }
 
 impl Source {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Source::Service => "service",
             Source::Account => "account",
@@ -69,7 +65,7 @@ pub(crate) enum Outcome {
 }
 
 impl Outcome {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Outcome::Done => "done",
             Outcome::Failed => "failed",
@@ -102,10 +98,19 @@ struct Key {
 }
 
 /// Counts not yet written: calls and the last call's epoch seconds.
-#[derive(Default)]
-pub(crate) struct Counts(Mutex<HashMap<Key, (i64, i64)>>);
+pub(crate) struct Counts {
+    pending: Mutex<HashMap<Key, (i64, i64)>>,
+    now: Now,
+}
 
 impl Counts {
+    pub(crate) fn new(now: Now) -> Self {
+        Self {
+            pending: Mutex::default(),
+            now,
+        }
+    }
+
     /// Count one use of `item` on the service keyed `service`, ended as
     /// `outcome`.
     pub(crate) fn record(
@@ -117,7 +122,7 @@ impl Counts {
         caller: &str,
         outcome: Outcome,
     ) {
-        let now = now();
+        let now = seconds(&self.now);
         let key = Key {
             service: service.to_owned(),
             kind,
@@ -127,7 +132,7 @@ impl Counts {
             outcome,
             day: (now / 86_400) as i32,
         };
-        let mut pending = self.0.lock();
+        let mut pending = self.pending.lock();
         let (calls, last) = pending.entry(key).or_default();
         *calls += 1;
         *last = now;
@@ -135,7 +140,7 @@ impl Counts {
 
     /// Take what is pending, as rows.
     pub(crate) fn take(&self) -> Vec<Used> {
-        mem::take(&mut *self.0.lock())
+        mem::take(&mut *self.pending.lock())
             .into_iter()
             .map(|(key, (calls, last))| Used {
                 service: key.service,
@@ -198,6 +203,7 @@ pub(crate) async fn read(
     scope: &str,
     name: &str,
     of: Option<(Kind, &str, Outcome)>,
+    now: i64,
 ) -> Result<Vec<Usage>> {
     let (kind, item, outcome) = of.map_or((None, None, None), |(kind, item, outcome)| {
         (
@@ -207,7 +213,7 @@ pub(crate) async fn read(
         )
     });
     let (scope, name) = (scope.to_owned(), name.to_owned());
-    let since = (now() / 86_400) as i32 - WINDOW;
+    let since = (now / 86_400) as i32 - WINDOW;
     store
         .run(move |conn| {
             let mut statement = conn.prepare(
@@ -238,6 +244,38 @@ pub(crate) async fn read(
                     })
                 })?;
             rows.collect()
+        })
+        .await
+}
+
+/// `scope/name`'s [`Served`]: per day over the last [`WINDOW`] days, and in
+/// total.
+pub(crate) async fn served(store: &Store, scope: &str, name: &str, now: i64) -> Result<Served> {
+    let (scope, name) = (scope.to_owned(), name.to_owned());
+    let since = (now / 86_400) as i32 - WINDOW;
+    store
+        .run(move |conn| {
+            let mut statement = conn.prepare(
+                "SELECT day, SUM(calls)
+                   FROM service_usage
+                  WHERE scope = ?1 AND name = ?2 AND kind = 'tool' AND outcome = 'done'
+                    AND source <> 'service'
+                  GROUP BY day
+                  ORDER BY day",
+            )?;
+            let mut served = Served::default();
+            let mut rows = statement.query(params![scope, name])?;
+            while let Some(row) = rows.next()? {
+                let (day, calls): (i32, i64) = (row.get(0)?, row.get(1)?);
+                served.total += calls as u64;
+                if day > since {
+                    served.days.push(ServedDay {
+                        day,
+                        calls: calls as u64,
+                    });
+                }
+            }
+            Ok(served)
         })
         .await
 }
@@ -287,9 +325,7 @@ pub(crate) async fn sunset(
         .await
 }
 
-/// Seconds since the Unix epoch.
-pub(crate) fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs() as i64)
+/// Seconds since the Unix epoch, as `now` tells it.
+pub(crate) fn seconds(now: &Now) -> i64 {
+    (now() / 1000) as i64
 }

@@ -1,19 +1,18 @@
 //! One compiled program, and the state of one invocation of it.
 
 use crate::{
-    Caller, Callsite, Deps, Meter, Meters, Syscall, User, abi,
+    Caller, Callsite, Deps, Dry, Meter, Meters, Syscall, User, abi,
     bound::watchdog,
     engine::{Engine, Image},
     journal::{Changes, Journal},
-    meter::Rows,
+    meter::{Held, Own, Running},
     syscall::{
         self,
-        call::{Budgeted, Enter},
+        call::{Budgeted, Calls, Enter, Invoked, Now},
     },
 };
 use anyhow::{Context, Result, bail};
-use berm_api::{Callers, Manifest};
-use sha2::{Digest, Sha256};
+use berm_api::{Callers, Manifest, Runtime};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -25,6 +24,12 @@ use std::{
 
 /// The last [`Callsite::chain`] handed out.
 static CHAINS: AtomicU64 = AtomicU64::new(0);
+
+/// A [`Callsite::chain`] no chain in this process has had, for
+/// [`Program::call_as`].
+pub fn chain() -> u64 {
+    CHAINS.fetch_add(1, Ordering::Relaxed) + 1
+}
 
 /// One compiled program: an image, its tools, and the syscalls it was linked
 /// against. Compilation is paid once; every invocation gets a fresh instance so
@@ -48,6 +53,12 @@ pub struct Program {
     enter: Enter,
     /// Each invocation's budget, by tool.
     budget: Budgeted,
+    /// What `berm.now` answers.
+    now: Now,
+    /// Told of each invocation once it ran.
+    invoked: Invoked,
+    /// What its invocations hold while they run.
+    pub running: Arc<Running>,
 }
 
 struct Tool {
@@ -64,8 +75,7 @@ impl Program {
         image: &[u8],
         name: impl Into<Arc<str>>,
         syscalls: &[Syscall],
-        enter: Enter,
-        budget: Budgeted,
+        calls: &Calls,
     ) -> Result<Self> {
         let compiled = Image::compile(engine, image, syscall::table(syscalls)?)
             .context("failed to compile program")?;
@@ -104,17 +114,23 @@ impl Program {
                     tool.name
                 );
             }
+            if tool.cron && tool.public {
+                bail!("tool {:?} is a cron tool, and cannot be public", tool.name);
+            }
         }
 
         Ok(Self {
             name: name.into(),
-            digest: hex::encode(Sha256::digest(image)),
+            digest: digest(image),
             image: compiled,
             deps: Arc::new(manifest.deps.clone()),
             manifest,
             tools,
-            enter,
-            budget,
+            enter: calls.enter.clone(),
+            budget: calls.budget.clone(),
+            now: calls.now.clone(),
+            invoked: calls.invoked.clone(),
+            running: Arc::default(),
         })
     }
 
@@ -149,9 +165,51 @@ impl Program {
             .any(|spec| spec.name == tool && spec.callers != Some(Callers::Services))
     }
 
-    /// What the program says it is: ABI version, tools, and usage.
+    /// What the program says it is: ABI version, tools, and README.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
+    }
+
+    /// Its IDL, deployed as `name`: the JSON `crab idl` writes.
+    pub fn idl(&self, name: &str) -> berm_api::Program {
+        let Manifest {
+            abi_version: _,
+            database: _,
+            deps: _,
+            events: _,
+            version,
+            description,
+            homepage,
+            repository,
+            readme,
+            tools,
+        } = self.manifest.clone();
+        berm_api::Program {
+            name: name.to_owned(),
+            version,
+            description,
+            homepage,
+            repository,
+            readme,
+            digest: self.digest.clone(),
+            tools: tools.into_iter().filter(|tool| tool.public).collect(),
+        }
+    }
+
+    /// How it runs, for its owners; `unresolved` is the host's to fill.
+    pub fn runtime(&self) -> Runtime {
+        Runtime {
+            tools: self
+                .manifest
+                .tools
+                .iter()
+                .filter(|tool| !tool.public)
+                .cloned()
+                .collect(),
+            deps: self.manifest.deps.clone(),
+            events: self.manifest.events.clone(),
+            unresolved: Default::default(),
+        }
     }
 
     /// Run one tool by name, as the first link of a chain.
@@ -169,18 +227,23 @@ impl Program {
         tool: &str,
         args: impl Into<Vec<u8>>,
     ) -> Result<Outcome> {
-        self.call_as(caller, None, tool, args, Arc::default()).await
+        self.call_as(caller, None, tool, args, None, Arc::default(), chain())
+            .await
     }
 
     /// [`Program::call`] on behalf of `user`, which every call in the chain
-    /// reads off its [`Callsite`], metered in `meters`.
+    /// reads off its [`Callsite`], metered in `meters`, and dry when `dry` is
+    /// set. `chain`, from [`chain`], is the chain's [`Callsite::chain`].
+    #[allow(clippy::too_many_arguments)]
     pub async fn call_as(
         &self,
         caller: Option<Arc<str>>,
         user: Option<User>,
         tool: &str,
         args: impl Into<Vec<u8>>,
+        dry: Option<Arc<Dry>>,
         meters: Arc<Meters>,
+        chain: u64,
     ) -> Result<Outcome> {
         let journal = Arc::new(Journal::default());
         let Ended { result, denied } = self
@@ -191,8 +254,9 @@ impl Program {
                 user,
                 1,
                 false,
+                dry,
                 watchdog::fresh(),
-                CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
+                chain,
                 journal.clone(),
                 meters,
                 Arc::from([self.name.clone()]),
@@ -224,6 +288,7 @@ impl Program {
             user,
             depth,
             query,
+            dry,
             deadline,
             stack,
         } = link;
@@ -236,8 +301,9 @@ impl Program {
                 user,
                 depth,
                 query,
+                dry,
                 deadline,
-                CHAINS.fetch_add(1, Ordering::Relaxed) + 1,
+                chain(),
                 journal.clone(),
                 meters,
                 stack,
@@ -268,6 +334,7 @@ impl Program {
         user: Option<User>,
         depth: u32,
         query: bool,
+        dry: Option<Arc<Dry>>,
         deadline: Instant,
         chain: u64,
         journal: Arc<Journal>,
@@ -291,11 +358,12 @@ impl Program {
             depth,
             stack,
             query: query || *declared,
+            dry,
             deadline,
             chain,
             journal: journal.clone(),
             meters,
-            rows: Arc::new(Rows::new(budget.rows)),
+            own: Arc::new(Own::new(budget.rows)),
         };
         at.meter(Meter {
             calls: 1,
@@ -308,8 +376,11 @@ impl Program {
         }
         let held = at.journal.clone();
         let mark = journal.mark();
+        let site = at.clone();
         let invocation = Invocation {
+            held: Held::new(self.running.clone()),
             at,
+            now: self.now.clone(),
             args,
             staged: Vec::new(),
             outcome: None,
@@ -338,6 +409,7 @@ impl Program {
             })
         }
         .await;
+        (self.invoked)(&site, tool, site.own.take());
         match &ended {
             Ok(Ended { result: Ok(_), .. }) => {
                 let changes = match own {
@@ -367,6 +439,7 @@ pub struct Link {
     pub user: Option<User>,
     pub depth: u32,
     pub query: bool,
+    pub dry: Option<Arc<Dry>>,
     pub deadline: Instant,
     pub stack: Arc<[Arc<str>]>,
 }
@@ -392,12 +465,20 @@ pub struct Outcome {
     pub changes: Changes,
 }
 
+/// sha256 of `image`, in lowercase hex: what [`Program::digest`] holds.
+pub fn digest(image: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(image))
+}
+
 /// Guest state for one invocation. Memory is per-invocation; anything a
 /// program needs to survive belongs in a storage program, not here.
 pub struct Invocation {
     /// The program this invocation is of, and the chain it sits in. Built
     /// once with the invocation, so a syscall costs no lookup.
     pub(crate) at: Callsite,
+    /// What `berm.now` answers.
+    pub(crate) now: Now,
     pub(crate) args: Vec<u8>,
     /// The last syscall's reply, waiting for the guest to pull it. Staged
     /// rather than pushed because its size is not known until the work is
@@ -409,6 +490,8 @@ pub struct Invocation {
     pub(crate) outcome: Option<Result<Vec<u8>, String>>,
     /// Set by `berm.deny`.
     pub(crate) denied: bool,
+    /// Its part of its program's [`Running`].
+    pub(crate) held: Held,
 }
 
 /// A syscall's answer when it refused the call and nothing ran.

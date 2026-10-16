@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/*", "crates/*", "lib/*", "services/*"]
+members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
@@ -17,29 +17,16 @@ berm = { path = "crates/berm", version = "0.0.8" }
 berm-api = { path = "crates/api", version = "0.0.8" }
 berm-codegen = { path = "crates/codegen", version = "0.0.8" }
 berm-host = { path = "crates/host", version = "0.0.8" }
-berm-index = { path = "crates/index", version = "0.0.8" }
 berm-lang = { path = "crates/lang", version = "0.0.8" }
 berm-oci = { path = "crates/oci", version = "0.0.8" }
-lake = { path = "lib/lake" }
-bermd = { path = "apps/service", version = "0.0.8" }
+bermd = { path = "crates/daemon", version = "0.0.8" }
 
 # crates-io
 anyhow = "1.0"
 axum = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-# Named rather than inherited: 0.1.11 emptied `default`, and a bezel without
-# these registers no font, leaving the window on the system stack.
-bezel = { version = "=0.1.11", features = [
-    "geist-sans",
-    "geist-mono",
-    "geist-weights",
-] }
 clap = { version = "4", features = ["derive"] }
-# The one thing the facade does not re-export. `gpui::Application` builds only
-# from a platform, and this is where the platform comes from.
-gpui_platform = { package = "bezel-gpui-platform", version = "=0.3.10", features = [
-    "font-kit",
-] }
+croner = "4"
 linked_list_allocator = "0.10"
 object = { version = "0.40", features = ["wasm"] }
 parking_lot = "0.12"
@@ -57,6 +44,7 @@ hex = "0.4"
 rusqlite = { version = "0.39", features = ["bundled", "hooks"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_urlencoded = "0.7"
 # The same crates for guests, which are `no_std` with an allocator. Second
 # entries rather than features on the first because a member cannot turn off
 # default features it inherits.
@@ -67,7 +55,6 @@ serde_guest = { package = "serde", version = "1", default-features = false, feat
 serde_json_guest = { package = "serde_json", version = "1", default-features = false, features = [
     "alloc",
 ] }
-xmlparser = { version = "0.13", default-features = false }
 sha2 = "0.11"
 syn = { version = "2", features = ["full"] }
 tokio = { version = "1", features = [

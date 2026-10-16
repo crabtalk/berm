@@ -11,18 +11,22 @@
 //!
 //! #[berm_lang::program]
 //! mod tools {
-//!     use berm_lang::{Failed, Out};
+//!     use berm_lang::Result;
 //!
-//!     /// Echo the argument blob back.
-//!     pub fn echo(args: &[u8], out: &mut Out) -> Result<(), Failed> {
-//!         out.write(args);
-//!         Ok(())
+//!     /// Greets `name`.
+//!     #[public]
+//!     pub fn greet(
+//!         /// Who to greet.
+//!         name: alloc::string::String,
+//!     ) -> Result<alloc::string::String> {
+//!         Ok(alloc::format!("hello, {name}"))
 //!     }
 //! }
 //! ```
 //!
 //! Every `pub fn` in the module is a tool; its doc comment is what the model
-//! reads when deciding whether to call it.
+//! reads when deciding whether to call it. Its parameters are its arguments,
+//! and the `Ok` of its [`Result`] is its reply, each typed by [`Schema`].
 //!
 //! Build for `wasm32-unknown-unknown`.
 //!
@@ -33,8 +37,9 @@
 //! the rest run only under a host that registers them, and trap as unknown host
 //! calls otherwise.
 //!
-//! What [`set`] writes and [`emit`] emits is kept only if the call the host
-//! started returns a result.
+//! What [`set`] writes is kept only if the call the host started returns a
+//! result. What [`emit`] emits is kept whatever the call returns: logs are what
+//! its developer reads to debug it.
 
 #![no_std]
 
@@ -44,23 +49,26 @@
 #[cfg(not(target_arch = "wasm32"))]
 extern crate std;
 
-#[cfg(feature = "alloc")]
 extern crate alloc;
+
+// So `#[derive(Schema)]` resolves `::berm_lang` inside this crate too.
+extern crate self as berm_lang;
 
 pub mod abi;
 mod call;
+#[doc(hidden)]
+pub mod dispatch;
 mod emit;
+mod error;
 mod heap;
 pub mod html;
 pub mod http;
 #[doc(hidden)]
 pub mod json;
-mod logs;
-mod out;
+pub mod schema;
 mod sql;
 mod store;
 pub mod test;
-pub mod tool;
 
 // One boundary for the whole crate: `wasm.rs` makes real host calls, and
 // `stub.rs` is a host a test can stand in for, which is what lets a program
@@ -70,38 +78,26 @@ pub mod tool;
 mod sys;
 
 pub use abi::{args_len, now, trace};
-pub use berm_codegen::{declare_program, program, syscalls};
-pub use out::Out;
-
-#[cfg(feature = "alloc")]
+pub use berm_codegen::{Schema, declare_program, error_code, event, program, syscalls};
 pub use call::{CallError, Caller, User, after, call, caller, deny, user};
-#[cfg(feature = "args")]
 #[doc(hidden)]
 pub use emit::event as __event;
-#[cfg(feature = "alloc")]
 pub use emit::{Event, emit};
-#[cfg(feature = "args")]
-pub use logs::{Delivery, Logged};
-#[cfg(feature = "alloc")]
+pub use error::{Error, Result};
+pub use schema::Schema;
 pub use sql::sql;
-#[cfg(feature = "alloc")]
-pub use store::{get, set};
-#[cfg(feature = "args")]
-pub use store::{get_json, set_json};
+pub use store::{get, get_json, set, set_json};
 
-// Re-exported so a program declares this SDK and nothing else. The `#[program]`
-// macro writes `#[serde(crate = "::berm_lang::serde")]` onto argument structs,
-// which only resolves if the author can reach serde through us — and an author
-// who had to depend on it directly could pick a version that disagrees with
-// the one the derive was generated against.
-#[cfg(feature = "args")]
+// Re-exported so a program declares this SDK and nothing else. What the macros
+// generate reaches serde as `::berm_lang::serde`, which only resolves if the
+// author can reach it through us — and an author who had to depend on it
+// directly could pick a version that disagrees with the one the derive was
+// generated against.
 pub use serde_guest as serde;
-#[cfg(feature = "args")]
 pub use serde_json_guest as serde_json;
 
 /// What `declare_program!`'s types are written in, so an author need not
 /// declare `extern crate alloc` for them.
-#[cfg(feature = "args")]
 #[doc(hidden)]
 pub mod __private {
     pub use alloc::{collections::BTreeMap, string::String, vec::Vec};
@@ -113,10 +109,6 @@ pub const ABI_VERSION: u32 = 4;
 
 #[doc(hidden)]
 pub const ABI_VERSION_TEXT: &str = "4";
-
-/// Returned by a handler that failed. Whatever it wrote to its [`Out`] becomes
-/// the failure message, so an error can be specific without an allocator.
-pub struct Failed;
 
 /// Traps instead of looping. An author's panic reaches the host as a trap it
 /// can report, rather than hanging the thread that called in.

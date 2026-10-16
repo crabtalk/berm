@@ -130,6 +130,101 @@ const MIGRATIONS: &[&str] = &[
         FOREIGN KEY (scope, name) REFERENCES services (scope, name) ON DELETE CASCADE
     );",
     "ALTER TABLE service_meters ADD COLUMN proxied INTEGER NOT NULL DEFAULT 0;",
+    "CREATE TABLE service_terms (
+        scope TEXT NOT NULL,
+        name TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        instructions INTEGER,
+        rows INTEGER,
+        price_micros INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (scope, name, tool),
+        FOREIGN KEY (scope, name) REFERENCES services (scope, name) ON DELETE CASCADE
+    );
+    INSERT INTO service_terms (scope, name, tool, instructions, rows)
+        SELECT scope, name, tool, instructions, rows FROM service_budgets;
+    DROP TABLE service_budgets;",
+    "ALTER TABLE service_meters ADD COLUMN overage INTEGER NOT NULL DEFAULT 0;",
+    "CREATE TABLE held_scopes (scope TEXT PRIMARY KEY);",
+    "CREATE TABLE service_calls (
+        id INTEGER PRIMARY KEY,
+        scope TEXT NOT NULL,
+        name TEXT NOT NULL,
+        at INTEGER NOT NULL,
+        tool TEXT NOT NULL,
+        source TEXT NOT NULL,
+        caller TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        ms INTEGER NOT NULL,
+        meter TEXT,
+        price_micros INTEGER NOT NULL,
+        FOREIGN KEY (scope, name) REFERENCES services (scope, name) ON DELETE CASCADE
+    );
+    CREATE INDEX idx_service_calls_service ON service_calls (scope, name);
+    CREATE INDEX idx_service_calls_tool ON service_calls (scope, name, tool);
+    CREATE INDEX idx_service_calls_at ON service_calls (at);",
+    "ALTER TABLE service_wakes ADD COLUMN failures INTEGER NOT NULL DEFAULT 0;",
+    "ALTER TABLE service_logs ADD COLUMN call INTEGER;
+    ALTER TABLE service_logs ADD COLUMN at INTEGER NOT NULL DEFAULT 0;
+    UPDATE service_logs SET at = CAST(strftime('%s', 'now') AS INTEGER) * 1000;
+    CREATE INDEX idx_service_logs_call ON service_logs (scope, name, call);
+    CREATE INDEX idx_service_logs_at ON service_logs (at);
+    DROP TABLE service_positions;",
+    "ALTER TABLE service_meters ADD COLUMN logged INTEGER NOT NULL DEFAULT 0;",
+    // `slot` is '' for the wake a service arms, and a scheduled tool's name
+    // for that tool's: `every` is its period, `declared` the one the last
+    // deploy's config set, and `due` is null while it has none.
+    "CREATE TABLE service_wakes_new (
+        scope TEXT NOT NULL,
+        name TEXT NOT NULL,
+        slot TEXT NOT NULL DEFAULT '',
+        program TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        args TEXT NOT NULL,
+        due INTEGER,
+        armed INTEGER NOT NULL DEFAULT 1,
+        failures INTEGER NOT NULL DEFAULT 0,
+        every INTEGER,
+        declared INTEGER,
+        PRIMARY KEY (scope, name, slot),
+        FOREIGN KEY (scope, name) REFERENCES services (scope, name) ON DELETE CASCADE
+    );
+    INSERT INTO service_wakes_new (scope, name, program, tool, args, due, armed, failures)
+        SELECT scope, name, program, tool, args, due, armed, failures FROM service_wakes;
+    DROP TABLE service_wakes;
+    ALTER TABLE service_wakes_new RENAME TO service_wakes;
+    CREATE INDEX idx_service_wakes_due ON service_wakes (due);",
+    // A cron tool's `cron` and `declared` are cron expressions. A period a
+    // five-field expression says turns into it; any other leaves the tool
+    // without one, and not called.
+    "ALTER TABLE service_wakes ADD COLUMN cron TEXT;
+    ALTER TABLE service_wakes ADD COLUMN declared_cron TEXT;
+    UPDATE service_wakes SET
+        cron = CASE
+            WHEN every = 60000 THEN '* * * * *'
+            WHEN every % 60000 = 0 AND every < 3600000 AND 60 % (every / 60000) = 0
+                THEN '*/' || (every / 60000) || ' * * * *'
+            WHEN every = 3600000 THEN '0 * * * *'
+            WHEN every % 3600000 = 0 AND every < 86400000 AND 24 % (every / 3600000) = 0
+                THEN '0 */' || (every / 3600000) || ' * * *'
+            WHEN every = 86400000 THEN '0 0 * * *'
+        END,
+        declared_cron = CASE
+            WHEN declared = 60000 THEN '* * * * *'
+            WHEN declared % 60000 = 0 AND declared < 3600000 AND 60 % (declared / 60000) = 0
+                THEN '*/' || (declared / 60000) || ' * * * *'
+            WHEN declared = 3600000 THEN '0 * * * *'
+            WHEN declared % 3600000 = 0 AND declared < 86400000 AND 24 % (declared / 3600000) = 0
+                THEN '0 */' || (declared / 3600000) || ' * * *'
+            WHEN declared = 86400000 THEN '0 0 * * *'
+        END
+     WHERE slot <> '';
+    UPDATE service_wakes SET due = NULL WHERE slot <> '' AND cron IS NULL;
+    ALTER TABLE service_wakes DROP COLUMN every;
+    ALTER TABLE service_wakes DROP COLUMN declared;
+    ALTER TABLE service_wakes RENAME COLUMN declared_cron TO declared;",
+    "ALTER TABLE service_terms DROP COLUMN price_micros;
+    ALTER TABLE service_calls DROP COLUMN price_micros;
+    ALTER TABLE service_meters DROP COLUMN overage;",
 ];
 
 /// One connection, shared. Every statement runs off the async workers.

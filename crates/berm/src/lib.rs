@@ -32,13 +32,13 @@
 //! [`Calls::enter`].
 
 use anyhow::Result;
-pub use berm_api::{Budget, Delivery, Deps, Logged, Manifest, Meter, Subscription, ToolSpec};
+pub use berm_api::{Budget, Deps, Dry, Logged, MAX_LOG, Manifest, Meter, ToolSpec};
 pub use engine::{Config, Engine};
 use journal::Journal;
 pub use journal::{Changes, Log, Write};
-pub use meter::Meters;
-use meter::Rows;
-pub use program::{Ended, Invocation, Link, Outcome, Program, Refused};
+use meter::Own;
+pub use meter::{Meters, Running};
+pub use program::{Ended, Invocation, Link, Outcome, Program, Refused, chain, digest};
 use std::{
     collections::BTreeMap,
     pin::Pin,
@@ -47,7 +47,8 @@ use std::{
 };
 pub use storage::{Records, Storage};
 pub use syscall::call::{
-    Budgeted, Called, Calls, Enter, Named, Opening, Reaching, Remote, Reported, Resolve, Scope,
+    Budgeted, Called, Calls, Enter, Invoked, Named, Now, Opening, Reaching, Remote, Reported,
+    Resolve, Scope,
 };
 
 pub mod abi;
@@ -99,6 +100,9 @@ pub struct Callsite {
     /// Whether this invocation is of a `query` tool, or sits under one. A
     /// query is refused `berm.set`, `berm.emit` and `berm.call.after`.
     pub query: bool,
+    /// Set when the chain is dry: carried into every nested call, and nothing
+    /// the chain changes is kept.
+    pub dry: Option<Arc<Dry>>,
     /// Which chain this is, unique within the process.
     pub chain: u64,
     /// When the chain has to be done by. A guest suspended in a syscall cannot
@@ -109,21 +113,21 @@ pub struct Callsite {
     pub(crate) journal: Arc<Journal>,
     /// What the chain has used so far, by program.
     pub(crate) meters: Arc<Meters>,
-    /// This invocation's rows, against its budget.
-    pub(crate) rows: Arc<Rows>,
+    /// What this invocation used itself, its rows against its budget.
+    pub(crate) own: Arc<Own>,
 }
 
 impl Callsite {
     /// Count `used` against this program in the chain, its rows against this
     /// invocation's budget.
     pub fn meter(&self, used: Meter) {
-        self.rows.add(used.read + used.written);
+        self.own.add(used);
         self.meters.add(&self.program, used);
     }
 
     /// Refused once this invocation has used its budget of rows.
     pub fn rows_left(&self) -> Result<()> {
-        self.rows.left()
+        self.own.left()
     }
 
     /// Count `used` against `program`, run elsewhere for this chain.
@@ -252,8 +256,7 @@ impl Berm {
             image,
             name,
             &syscalls,
-            self.calls.enter.clone(),
-            self.calls.budget.clone(),
+            &self.calls,
         )?))
     }
 

@@ -63,11 +63,8 @@ impl FromStr for Reference {
 /// alphanumeric runs joined by `.`, `_`, `__`, or a run of `-`. Case is already
 /// folded by the time this sees it.
 ///
-/// Checked rather than assumed because a repository becomes a path. An index
-/// holds one file per program at `{registry}/{repository}.json`, and `..` in a
-/// name a registry served would write outside it — `Path::join` concatenates,
-/// and the `..` is resolved by the kernel at open time. The grammar has no way
-/// to spell that, so enforcing the grammar is the whole fix.
+/// The grammar has no way to spell `..`, so a parsed repository joined onto a
+/// directory stays inside it.
 fn component(text: &str) -> bool {
     let bytes = text.as_bytes();
     let alphanumeric = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
@@ -98,9 +95,7 @@ fn component(text: &str) -> bool {
 
 /// Whether `text` is a hostname, with an optional port.
 ///
-/// The registry is the first path segment of an index's tree, so it is subject
-/// to the same rule as a repository: `..` contains a dot and would otherwise
-/// pass for a host.
+/// `..` contains a dot and would otherwise pass for a host.
 fn host(text: &str) -> bool {
     let (name, port) = match text.rsplit_once(':') {
         Some((name, port)) => (name, Some(port)),

@@ -21,9 +21,7 @@
 			.catch(() => {});
 	});
 
-	// mdbook builds this one and it lands in the output after the site does,
-	// so it is not a route here.
-	const nav = [{ title: 'Docs', href: `${base}/book/` }];
+	const nav = [{ title: 'Docs', href: `${base}/docs/` }];
 
 	// One delegated handler for the whole site, so a block gets a working copy
 	// button from its markup alone.
@@ -75,7 +73,7 @@
 		align-items: center;
 		gap: 26px;
 		padding: 0 24px;
-		height: 56px;
+		height: var(--header);
 		border-bottom: 1px solid var(--line);
 		position: sticky;
 		top: 0;

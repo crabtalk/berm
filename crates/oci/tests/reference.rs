@@ -1,8 +1,7 @@
 //! Parsing a reference, and refusing one that is not a name.
 //!
-//! The refusals matter as much as the parses. A repository becomes a path — an
-//! index holds one file per program at `{registry}/{repository}.json` — so a
-//! name a registry served could otherwise be written outside it.
+//! The refusals matter as much as the parses: a parsed name joined onto a
+//! directory stays inside it.
 
 use berm_oci::Reference;
 use std::str::FromStr;
@@ -113,8 +112,8 @@ fn a_tag_keeps_its_case() {
     );
 }
 
-/// `..` is the one that would leave the index's directory. It is refused
-/// because the grammar has no way to spell it, not by a check for `..`.
+/// `..` is refused because the grammar has no way to spell it, not by a check
+/// for `..`.
 #[test]
 fn a_name_cannot_climb_out_of_a_directory() {
     refuse("evil.com/../../etc/cron.d/x:v1");

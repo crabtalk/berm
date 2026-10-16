@@ -8,6 +8,10 @@ use std::collections::BTreeMap;
 /// program the call reached, as JSON.
 pub const METER: &str = "berm-meter";
 
+/// Header carrying how many calls a [`CallPage`]'s filters match, across
+/// every page.
+pub const TOTAL: &str = "x-total-count";
+
 /// Header carrying the [`Caller`] a call to bermd is made as, as JSON. bermd
 /// verifies none of it.
 pub const CALLER: &str = "x-berm-caller";
@@ -44,9 +48,24 @@ pub struct Deploy {
     /// not.
     #[serde(default)]
     pub public: Vec<String>,
-    /// Deploy even when it breaks what callers used.
+    /// Deploy even when it breaks what callers used, or undoes a cron its
+    /// owner set.
     #[serde(default)]
     pub force: bool,
+    /// The cron expression of each cron tool, as the deploy's config sets
+    /// them; a cron tool it leaves out has none. `None` leaves each as its
+    /// owner set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crons: Option<BTreeMap<String, String>>,
+}
+
+/// A change to one of a service's tools.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolUpdate {
+    /// When a deprecated tool stops being served, in epoch seconds; `null`
+    /// clears it.
+    pub sunset: Option<i64>,
 }
 
 /// Where a service this host does not run lives: the peer it runs on.
@@ -74,6 +93,9 @@ pub struct Link {
     pub timeout: u64,
     /// The services the call sits under, outermost first, the called one last.
     pub stack: Vec<String>,
+    /// Set when the chain is dry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dry: Option<crate::Dry>,
 }
 
 /// How a call between hosts ended, when the called service ran.
@@ -101,6 +123,26 @@ pub struct Used {
     pub last: i64,
 }
 
+/// The calls of a service's tools from outside its scope that ended `done`:
+/// from an account, an app, or anonymously.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Served {
+    /// Each of the last 30 days with any, oldest first.
+    pub days: Vec<ServedDay>,
+    /// Since the service was first deployed.
+    pub total: u64,
+}
+
+/// One day of [`Served`].
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServedDay {
+    /// Days since the Unix epoch.
+    pub day: i32,
+    pub calls: u64,
+}
+
 /// One caller of one of a service's tools or events over the last 30 days.
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,21 +166,220 @@ pub struct Usage {
     pub public: Option<bool>,
 }
 
-/// `?topic=&after=&limit=` on a service's logs.
+/// `?topic=&call=&after=&page=&limit=` on a service's logs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Page {
     /// Only logs carrying this topic.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topic: Option<String>,
+    /// Only logs emitted in this call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<i64>,
     /// Only logs after this sequence number.
     #[serde(default)]
     pub after: i64,
+    /// Which run of `limit` logs, counting from 1.
+    #[serde(default = "first")]
+    pub page: i64,
     #[serde(default = "limit")]
     pub limit: i64,
 }
 
+fn first() -> i64 {
+    1
+}
+
 fn limit() -> i64 {
     100
+}
+
+impl Page {
+    /// The `Link` header for this page of `total` logs.
+    pub fn link(&self, total: i64) -> Option<String> {
+        link(self.page, self.limit, total, |page| {
+            serde_urlencoded::to_string(Page {
+                page,
+                ..self.clone()
+            })
+        })
+    }
+}
+
+/// `?tool=&event=&outcome=&since=&until=&page=&limit=` on a service's calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallPage {
+    /// Only calls of this tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// Only calls that emitted a log carrying this topic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+    /// Only calls that ended so: `done`, `failed`, `denied` or `refused`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// Only calls begun at or after this, in epoch milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
+    /// Only calls begun before this, in epoch milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<u64>,
+    /// Which run of `limit` calls, counting from 1.
+    #[serde(default = "first")]
+    pub page: i64,
+    #[serde(default = "limit")]
+    pub limit: i64,
+}
+
+impl CallPage {
+    /// The `Link` header for this page of `total` calls.
+    pub fn link(&self, total: i64) -> Option<String> {
+        link(self.page, self.limit, total, |page| {
+            serde_urlencoded::to_string(CallPage {
+                page,
+                ..self.clone()
+            })
+        })
+    }
+}
+
+/// A `Link` header in GitHub's form for page `page` of `total` items, `limit`
+/// a page: `first` and `prev` past the first page, `next` and `last` before
+/// the last, each a reference relative to the request whose query `query`
+/// writes. `None` for the only page.
+fn link(
+    page: i64,
+    limit: i64,
+    total: i64,
+    query: impl Fn(i64) -> Result<String, serde_urlencoded::ser::Error>,
+) -> Option<String> {
+    let last = ((total + limit - 1) / limit).max(1);
+    let mut rels = Vec::new();
+    if page > 1 {
+        rels.push((1, "first"));
+        rels.push(((page - 1).min(last), "prev"));
+    }
+    if page < last {
+        rels.push((page + 1, "next"));
+        rels.push((last, "last"));
+    }
+    if rels.is_empty() {
+        return None;
+    }
+    let link = rels
+        .into_iter()
+        .map(|(page, rel)| format!("<?{}>; rel=\"{rel}\"", query(page).unwrap_or_default()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(link)
+}
+
+/// A service's cron tools.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Crons {
+    pub crons: Vec<CronJob>,
+    /// Its scope is held: none runs until it is let go.
+    pub held: bool,
+}
+
+/// A cron tool: one its manifest marks `#[cron]`.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CronJob {
+    pub tool: String,
+    /// Its expression, in UTC; `None` while it has none and is not called.
+    pub cron: Option<String>,
+    /// When it next runs, in epoch milliseconds; `None` while it has no
+    /// expression.
+    pub due: Option<u64>,
+    /// Times it failed in a row.
+    pub failures: u64,
+    /// Its last run, in the last 30 days.
+    pub last: Option<Call>,
+}
+
+/// The wakes armed to call a service's tools that have not run.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Wakes {
+    /// Soonest first.
+    pub wakes: Vec<Wake>,
+    /// Its scope is held: none runs until it is let go.
+    pub held: bool,
+}
+
+/// A wake armed with `berm.call.after`.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Wake {
+    /// The tool it calls.
+    pub tool: String,
+    /// The arguments it calls the tool with, as JSON text.
+    pub args: String,
+    /// When it fires, in epoch milliseconds.
+    pub due: u64,
+    /// The service that armed it, by its name.
+    pub by: String,
+    /// Times it failed in a row since it was last armed.
+    pub failures: u64,
+    /// The last time a wake armed by the same service ran this tool, in the
+    /// last 30 days.
+    pub last: Option<Call>,
+}
+
+/// One run of a service: a call from outside or a wake.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Call {
+    /// Its position among the service's calls; newer calls have larger ids.
+    pub id: u64,
+    /// When it began, in epoch milliseconds.
+    pub at: u64,
+    pub tool: String,
+    /// As [`Usage::source`] names it.
+    pub source: String,
+    /// As [`Usage::caller`] names it.
+    pub caller: String,
+    /// As [`Usage::outcome`] names it.
+    pub outcome: String,
+    /// How long it ran, in milliseconds.
+    pub ms: u64,
+    /// What it used, summed over every service it reached. `None` for a call
+    /// the host refused.
+    pub meter: Option<Meter>,
+    /// How many logs it emitted.
+    pub logs: u64,
+}
+
+/// What a service is using now.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Live {
+    /// Its invocations running now.
+    pub running: u64,
+    /// Bytes of linear memory they hold.
+    pub memory: u64,
+    /// Bytes it stores: its database file, its write-ahead log and its state.
+    pub stored: u64,
+    /// Wasm instructions executed.
+    pub instructions: Count,
+    /// Rows read and written in its database and state.
+    pub read: Count,
+    pub written: Count,
+    /// Bytes sent and received through `berm.http.proxy`.
+    pub proxied: Count,
+    /// Bytes of the logs it emitted.
+    pub logged: Count,
+}
+
+/// One of a [`Live`]'s counts.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Count {
+    /// Since its first deploy.
+    pub total: u64,
+    /// Per second over the UTC day so far.
+    pub per_second: f64,
 }
 
 /// One day of a service's meter.
@@ -147,8 +388,8 @@ fn limit() -> i64 {
 pub struct Metered {
     /// Days since the Unix epoch.
     pub day: i32,
-    /// Invocations of the service: from outside, from other services, wakes
-    /// and deliveries.
+    /// Invocations of the service: from outside, from other services, and
+    /// wakes.
     pub calls: u64,
     /// Wasm instructions those invocations executed.
     pub instructions: u64,
@@ -159,7 +400,10 @@ pub struct Metered {
     pub written: u64,
     /// Bytes sent and received through `berm.http.proxy`.
     pub proxied: u64,
-    /// Bytes the service stored when the day was sampled: its database file,
-    /// state and logs.
+    /// Bytes of the logs those invocations emitted.
+    #[serde(default)]
+    pub logged: u64,
+    /// Bytes the service stored when the day was sampled: its database file
+    /// and state.
     pub stored: u64,
 }

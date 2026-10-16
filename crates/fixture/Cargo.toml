@@ -14,3 +14,9 @@ path = "src/bin/main.rs"
 
 [dependencies]
 berm-lang.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+berm-api.workspace = true
+berm-host = { workspace = true, features = ["test"] }
+tokio.workspace = true

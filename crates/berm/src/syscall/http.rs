@@ -38,7 +38,9 @@ pub struct Response {
 /// and answers the value granted for that triple or `None`. `send` performs
 /// the request; it is not handed one the manifest does not allow. A guest
 /// suspended on `send` cannot notice its deadline, so `send` bounds itself by
-/// [`Callsite::deadline`] and does not follow redirects.
+/// [`Callsite::deadline`] and does not follow redirects. In a dry chain
+/// ([`Callsite::dry`]), a request one of its answers matches is answered with it
+/// and not handed to `send`, and with `offline` one none matches is refused.
 pub fn fetch<S, Sent, R, Found>(send: S, secret: R) -> Syscall
 where
     S: Fn(Callsite, Request) -> Sent + Send + Sync + 'static,
@@ -115,7 +117,25 @@ where
                     request.headers[at_header].1 = substituted;
                 }
                 let sent = request.url.len() + request.body.len() + headers(&request.headers);
-                let response = send(at.clone(), request).await?;
+                let answered = at
+                    .dry
+                    .as_deref()
+                    .map(|dry| (dry.offline, dry.answer(&request.method, &request.url)));
+                let response = match answered {
+                    Some((_, Some(answer))) => Response {
+                        status: answer.status,
+                        headers: answer.headers.clone(),
+                        body: answer.body.clone().into_bytes(),
+                    },
+                    Some((true, None)) => {
+                        return Err(Refused(format!(
+                            "this dry call answers no {} {} and sends nothing",
+                            request.method, request.url
+                        ))
+                        .into());
+                    }
+                    _ => send(at.clone(), request).await?,
+                };
                 if name == abi::HTTP_PROXY {
                     at.meter(Meter {
                         proxied: (sent + response.body.len() + headers(&response.headers)) as u64,

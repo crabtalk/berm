@@ -2,9 +2,6 @@
 .DS_Store
 .wrangler
 
+
 # mdbook output
 /docs/book
-
-# Icon exports for the macOS app: a design tool's dump of every size, only ten
-# of which become the .icns.
-/apps/gui/icons

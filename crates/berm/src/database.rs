@@ -2,15 +2,14 @@
 //!
 //! One file per program, under the directory [`Databases`] opens them in. An
 //! invocation of a program keeping one, unless a query, holds the database's
-//! writer for its whole run inside one transaction, which its program's SQL,
-//! `berm.set` and `berm.emit` write into. A call back into a program the chain
+//! writer for its whole run inside one transaction, which its program's SQL and
+//! `berm.set` write into. A call back into a program the chain
 //! already holds runs inside that transaction. A `query` reads the last commit
 //! on a connection of its own, or through the writer when its chain holds it.
 //! The program's SQL cannot reach the tables named `_berm_*`, where the host
-//! keeps the program's `berm.get`/`berm.set` state, the logs it emitted until
-//! the host takes them ([`Database::outbox`]), and the migrations applied.
+//! keeps the program's `berm.get`/`berm.set` state and the migrations applied.
 
-use crate::{Callsite, Log, Program, Refused, syscall::sql::Statement};
+use crate::{Callsite, Program, Refused, syscall::sql::Statement};
 use anyhow::{Context, Result, anyhow, bail};
 use berm_api::Migration;
 use rusqlite::{
@@ -44,8 +43,7 @@ const SAVEPOINT: &str = "_berm_call";
 
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS _berm_state (key TEXT PRIMARY KEY, value BLOB NOT NULL);
-    CREATE TABLE IF NOT EXISTS _berm_outbox (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, topics TEXT NOT NULL, data TEXT NOT NULL);
+    DROP TABLE IF EXISTS _berm_outbox;
     CREATE TABLE IF NOT EXISTS _berm_migrations (
         name TEXT PRIMARY KEY, sql TEXT NOT NULL,
         applied_at INTEGER NOT NULL DEFAULT (unixepoch()));";
@@ -158,17 +156,9 @@ pub struct Database {
     name: Arc<str>,
     /// The writer's thread, which owns the writing connection.
     jobs: mpsc::Sender<Job>,
-    /// Held by the call writing, a migration, or taking the outbox.
+    /// Held by the call writing or a migration.
     writing: Arc<Mutex<()>>,
     graph: Arc<std::sync::Mutex<Graph>>,
-}
-
-/// A log the program emitted, waiting in the outbox.
-#[derive(Debug)]
-pub struct Outboxed {
-    pub id: i64,
-    pub topics: Vec<String>,
-    pub data: String,
 }
 
 impl Database {
@@ -334,19 +324,6 @@ impl Database {
         .await
     }
 
-    /// Put `log` in the outbox inside the transaction `chain` holds.
-    pub async fn emit(&self, chain: u64, log: Log) -> Result<()> {
-        self.held(chain)?;
-        on(&self.jobs, move |w| {
-            w.conn.execute(
-                "INSERT INTO _berm_outbox (topics, data) VALUES (?1, ?2)",
-                (serde_json::to_string(&log.topics)?, &log.data),
-            )?;
-            Ok(())
-        })
-        .await
-    }
-
     /// Refuse a write from a chain not holding the writer.
     fn held(&self, chain: u64) -> Result<()> {
         match self.holds(chain) {
@@ -392,39 +369,6 @@ impl Database {
             }
             tx.commit()?;
             Ok(ran)
-        })
-        .await
-    }
-
-    /// Up to `limit` logs waiting in the outbox, oldest first.
-    pub async fn outbox(&self, limit: i64) -> Result<Vec<Outboxed>> {
-        let path = self.path.clone();
-        tokio::task::spawn_blocking(move || {
-            let (conn, _) = reader(&path)?;
-            let rows: Vec<(i64, String, String)> = conn
-                .prepare("SELECT id, topics, data FROM _berm_outbox ORDER BY id LIMIT ?1")?
-                .query_map([limit], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-                .collect::<Result<_, _>>()?;
-            rows.into_iter()
-                .map(|(id, topics, data)| {
-                    Ok(Outboxed {
-                        id,
-                        topics: serde_json::from_str(&topics)?,
-                        data,
-                    })
-                })
-                .collect()
-        })
-        .await?
-    }
-
-    /// Drop the outbox's logs up to `id`, once the host has them.
-    pub async fn shipped(&self, id: i64) -> Result<()> {
-        let _held = self.writing.clone().lock_owned().await;
-        on(&self.jobs, move |w| {
-            w.conn
-                .execute("DELETE FROM _berm_outbox WHERE id <= ?1", [id])?;
-            Ok(())
         })
         .await
     }

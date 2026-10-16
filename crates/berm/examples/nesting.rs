@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
     // levels got through — the runaway a limit exists to stop.
     berm.deploy("inner", &image)?;
     let reached = berm
-        .call(None, "outer", "recurse", b"0".to_vec())
+        .call(None, "outer", "recurse", br#"{"depth":0}"#.to_vec())
         .await?
         .result
         .map_err(anyhow::Error::msg)?;
