@@ -109,6 +109,7 @@ async fn a_dry_call_from_outside_is_not_counted_as_a_use() -> Result<()> {
         app: None,
         user: None,
         client: None,
+        agent: None,
     };
     let (_, output) = host
         .dry_run(

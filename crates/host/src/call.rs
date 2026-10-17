@@ -312,6 +312,7 @@ impl<E: Env> Host<E> {
                         .as_deref()
                         .map(|caller| berm::Caller::Program(caller.into())),
                     user: link.user.as_ref().map(host::user),
+                    client: link.client.as_deref().map(Into::into),
                     depth: link.depth,
                     query: link.query,
                     dry: link.dry.clone().map(Arc::new),

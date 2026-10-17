@@ -30,6 +30,9 @@ pub struct Caller {
     /// For an app's anonymous call, the client's address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client: Option<String>,
+    /// For an app's call, the client's user agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 impl Caller {
@@ -94,6 +97,9 @@ pub struct Link {
     pub from: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<User>,
+    /// The outside client's per-day key, as the chain's first host supplied it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client: Option<String>,
     pub depth: u32,
     pub query: bool,
     /// Milliseconds left before the chain's deadline.

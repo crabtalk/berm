@@ -160,6 +160,14 @@ pub const HOST_CALLER: u64 = hash("berm.caller");
 /// and the subject. berm serves this one itself, from the [`crate::Callsite`].
 pub const HOST_USER: u64 = hash("berm.user");
 
+/// The outside client the chain runs for. `(ptr, len) -> staged length`, the
+/// pair ignored.
+///
+/// The reply is no fields when the embedder supplied none, else one: an opaque
+/// key that names the client for one day. berm serves this one itself, from
+/// the [`crate::Callsite`].
+pub const HOST_CLIENT: u64 = hash("berm.client");
+
 /// Mark this invocation's failure as refusing its caller. `() -> 0`
 ///
 /// berm serves this one itself; the host reads it in [`crate::Outcome`].

@@ -120,6 +120,19 @@ pub fn user() -> Result<Option<User>, CallError> {
     }
 }
 
+/// The outside client this chain runs for, as an opaque key that names it for
+/// one day, carried into every nested call. `None` when the host supplied none.
+pub fn client() -> Result<Option<String>, CallError> {
+    let reply = host::call(abi::HOST_CLIENT, &[])?;
+    let unreadable =
+        || CallError::Failed(String::from("host framed a reply this guest cannot read"));
+    match wire::fields(&reply).ok_or_else(unreadable)?.as_slice() {
+        [] => Ok(None),
+        [key] => Ok(Some(String::from_utf8_lossy(key).into_owned())),
+        _ => Err(unreadable()),
+    }
+}
+
 /// Refuse this call's caller with `message`: the tool fails, and the host
 /// counts the call as denied rather than failed.
 pub fn deny(message: &str) -> crate::Error {

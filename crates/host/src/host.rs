@@ -314,6 +314,7 @@ impl<E: Env> Host<E> {
                         issuer: user.issuer.to_string(),
                         subject: user.subject.to_string(),
                     }),
+                    client: link.client.map(|client| client.to_string()),
                     depth: link.depth,
                     query: link.query,
                     timeout: link
@@ -708,6 +709,7 @@ impl<E: Env> Host<E> {
         call: u64,
         caller: Option<&str>,
         user: Option<User>,
+        client: Option<Arc<str>>,
         tool: &str,
         args: Vec<u8>,
         dry: Option<Arc<Dry>>,
@@ -720,6 +722,7 @@ impl<E: Env> Host<E> {
             .call_as(
                 caller.map(Into::into),
                 user,
+                client,
                 tool,
                 args,
                 dry,

@@ -148,6 +148,7 @@ impl<E: Env> Host<E> {
                     caller: None,
                     from,
                     user: None,
+                    client: None,
                     depth: 1,
                     query: false,
                     timeout: TIMEOUT,
@@ -175,6 +176,7 @@ impl<E: Env> Host<E> {
                 .invoke(
                     &target,
                     started.id,
+                    None,
                     None,
                     None,
                     &wake.tool,

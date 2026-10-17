@@ -241,18 +241,28 @@ impl Program {
         tool: &str,
         args: impl Into<Vec<u8>>,
     ) -> Result<Outcome> {
-        self.call_as(caller, None, tool, args, None, Arc::default(), chain())
-            .await
+        self.call_as(
+            caller,
+            None,
+            None,
+            tool,
+            args,
+            None,
+            Arc::default(),
+            chain(),
+        )
+        .await
     }
 
-    /// [`Program::call`] on behalf of `user`, which every call in the chain
-    /// reads off its [`Callsite`], metered in `meters`, and dry when `dry` is
+    /// [`Program::call`] on behalf of `user` and `client`, which every call in
+    /// the chain reads off its [`Callsite`], metered in `meters`, and dry when `dry` is
     /// set. `chain`, from [`chain`], is the chain's [`Callsite::chain`].
     #[allow(clippy::too_many_arguments)]
     pub async fn call_as(
         &self,
         caller: Option<Arc<str>>,
         user: Option<User>,
+        client: Option<Arc<str>>,
         tool: &str,
         args: impl Into<Vec<u8>>,
         dry: Option<Arc<Dry>>,
@@ -266,6 +276,7 @@ impl Program {
                 args.into(),
                 caller.map(Caller::Outside),
                 user,
+                client,
                 1,
                 false,
                 dry,
@@ -300,6 +311,7 @@ impl Program {
         let Link {
             caller,
             user,
+            client,
             depth,
             query,
             dry,
@@ -313,6 +325,7 @@ impl Program {
                 args.into(),
                 caller,
                 user,
+                client,
                 depth,
                 query,
                 dry,
@@ -346,6 +359,7 @@ impl Program {
         args: Vec<u8>,
         caller: Option<Caller>,
         user: Option<User>,
+        client: Option<Arc<str>>,
         depth: u32,
         query: bool,
         dry: Option<Arc<Dry>>,
@@ -369,6 +383,7 @@ impl Program {
             deps: self.deps.clone(),
             caller,
             user,
+            client,
             depth,
             stack,
             query: query || *declared,
@@ -451,6 +466,7 @@ impl Program {
 pub struct Link {
     pub caller: Option<Caller>,
     pub user: Option<User>,
+    pub client: Option<Arc<str>>,
     pub depth: u32,
     pub query: bool,
     pub dry: Option<Arc<Dry>>,

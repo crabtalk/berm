@@ -145,6 +145,17 @@ fn builtins() -> Table {
     );
 
     table.insert(
+        abi::HOST_CLIENT,
+        handler(|guest, _, _| {
+            let reply = match &guest.data().at.client {
+                Some(client) => wire::frame(&[client.as_bytes()]),
+                None => Vec::new(),
+            };
+            Ok(stage(guest, Ok(reply)))
+        }),
+    );
+
+    table.insert(
         abi::HOST_DENY,
         handler(|guest, _, _| {
             guest.data_mut().denied = true;

@@ -220,6 +220,7 @@ impl TestHost {
                 self.host.calls.start().id,
                 None,
                 None,
+                None,
                 tool,
                 args.to_vec(),
                 None,
@@ -243,6 +244,7 @@ impl TestHost {
             .invoke(
                 &program,
                 self.host.calls.start().id,
+                None,
                 None,
                 None,
                 tool,

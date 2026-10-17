@@ -216,6 +216,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                     let link = Link {
                         caller,
                         user: at.user.clone(),
+                        client: at.client.clone(),
                         depth: at.depth + 1,
                         query: at.query,
                         dry: at.dry.clone(),
@@ -265,6 +266,7 @@ pub(crate) fn syscalls(runtime: Weak<Berm>, calls: Calls) -> Syscall {
                         args.as_bytes().to_vec(),
                         caller,
                         at.user.clone(),
+                        at.client.clone(),
                         at.depth + 1,
                         at.query,
                         at.dry.clone(),

@@ -93,6 +93,10 @@ pub struct Callsite {
     /// The end user the embedder vouched for at the chain's first call.
     /// Carried unchanged into every nested call.
     pub user: Option<User>,
+    /// The outside client, as the per-day pseudonymous key the embedder
+    /// supplied at the chain's first call. Carried unchanged into every nested
+    /// call.
+    pub client: Option<Arc<str>>,
     /// How many guests the chain holds, this one included.
     pub depth: u32,
     /// The programs this call sits under, outermost first, this one last.

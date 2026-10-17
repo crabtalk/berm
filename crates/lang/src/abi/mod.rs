@@ -59,6 +59,8 @@ pub const HOST_NOW: u64 = hash("berm.now");
 pub const HOST_CALLER: u64 = hash("berm.caller");
 /// The end user the chain runs for.
 pub const HOST_USER: u64 = hash("berm.user");
+/// The outside client the chain runs for.
+pub const HOST_CLIENT: u64 = hash("berm.client");
 /// Mark this invocation's failure as refusing its caller.
 pub const HOST_DENY: u64 = hash("berm.deny");
 

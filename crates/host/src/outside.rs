@@ -37,6 +37,9 @@ pub struct Call {
     /// Set when nothing the call changes is kept; it is not counted as a use.
     pub dry: Option<Arc<Dry>>,
     pub caller: Option<Caller>,
+    /// The outside client's per-day key, as a layer sets it; the chain reads it
+    /// through `berm.client`.
+    pub client: Option<String>,
     /// The request's, as the daemon received it.
     pub headers: HeaderMap,
 }
@@ -182,6 +185,7 @@ impl<E: Env> Host<E> {
             args,
             dry,
             caller: caller.clone(),
+            client: None,
             headers,
         };
         let bottom = Outside::new(Bottom(self.clone()));
@@ -199,6 +203,7 @@ impl<E: Env> Host<E> {
             args,
             dry,
             caller,
+            client,
             ..
         } = call;
         let program = self
@@ -247,6 +252,7 @@ impl<E: Env> Host<E> {
                     .as_ref()
                     .and_then(|caller| caller.user.as_ref())
                     .map(host::user),
+                client.map(Into::into),
                 &tool,
                 args,
                 dry,
