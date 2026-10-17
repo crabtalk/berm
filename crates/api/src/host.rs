@@ -32,6 +32,13 @@ pub struct Caller {
     pub client: Option<String>,
 }
 
+impl Caller {
+    /// An app's call with no user: no account stands behind it.
+    pub fn anonymous(&self) -> bool {
+        self.app.is_some() && self.user.is_none()
+    }
+}
+
 /// An end user, as an app's identity provider named them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {

@@ -117,6 +117,12 @@ impl Program {
             if tool.cron && tool.public {
                 bail!("tool {:?} is a cron tool, and cannot be public", tool.name);
             }
+            if tool.anonymous && (!tool.public || tool.callers == Some(Callers::Services)) {
+                bail!(
+                    "tool {:?} takes anonymous calls, and must be public to callers from outside",
+                    tool.name
+                );
+            }
         }
 
         Ok(Self {
@@ -154,6 +160,14 @@ impl Program {
             .tools
             .iter()
             .any(|spec| spec.name == tool && spec.callers != Some(Callers::Accounts))
+    }
+
+    /// Whether `tool` takes a call from outside with no caller.
+    pub fn reached_anonymously(&self, tool: &str) -> bool {
+        self.manifest
+            .tools
+            .iter()
+            .any(|spec| spec.name == tool && spec.anonymous)
     }
 
     /// Whether `tool` takes calls from outside, as its manifest's `callers`

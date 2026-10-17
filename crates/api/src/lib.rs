@@ -366,6 +366,10 @@ pub struct ToolSpec {
     /// called by its host, for the program's own wakes and crons.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub public: bool,
+    /// Callable from outside with no caller: no account, or an app's call with
+    /// no user. A public tool that is not is refused such a call.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub anonymous: bool,
     /// Which callers a public tool takes. `None` takes both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callers: Option<Callers>,

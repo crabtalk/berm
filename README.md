@@ -37,7 +37,7 @@ about a host, and berm has no host.
 their schemas, when to reach for them, and what it will reach for itself —
 without compiling or running it.
 
-**A tool is internal unless marked `#[public]`.** Only the host calls an internal tool, for the program's own wakes and crons. A `#[public]` tool can be called by any account the host authenticates and any program allowed to reach it, with arguments the caller chooses; `berm_lang::caller()` says who called. A deploy that makes a tool public is refused until the deployer confirms it.
+**A tool is internal unless marked `#[public]`.** Only the host calls an internal tool, for the program's own wakes and crons. A `#[public]` tool can be called by any account the host authenticates and any program allowed to reach it, with arguments the caller chooses; `berm_lang::caller()` says who called. A call with no caller reaches only a tool also marked `#[anonymous]`, and that tool reads no caller. A deploy that makes a tool public is refused until the deployer confirms it.
 
 ## Running programs
 

@@ -1,7 +1,7 @@
 //! One MCP endpoint over every deployed program.
 
 use crate::Service;
-use berm_api::{Callers, DryRun, Meter, Output, host};
+use berm_api::{DryRun, Meter, Output, host};
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     model::{
@@ -87,7 +87,7 @@ impl ServerHandler for Mcp {
                     .manifest()
                     .tools
                     .iter()
-                    .filter(|tool| tool.public && tool.callers != Some(Callers::Services))
+                    .filter(|tool| tool.anonymous)
                     .map(move |tool| {
                         let mut listed = Tool::new(
                             format!("{}.{}", deployed.name, tool.name),
@@ -142,10 +142,10 @@ impl ServerHandler for Mcp {
         if !self
             .service
             .get(program)
-            .is_some_and(|deployed| deployed.public(tool) && deployed.reached_by_accounts(tool))
+            .is_some_and(|deployed| deployed.reached_anonymously(tool))
         {
             return Err(McpError::invalid_params(
-                format!("{program} has no public tool named {tool:?}"),
+                format!("{program} has no tool named {tool:?} that takes anonymous calls"),
                 None,
             ));
         }
@@ -237,10 +237,10 @@ impl Mcp {
         if !self
             .service
             .get(program)
-            .is_some_and(|deployed| deployed.public(tool) && deployed.reached_by_accounts(tool))
+            .is_some_and(|deployed| deployed.reached_anonymously(tool))
         {
             return Err(McpError::invalid_params(
-                format!("{program} has no public tool named {tool:?}"),
+                format!("{program} has no tool named {tool:?} that takes anonymous calls"),
                 None,
             ));
         }

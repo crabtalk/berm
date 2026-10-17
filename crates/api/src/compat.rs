@@ -89,6 +89,9 @@ fn tool(old: &ToolSpec, new: &ToolSpec, found: &mut Vec<String>) {
     if old.query && !new.query {
         found.push("no longer a query".to_owned());
     }
+    if old.anonymous && !new.anonymous {
+        found.push("no longer takes anonymous calls".to_owned());
+    }
     accepts("arguments", &old.parameters, &new.parameters, found);
     match (&old.returns, &new.returns) {
         (Some(old), Some(new)) => writes("result", old, new, found),

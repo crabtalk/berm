@@ -166,6 +166,15 @@ impl<E: Env> Host<E> {
                 caller.as_ref(),
             );
         }
+        if !spec.anonymous && caller.as_ref().is_none_or(Caller::anonymous) {
+            return refused(
+                deny(
+                    StatusCode::UNAUTHORIZED,
+                    format!("{tool} takes no anonymous calls; call it as a caller"),
+                ),
+                caller.as_ref(),
+            );
+        }
         let call = Call {
             service: service.to_owned(),
             tool: tool.to_owned(),
@@ -230,7 +239,10 @@ impl<E: Env> Host<E> {
             .invoke(
                 &program,
                 started.id,
-                caller.as_ref().map(|caller| caller.id.as_str()),
+                caller
+                    .as_ref()
+                    .filter(|caller| !caller.anonymous())
+                    .map(|caller| caller.id.as_str()),
                 caller
                     .as_ref()
                     .and_then(|caller| caller.user.as_ref())

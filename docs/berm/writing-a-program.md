@@ -99,6 +99,13 @@ against recorded feeds this way.
 `berm-fixture` in this repository is the worked example — the smallest real
 program, and what berm's own tests run against.
 
+## Anonymous calls
+
+A call from outside with no caller — no account, or an app's call with no
+user — reaches only a tool marked `#[anonymous]`, and the host refuses it any
+other. An `#[anonymous]` tool is `#[public]`, and not `#[callers(services)]`.
+`berm_lang::caller()` answers `None` in it for such a call.
+
 ## Queries
 
 `#[query]` marks a tool read-only. While it runs, and in every call it makes,

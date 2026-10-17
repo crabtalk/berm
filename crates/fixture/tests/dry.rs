@@ -2,7 +2,7 @@
 //! answers.
 
 use anyhow::Result;
-use berm_api::{Answer, Dry};
+use berm_api::{Answer, Dry, host::Caller};
 use berm_host::test::{self, TestHost};
 
 const WORD: &[u8] = br#"{"word":"hi"}"#;
@@ -104,10 +104,16 @@ async fn a_dry_fetch_is_answered_sent_or_refused() -> Result<()> {
 async fn a_dry_call_from_outside_is_not_counted_as_a_use() -> Result<()> {
     let host = deployed().await?;
     let host = host.host();
+    let caller = Caller {
+        id: "someone".to_owned(),
+        app: None,
+        user: None,
+        client: None,
+    };
     let (_, output) = host
         .dry_run(
             "fixture",
-            None,
+            Some(&caller),
             "echo",
             br#"{"query":"hi"}"#.to_vec(),
             Dry::default(),
@@ -118,7 +124,7 @@ async fn a_dry_call_from_outside_is_not_counted_as_a_use() -> Result<()> {
 
     host.call(
         "fixture",
-        None,
+        Some(&caller),
         "echo",
         br#"{"query":"hi"}"#.to_vec(),
         false,

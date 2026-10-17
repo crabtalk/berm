@@ -48,7 +48,9 @@ deployed or it is not, and dockerd's lifecycle verbs have nothing to attach to.
 
 Every deployed program appears on a single MCP endpoint at `/mcp`, with tools
 named `{program}.{tool}` — the same dotted rule the guest ABI already uses for
-host call names, so `fs.read` reads the way it does inside a program.
+host call names, so `fs.read` reads the way it does inside a program. A call
+over MCP carries no caller, so the endpoint lists and calls only `#[anonymous]`
+tools.
 
 One endpoint rather than one per program, for the reason dockerd has one socket
 rather than one per container. It costs two things, both cheap: names have to be

@@ -263,8 +263,10 @@ struct Tool {
     query: bool,
     /// From `#[deprecated]`.
     deprecated: bool,
-    /// From `#[public]`: any caller may reach it.
+    /// From `#[public]`: callers from outside and other programs may reach it.
     public: bool,
+    /// From `#[anonymous]`: a call from outside with no caller may reach it.
+    anonymous: bool,
     /// From `#[callers(services)]` or `#[callers(accounts)]`.
     callers: Option<String>,
     /// From `#[cron]`.
@@ -478,6 +480,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     let description = docs(&function.attrs);
     let mut query = false;
     let mut public = false;
+    let mut anonymous = false;
     let mut callers = None;
     let mut cron = false;
     let deprecated = function
@@ -493,6 +496,10 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         if attribute.path().is_ident("public") {
             attribute.meta.require_path_only()?;
             public = true;
+        }
+        if attribute.path().is_ident("anonymous") {
+            attribute.meta.require_path_only()?;
+            anonymous = true;
         }
         if attribute.path().is_ident("callers") {
             let kind: syn::Ident = attribute.parse_args()?;
@@ -513,9 +520,16 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
     // These exist for this macro to read; leaving them would reach the
     // compiler as unknown attributes.
     function.attrs.retain(|a| {
-        !["query", "public", "callers", "deprecated", "cron"]
-            .iter()
-            .any(|name| a.path().is_ident(name))
+        ![
+            "query",
+            "public",
+            "anonymous",
+            "callers",
+            "deprecated",
+            "cron",
+        ]
+        .iter()
+        .any(|name| a.path().is_ident(name))
     });
 
     if description.is_empty() {
@@ -551,6 +565,18 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
             "a cron tool is called by its host, and cannot be `#[public]`",
         ));
     }
+    if anonymous && !public {
+        return Err(syn::Error::new_spanned(
+            &function.sig.ident,
+            "an `#[anonymous]` tool is called from outside, and must be `#[public]`",
+        ));
+    }
+    if anonymous && callers.as_deref() == Some("services") {
+        return Err(syn::Error::new_spanned(
+            &function.sig.ident,
+            "an `#[anonymous]` tool is called from outside, and cannot be `#[callers(services)]`",
+        ));
+    }
     if cron && !params.is_empty() {
         return Err(syn::Error::new_spanned(
             &function.sig.inputs,
@@ -567,6 +593,7 @@ fn tool(function: &mut ItemFn) -> syn::Result<Tool> {
         query,
         deprecated,
         public,
+        anonymous,
         callers,
         cron,
     })
@@ -723,6 +750,9 @@ fn manifest(config: &Config, tools: &[Tool]) -> Vec<proc_macro2::TokenStream> {
         }
         if tool.public {
             out.text(r#","public":true"#);
+        }
+        if tool.anonymous {
+            out.text(r#","anonymous":true"#);
         }
         if let Some(kind) = &tool.callers {
             out.text(&format!(r#","callers":"{kind}""#));
